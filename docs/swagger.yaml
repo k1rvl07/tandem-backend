@@ -1,0 +1,9 @@
+basePath: /
+host: localhost:8080
+info:
+  contact: {}
+  description: Collaborative task management API for development teams.
+  title: Tandem API
+  version: "1.0"
+paths: {}
+swagger: "2.0"
