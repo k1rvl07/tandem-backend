@@ -26,8 +26,11 @@ import (
 	"github.com/tandem/tandem/internal/repository/entity"
 	"github.com/tandem/tandem/internal/usecase/admin"
 	"github.com/tandem/tandem/internal/usecase/auth"
+	"github.com/tandem/tandem/internal/usecase/board"
+	"github.com/tandem/tandem/internal/usecase/column"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/profile"
+	"github.com/tandem/tandem/internal/usecase/task"
 	"github.com/tandem/tandem/internal/usecase/workspace"
 	"go.uber.org/zap"
 )
@@ -69,7 +72,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	hub := wshub.New()
 	logger.Info("websocket hub initialized")
 
-	if err := postgres.AutoMigrate(&entity.User{}, &entity.Workspace{}, &entity.WorkspaceMember{}); err != nil {
+	if err := postgres.AutoMigrate(&entity.User{}, &entity.Workspace{}, &entity.WorkspaceMember{}, &entity.Board{}, &entity.Column{}, &entity.Task{}); err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
@@ -103,24 +106,37 @@ func (a *App) Run() error {
 	workspaceRepo := repository.NewWorkspaceRepo(a.postgres.DB)
 	workspaceService := workspace.NewService(workspaceRepo, userRepo)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceService)
+	boardRepo := repository.NewBoardRepo(a.postgres.DB)
+	columnRepo := repository.NewColumnRepo(a.postgres.DB)
+	taskRepo := repository.NewTaskRepo(a.postgres.DB)
+	boardService := board.NewService(boardRepo, columnRepo, taskRepo, workspaceRepo, userRepo, a.hub)
+	boardHandler := handler.NewBoardHandler(boardService)
+	columnService := column.NewService(columnRepo, boardRepo, workspaceRepo, a.hub)
+	columnHandler := handler.NewColumnHandler(columnService)
+	taskService := task.NewService(taskRepo, columnRepo, boardRepo, workspaceRepo, userRepo, a.hub)
+	taskHandler := handler.NewTaskHandler(taskService)
 
 	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
 		return err
 	}
 
 	r := router.New(router.Dependencies{
-		Logger:           a.logger,
-		AllowedOrigin:    a.config.App.AllowedOrigins,
-		FileStore:        a.fileStore,
-		Hub:              a.hub,
-		TokenService:     tokenManager,
-		UserRepository:   userRepo,
-		AuthHandler:      authHandler,
-		ProfileHandler:   profileHandler,
-		AdminHandler:     adminHandler,
-		WorkspaceHandler: workspaceHandler,
-		Files:            fileService,
-		EnableSwagger:    true,
+		Logger:              a.logger,
+		AllowedOrigin:       a.config.App.AllowedOrigins,
+		FileStore:           a.fileStore,
+		Hub:                 a.hub,
+		TokenService:        tokenManager,
+		UserRepository:      userRepo,
+		WorkspaceRepository: workspaceRepo,
+		AuthHandler:         authHandler,
+		ProfileHandler:      profileHandler,
+		AdminHandler:        adminHandler,
+		WorkspaceHandler:    workspaceHandler,
+		BoardHandler:        boardHandler,
+		ColumnHandler:       columnHandler,
+		TaskHandler:         taskHandler,
+		Files:               fileService,
+		EnableSwagger:       true,
 	})
 
 	a.server = &http.Server{

@@ -1,24 +1,29 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	wsclient "github.com/tandem/tandem/internal/infrastructure/ws"
+	"github.com/tandem/tandem/internal/pkg/validate"
 )
 
 type WSHandler struct {
-	hub    ws.Hub
-	tokens service.TokenService
+	hub        ws.Hub
+	tokens     service.TokenService
+	workspaces repository.WorkspaceRepository
 }
 
-func NewWSHandler(hub ws.Hub, tokens service.TokenService) *WSHandler {
-	return &WSHandler{hub: hub, tokens: tokens}
+func NewWSHandler(hub ws.Hub, tokens service.TokenService, workspaces repository.WorkspaceRepository) *WSHandler {
+	return &WSHandler{hub: hub, tokens: tokens, workspaces: workspaces}
 }
 
 var upgrader = websocket.Upgrader{
@@ -84,6 +89,9 @@ func (h *WSHandler) handleMessage(cl *wsclient.Client, data []byte) {
 	}
 	switch msg.Type {
 	case "join":
+		if !h.canJoin(cl.UserID(), msg.Room) {
+			return
+		}
 		h.hub.JoinRoom(msg.Room, cl)
 		cl.SetRoom(msg.Room)
 		h.broadcastPresence(msg.Room)
@@ -94,6 +102,18 @@ func (h *WSHandler) handleMessage(cl *wsclient.Client, data []byte) {
 		}
 		h.broadcastPresence(msg.Room)
 	}
+}
+
+func (h *WSHandler) canJoin(userID, room string) bool {
+	if !strings.HasPrefix(room, "workspace:") {
+		return true
+	}
+	workspaceID := strings.TrimPrefix(room, "workspace:")
+	if err := validate.UUID(workspaceID); err != nil {
+		return false
+	}
+	_, err := h.workspaces.FindMember(context.Background(), workspaceID, userID)
+	return err == nil
 }
 
 func (h *WSHandler) broadcastPresence(room string) {

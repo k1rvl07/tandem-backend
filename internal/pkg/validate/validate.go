@@ -14,6 +14,8 @@ const (
 	maxLoginLen    = 50
 	minPasswordLen = 8
 	maxPasswordLen = 72
+
+	maxTitleLen = 120
 )
 
 var loginRegexp = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{2,49}$`)
@@ -54,6 +56,16 @@ func Name(name string) error {
 	}
 	if utf8.RuneCountInString(name) > maxNameLen {
 		return pkgerrors.NewValidationError("name must be at most %d characters", maxNameLen)
+	}
+	return nil
+}
+
+func Title(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return pkgerrors.NewValidationError("title is required")
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(title)) > maxTitleLen {
+		return pkgerrors.NewValidationError("title must be at most %d characters", maxTitleLen)
 	}
 	return nil
 }

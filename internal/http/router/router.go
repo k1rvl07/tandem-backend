@@ -17,18 +17,22 @@ import (
 )
 
 type Dependencies struct {
-	Logger           *zap.Logger
-	AllowedOrigin    []string
-	FileStore        filestore.FileStore
-	Hub              ws.Hub
-	TokenService     service.TokenService
-	UserRepository   repository.UserRepository
-	AuthHandler      *handler.AuthHandler
-	ProfileHandler   *handler.ProfileHandler
-	AdminHandler     *handler.AdminHandler
-	WorkspaceHandler *handler.WorkspaceHandler
-	Files            *file.Service
-	EnableSwagger    bool
+	Logger              *zap.Logger
+	AllowedOrigin       []string
+	FileStore           filestore.FileStore
+	Hub                 ws.Hub
+	TokenService        service.TokenService
+	UserRepository      repository.UserRepository
+	WorkspaceRepository repository.WorkspaceRepository
+	AuthHandler         *handler.AuthHandler
+	ProfileHandler      *handler.ProfileHandler
+	AdminHandler        *handler.AdminHandler
+	WorkspaceHandler    *handler.WorkspaceHandler
+	BoardHandler        *handler.BoardHandler
+	ColumnHandler       *handler.ColumnHandler
+	TaskHandler         *handler.TaskHandler
+	Files               *file.Service
+	EnableSwagger       bool
 }
 
 func New(deps Dependencies) *gin.Engine {
@@ -58,7 +62,7 @@ func New(deps Dependencies) *gin.Engine {
 	}
 
 	if deps.TokenService != nil && deps.Hub != nil && deps.AuthHandler != nil {
-		wsHandler := handler.NewWSHandler(deps.Hub, deps.TokenService)
+		wsHandler := handler.NewWSHandler(deps.Hub, deps.TokenService, deps.WorkspaceRepository)
 		r.GET("/ws", wsHandler.Connect)
 	}
 
@@ -85,6 +89,23 @@ func New(deps Dependencies) *gin.Engine {
 			protected.POST("/workspaces/:id/members", deps.WorkspaceHandler.AddMember)
 			protected.DELETE("/workspaces/:id/members/:userId", deps.WorkspaceHandler.RemoveMember)
 			protected.POST("/workspaces/:id/owner", deps.WorkspaceHandler.TransferOwner)
+		}
+		if deps.BoardHandler != nil {
+			protected.GET("/workspaces/:id/boards", deps.BoardHandler.List)
+			protected.POST("/workspaces/:id/boards", deps.BoardHandler.Create)
+			protected.GET("/workspaces/:id/boards/:boardId", deps.BoardHandler.Get)
+			protected.PATCH("/workspaces/:id/boards/:boardId", deps.BoardHandler.Update)
+			protected.DELETE("/workspaces/:id/boards/:boardId", deps.BoardHandler.Delete)
+		}
+		if deps.ColumnHandler != nil {
+			protected.POST("/workspaces/:id/boards/:boardId/columns", deps.ColumnHandler.Create)
+			protected.PATCH("/workspaces/:id/boards/:boardId/columns/:columnId", deps.ColumnHandler.Update)
+			protected.DELETE("/workspaces/:id/boards/:boardId/columns/:columnId", deps.ColumnHandler.Delete)
+		}
+		if deps.TaskHandler != nil {
+			protected.POST("/workspaces/:id/boards/:boardId/tasks", deps.TaskHandler.Create)
+			protected.PATCH("/workspaces/:id/boards/:boardId/tasks/:taskId", deps.TaskHandler.Update)
+			protected.DELETE("/workspaces/:id/boards/:boardId/tasks/:taskId", deps.TaskHandler.Delete)
 		}
 		if deps.Files != nil {
 			filesHandler := handler.NewFileHandler(deps.Files)
