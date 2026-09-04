@@ -28,6 +28,7 @@ import (
 	"github.com/tandem/tandem/internal/usecase/auth"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/profile"
+	"github.com/tandem/tandem/internal/usecase/workspace"
 	"go.uber.org/zap"
 )
 
@@ -68,7 +69,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	hub := wshub.New()
 	logger.Info("websocket hub initialized")
 
-	if err := postgres.AutoMigrate(&entity.User{}); err != nil {
+	if err := postgres.AutoMigrate(&entity.User{}, &entity.Workspace{}, &entity.WorkspaceMember{}); err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
@@ -99,23 +100,27 @@ func (a *App) Run() error {
 	profileHandler := handler.NewProfileHandler(profileService)
 	adminService := admin.NewService(userRepo, hasher)
 	adminHandler := handler.NewAdminHandler(adminService)
+	workspaceRepo := repository.NewWorkspaceRepo(a.postgres.DB)
+	workspaceService := workspace.NewService(workspaceRepo, userRepo)
+	workspaceHandler := handler.NewWorkspaceHandler(workspaceService)
 
 	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
 		return err
 	}
 
 	r := router.New(router.Dependencies{
-		Logger:         a.logger,
-		AllowedOrigin:  a.config.App.AllowedOrigins,
-		FileStore:      a.fileStore,
-		Hub:            a.hub,
-		TokenService:   tokenManager,
-		UserRepository: userRepo,
-		AuthHandler:    authHandler,
-		ProfileHandler: profileHandler,
-		AdminHandler:   adminHandler,
-		Files:          fileService,
-		EnableSwagger:  true,
+		Logger:           a.logger,
+		AllowedOrigin:    a.config.App.AllowedOrigins,
+		FileStore:        a.fileStore,
+		Hub:              a.hub,
+		TokenService:     tokenManager,
+		UserRepository:   userRepo,
+		AuthHandler:      authHandler,
+		ProfileHandler:   profileHandler,
+		AdminHandler:     adminHandler,
+		WorkspaceHandler: workspaceHandler,
+		Files:            fileService,
+		EnableSwagger:    true,
 	})
 
 	a.server = &http.Server{

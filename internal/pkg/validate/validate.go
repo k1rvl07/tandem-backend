@@ -3,6 +3,7 @@ package validate
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
@@ -40,6 +41,19 @@ func Login(login string) error {
 func UUID(id string) error {
 	if _, err := uuid.Parse(id); err != nil {
 		return pkgerrors.NewValidationError("invalid id")
+	}
+	return nil
+}
+
+const maxNameLen = 80
+
+func Name(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return pkgerrors.NewValidationError("name is required")
+	}
+	if utf8.RuneCountInString(name) > maxNameLen {
+		return pkgerrors.NewValidationError("name must be at most %d characters", maxNameLen)
 	}
 	return nil
 }

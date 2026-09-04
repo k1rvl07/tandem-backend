@@ -17,17 +17,18 @@ import (
 )
 
 type Dependencies struct {
-	Logger         *zap.Logger
-	AllowedOrigin  []string
-	FileStore      filestore.FileStore
-	Hub            ws.Hub
-	TokenService   service.TokenService
-	UserRepository repository.UserRepository
-	AuthHandler    *handler.AuthHandler
-	ProfileHandler *handler.ProfileHandler
-	AdminHandler   *handler.AdminHandler
-	Files          *file.Service
-	EnableSwagger  bool
+	Logger           *zap.Logger
+	AllowedOrigin    []string
+	FileStore        filestore.FileStore
+	Hub              ws.Hub
+	TokenService     service.TokenService
+	UserRepository   repository.UserRepository
+	AuthHandler      *handler.AuthHandler
+	ProfileHandler   *handler.ProfileHandler
+	AdminHandler     *handler.AdminHandler
+	WorkspaceHandler *handler.WorkspaceHandler
+	Files            *file.Service
+	EnableSwagger    bool
 }
 
 func New(deps Dependencies) *gin.Engine {
@@ -74,6 +75,16 @@ func New(deps Dependencies) *gin.Engine {
 			admin.POST("/admin/users", deps.AdminHandler.CreateUser)
 			admin.GET("/admin/users", deps.AdminHandler.ListUsers)
 			admin.DELETE("/admin/users/:id", deps.AdminHandler.DeleteUser)
+		}
+		if deps.WorkspaceHandler != nil {
+			protected.POST("/workspaces", deps.WorkspaceHandler.Create)
+			protected.GET("/workspaces", deps.WorkspaceHandler.List)
+			protected.GET("/workspaces/:id", deps.WorkspaceHandler.Get)
+			protected.PATCH("/workspaces/:id", deps.WorkspaceHandler.Update)
+			protected.DELETE("/workspaces/:id", deps.WorkspaceHandler.Delete)
+			protected.POST("/workspaces/:id/members", deps.WorkspaceHandler.AddMember)
+			protected.DELETE("/workspaces/:id/members/:userId", deps.WorkspaceHandler.RemoveMember)
+			protected.POST("/workspaces/:id/owner", deps.WorkspaceHandler.TransferOwner)
 		}
 		if deps.Files != nil {
 			filesHandler := handler.NewFileHandler(deps.Files)
