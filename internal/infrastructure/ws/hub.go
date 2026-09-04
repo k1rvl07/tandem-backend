@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/tandem/tandem/internal/interfaces/ws"
+	"github.com/tandem/tandem/internal/domain/ports/ws"
 )
 
 const sendQueueSize = 1024
@@ -79,9 +79,23 @@ func (h *Hub) LeaveRoom(room string, conn ws.Client) {
 	}
 }
 
+func (h *Hub) RoomMembers(room string) []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	members := h.rooms[room]
+	ids := make([]string, 0, len(members))
+	for conn := range members {
+		ids = append(ids, conn.UserID())
+	}
+	return ids
+}
+
 func (h *Hub) BroadcastToRoom(room string, msg *ws.Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	if h.closed {
+		return
+	}
 	msg.Room = room
 	for conn := range h.rooms[room] {
 		conn.Send(msg)
@@ -91,6 +105,9 @@ func (h *Hub) BroadcastToRoom(room string, msg *ws.Message) {
 func (h *Hub) Broadcast(msg *ws.Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	if h.closed {
+		return
+	}
 	for conn := range h.clients {
 		conn.Send(msg)
 	}
@@ -111,21 +128,30 @@ func (h *Hub) Close() {
 }
 
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	id   string
-	send chan *ws.Message
+	hub    *Hub
+	conn   *websocket.Conn
+	id     string
+	userID string
+	send   chan *ws.Message
+	done   chan struct{}
+
+	mu     sync.Mutex
+	room   string
+	closed bool
 
 	once sync.Once
 
-	OnMessage func(client *Client, data []byte)
+	OnMessage    func(client *Client, data []byte)
+	OnDisconnect func(client *Client)
 }
 
-func NewClient(conn *websocket.Conn, id string) *Client {
+func NewClient(conn *websocket.Conn, id, userID string) *Client {
 	return &Client{
-		conn: conn,
-		id:   id,
-		send: make(chan *ws.Message, sendQueueSize),
+		conn:   conn,
+		id:     id,
+		userID: userID,
+		send:   make(chan *ws.Message, sendQueueSize),
+		done:   make(chan struct{}),
 	}
 }
 
@@ -133,25 +159,44 @@ func (c *Client) setHub(h *Hub) { c.hub = h }
 
 func (c *Client) ID() string { return c.id }
 
+func (c *Client) UserID() string { return c.userID }
+
+func (c *Client) SetRoom(room string) {
+	c.mu.Lock()
+	c.room = room
+	c.mu.Unlock()
+}
+
+func (c *Client) Room() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.room
+}
+
 func (c *Client) Send(msg *ws.Message) {
 	select {
 	case c.send <- msg:
-	default:
-		c.Close()
+	case <-c.done:
+		return
 	}
 }
 
 func (c *Client) Close() {
 	c.once.Do(func() {
-		close(c.send)
+		close(c.done)
 		_ = c.conn.Close()
 	})
 }
 
 func (c *Client) writePump() {
 	defer c.Close()
-	for msg := range c.send {
-		if err := c.conn.WriteJSON(msg); err != nil {
+	for {
+		select {
+		case msg := <-c.send:
+			if err := c.conn.WriteJSON(msg); err != nil {
+				return
+			}
+		case <-c.done:
 			return
 		}
 	}
@@ -174,6 +219,9 @@ func (c *Client) readPump() {
 func (c *Client) unregisterAndClose() {
 	if c.hub != nil {
 		c.hub.Unregister(c)
+	}
+	if c.OnDisconnect != nil {
+		c.OnDisconnect(c)
 	}
 	c.Close()
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/tandem/tandem/internal/domain/ports/filestore"
 	"github.com/tandem/tandem/internal/pkg/config"
 )
 
@@ -78,3 +79,5 @@ func (m *MinIO) Exists(ctx context.Context, key string) (bool, error) {
 func (m *MinIO) Bucket() string {
 	return m.bucket
 }
+
+var _ filestore.FileStore = (*MinIO)(nil)

@@ -1,4 +1,4 @@
-package database
+package repository
 
 import (
 	"context"
@@ -15,7 +15,7 @@ type Postgres struct {
 	DB *gorm.DB
 }
 
-func New(cfg config.DatabaseConfig, opts ...Option) (*Postgres, error) {
+func NewPostgres(cfg config.DatabaseConfig, opts ...Option) (*Postgres, error) {
 	o := options{}
 	for _, opt := range opts {
 		opt(&o)

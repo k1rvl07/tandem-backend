@@ -13,7 +13,7 @@ const envFile = ".env.dev"
 // @title       Tandem API
 // @version     1.0
 // @description Collaborative task management API for development teams.
-// @host        localhost:8080
+// @servers.url http://localhost:8080
 // @BasePath    /
 func main() {
 	logger, err := zap.NewProduction()

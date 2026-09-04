@@ -5,11 +5,11 @@ import (
 	"io"
 
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	"github.com/tandem/tandem/internal/delivery/middleware"
-	"github.com/tandem/tandem/internal/interfaces/filestore"
-	"github.com/tandem/tandem/internal/interfaces/ws"
+	"github.com/tandem/tandem/internal/domain/ports/filestore"
+	"github.com/tandem/tandem/internal/domain/ports/service"
+	"github.com/tandem/tandem/internal/http/handler"
+	"github.com/tandem/tandem/internal/http/middleware"
+	"github.com/tandem/tandem/internal/http/openapi"
 	"go.uber.org/zap"
 )
 
@@ -17,7 +17,8 @@ type Dependencies struct {
 	Logger        *zap.Logger
 	AllowedOrigin []string
 	FileStore     filestore.FileStore
-	Hub           ws.Hub
+	TokenService  service.TokenService
+	AuthHandler   *handler.AuthHandler
 	EnableSwagger bool
 }
 
@@ -29,9 +30,6 @@ func New(deps Dependencies) *gin.Engine {
 	if deps.FileStore == nil {
 		deps.FileStore = nopFileStore{}
 	}
-	if deps.Hub == nil {
-		deps.Hub = nopHub{}
-	}
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -42,8 +40,14 @@ func New(deps Dependencies) *gin.Engine {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
+	api := r.Group("/api/v1")
+	if deps.AuthHandler != nil {
+		api.POST("/auth/register", deps.AuthHandler.Register)
+		api.POST("/auth/login", deps.AuthHandler.Login)
+	}
+
 	if deps.EnableSwagger {
-		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		openapi.Register(r, "/swagger")
 	}
 
 	return r
@@ -67,13 +71,4 @@ func (nopFileStore) Exists(context.Context, string) (bool, error) {
 	return false, nil
 }
 
-type nopHub struct{}
-
-func (nopHub) Register(ws.Client)          {}
-func (nopHub) Unregister(ws.Client)        {}
-func (nopHub) JoinRoom(string, ws.Client)  {}
-func (nopHub) LeaveRoom(string, ws.Client) {}
-func (nopHub) BroadcastToRoom(string, *ws.Message) {
-}
-func (nopHub) Broadcast(*ws.Message) {}
-func (nopHub) Close()                {}
+var _ filestore.FileStore = nopFileStore{}

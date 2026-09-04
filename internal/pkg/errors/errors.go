@@ -1,6 +1,9 @@
 package pkgerrors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrNotFound        = errors.New("not found")
@@ -15,4 +18,20 @@ var (
 
 func Wrap(err error, target error) error {
 	return errors.Join(target, err)
+}
+
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return e.Message
+}
+
+func (e *ValidationError) Unwrap() error {
+	return ErrValidation
+}
+
+func NewValidationError(format string, args ...interface{}) error {
+	return &ValidationError{Message: fmt.Sprintf(format, args...)}
 }

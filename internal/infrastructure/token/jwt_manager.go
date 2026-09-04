@@ -1,4 +1,4 @@
-package jwt
+package token
 
 import (
 	"errors"
@@ -7,21 +7,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type Claims struct {
-	Subject string
-	TTL     time.Duration
-}
-
-type Manager struct {
+type JWTManager struct {
 	secret []byte
 	issuer string
 }
 
-func NewManager(secret string) *Manager {
-	return &Manager{secret: []byte(secret), issuer: "tandem"}
+func NewJWTManager(secret string) *JWTManager {
+	return &JWTManager{secret: []byte(secret), issuer: "tandem"}
 }
 
-func (m *Manager) Generate(subject string, ttl time.Duration) (string, error) {
+func (m *JWTManager) Generate(subject string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := jwt.RegisteredClaims{
 		Subject:   subject,
@@ -33,7 +28,7 @@ func (m *Manager) Generate(subject string, ttl time.Duration) (string, error) {
 	return token.SignedString(m.secret)
 }
 
-func (m *Manager) Parse(tokenString string) (string, error) {
+func (m *JWTManager) Parse(tokenString string) (string, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{},
 		func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {

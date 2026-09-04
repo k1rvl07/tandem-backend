@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/pkg/config"
 )
 
@@ -57,3 +58,5 @@ func (r *Redis) Ping(ctx context.Context) error {
 func (r *Redis) Close() error {
 	return r.client.Close()
 }
+
+var _ cache.Cache = (*Redis)(nil)

@@ -11,6 +11,7 @@ type Hub interface {
 	Unregister(conn Client)
 	JoinRoom(room string, conn Client)
 	LeaveRoom(room string, conn Client)
+	RoomMembers(room string) []string
 	BroadcastToRoom(room string, msg *Message)
 	Broadcast(msg *Message)
 	Close()
@@ -18,6 +19,7 @@ type Hub interface {
 
 type Client interface {
 	ID() string
+	UserID() string
 	Send(msg *Message)
 	Close()
 }

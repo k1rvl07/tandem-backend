@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -16,8 +18,9 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Port string
-	Env  string
+	Port           string
+	Env            string
+	AllowedOrigins []string
 }
 
 type DatabaseConfig struct {
@@ -43,7 +46,8 @@ type MinIOConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string
+	Secret   string
+	TokenTTL time.Duration
 }
 
 func Load(envFile string) (*Config, error) {
@@ -79,16 +83,49 @@ func Load(envFile string) (*Config, error) {
 			Bucket:    getEnv("MINIO_BUCKET", "tandem-files"),
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", ""),
+			Secret:   getEnv("JWT_SECRET", ""),
+			TokenTTL: getEnvDuration("JWT_TTL", 24*time.Hour),
 		},
 	}
 
+	if cfg.JWT.Secret == "" || cfg.JWT.Secret == "CHANGE_ME" {
+		return nil, fmt.Errorf("JWT_SECRET must be set to a non-default value")
+	}
+
+	cfg.App.AllowedOrigins = allowedOrigins(cfg.App.Env)
+
 	return cfg, nil
+}
+
+func allowedOrigins(env string) []string {
+	if v := os.Getenv("CORS_ALLOWED_ORIGINS"); v != "" {
+		parts := strings.Split(v, ",")
+		origins := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				origins = append(origins, p)
+			}
+		}
+		return origins
+	}
+	if env == "production" {
+		return nil
+	}
+	return []string{"http://localhost:5173", "http://127.0.0.1:5173"}
 }
 
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
 	}
 	return fallback
 }

@@ -8,13 +8,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tandem/tandem/docs"
-	"github.com/tandem/tandem/internal/delivery/router"
-	"github.com/tandem/tandem/internal/infrastructure/database"
+	_ "github.com/tandem/tandem/docs"
+	"github.com/tandem/tandem/internal/http/handler"
+	"github.com/tandem/tandem/internal/http/router"
 	miniofs "github.com/tandem/tandem/internal/infrastructure/minio"
+	"github.com/tandem/tandem/internal/infrastructure/password"
 	rediscache "github.com/tandem/tandem/internal/infrastructure/redis"
-	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
+	"github.com/tandem/tandem/internal/infrastructure/token"
 	"github.com/tandem/tandem/internal/pkg/config"
+	"github.com/tandem/tandem/internal/repository"
+	"github.com/tandem/tandem/internal/repository/entity"
+	"github.com/tandem/tandem/internal/usecase/auth"
 	"go.uber.org/zap"
 )
 
@@ -22,16 +26,15 @@ type App struct {
 	config *config.Config
 	logger *zap.Logger
 
-	postgres  *database.Postgres
+	postgres  *repository.Postgres
 	redis     *rediscache.Redis
 	fileStore *miniofs.MinIO
-	hub       *wshub.Hub
 
 	server *http.Server
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
-	postgres, err := database.New(cfg.Database, database.WithConnectTimeout(10*time.Second))
+	postgres, err := repository.NewPostgres(cfg.Database, repository.WithConnectTimeout(10*time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +55,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	}
 	logger.Info("connected to minio", zap.String("bucket", cfg.MinIO.Bucket))
 
-	hub := wshub.New()
-	logger.Info("websocket hub initialized")
+	if err := postgres.AutoMigrate(&entity.User{}); err != nil {
+		_ = redis.Close()
+		_ = postgres.Close()
+		return nil, err
+	}
+	logger.Info("database migrated")
 
 	return &App{
 		config:    cfg,
@@ -61,7 +68,6 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 		postgres:  postgres,
 		redis:     redis,
 		fileStore: fileStore,
-		hub:       hub,
 	}, nil
 }
 
@@ -69,13 +75,18 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	docs.SwaggerInfo.Host = "localhost:" + a.config.App.Port
+	userRepo := repository.NewUserRepo(a.postgres.DB)
+	tokenManager := token.NewJWTManager(a.config.JWT.Secret)
+	hasher := password.NewBCryptHasher()
+	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL)
+	authHandler := handler.NewAuthHandler(authService)
 
 	r := router.New(router.Dependencies{
 		Logger:        a.logger,
-		AllowedOrigin: []string{"*"},
+		AllowedOrigin: a.config.App.AllowedOrigins,
 		FileStore:     a.fileStore,
-		Hub:           a.hub,
+		TokenService:  tokenManager,
+		AuthHandler:   authHandler,
 		EnableSwagger: true,
 	})
 
@@ -113,7 +124,6 @@ func (a *App) Run() error {
 }
 
 func (a *App) close() {
-	a.hub.Close()
 	if err := a.redis.Close(); err != nil {
 		a.logger.Warn("close redis", zap.Error(err))
 	}
