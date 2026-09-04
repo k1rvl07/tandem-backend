@@ -15,10 +15,12 @@ import (
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	rediscache "github.com/tandem/tandem/internal/infrastructure/redis"
 	"github.com/tandem/tandem/internal/infrastructure/token"
+	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
 	"github.com/tandem/tandem/internal/pkg/config"
 	"github.com/tandem/tandem/internal/repository"
 	"github.com/tandem/tandem/internal/repository/entity"
 	"github.com/tandem/tandem/internal/usecase/auth"
+	file "github.com/tandem/tandem/internal/usecase/file"
 	"go.uber.org/zap"
 )
 
@@ -29,6 +31,7 @@ type App struct {
 	postgres  *repository.Postgres
 	redis     *rediscache.Redis
 	fileStore *miniofs.MinIO
+	hub       *wshub.Hub
 
 	server *http.Server
 }
@@ -55,6 +58,9 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	}
 	logger.Info("connected to minio", zap.String("bucket", cfg.MinIO.Bucket))
 
+	hub := wshub.New()
+	logger.Info("websocket hub initialized")
+
 	if err := postgres.AutoMigrate(&entity.User{}); err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
@@ -68,6 +74,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 		postgres:  postgres,
 		redis:     redis,
 		fileStore: fileStore,
+		hub:       hub,
 	}, nil
 }
 
@@ -80,13 +87,16 @@ func (a *App) Run() error {
 	hasher := password.NewBCryptHasher()
 	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL)
 	authHandler := handler.NewAuthHandler(authService)
+	fileService := file.NewService(a.fileStore)
 
 	r := router.New(router.Dependencies{
 		Logger:        a.logger,
 		AllowedOrigin: a.config.App.AllowedOrigins,
 		FileStore:     a.fileStore,
+		Hub:           a.hub,
 		TokenService:  tokenManager,
 		AuthHandler:   authHandler,
+		Files:         fileService,
 		EnableSwagger: true,
 	})
 
@@ -124,6 +134,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) close() {
+	a.hub.Close()
 	if err := a.redis.Close(); err != nil {
 		a.logger.Warn("close redis", zap.Error(err))
 	}
