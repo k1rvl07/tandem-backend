@@ -73,3 +73,13 @@ func (s *Service) Open(ctx context.Context, key string) (io.ReadCloser, string, 
 	}
 	return rc, contentType, nil
 }
+
+func (s *Service) Remove(ctx context.Context, key string) error {
+	if key == "" {
+		return nil
+	}
+	if err := s.store.Delete(ctx, key); err != nil {
+		return fmt.Errorf("%w: delete image", pkgerrors.ErrInternal)
+	}
+	return nil
+}

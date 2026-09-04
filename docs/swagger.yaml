@@ -1,8 +1,26 @@
 components:
   schemas:
+    dto.ChangePasswordRequest:
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+      type: object
+    dto.CreateUserRequest:
+      properties:
+        display_name:
+          type: string
+        login:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+      type: object
     dto.LoginRequest:
       properties:
-        email:
+        login:
           type: string
         password:
           type: string
@@ -14,27 +32,28 @@ components:
         user:
           $ref: '#/components/schemas/dto.UserResponse'
       type: object
-    dto.RegisterRequest:
+    dto.UpdateProfileRequest:
       properties:
-        confirm_password:
+        bio:
           type: string
-        email:
+        display_name:
           type: string
-        password:
-          type: string
-      type: object
-    dto.RegisterResponse:
-      properties:
-        user:
-          $ref: '#/components/schemas/dto.UserResponse'
       type: object
     dto.UserResponse:
       properties:
+        avatar_key:
+          type: string
+        bio:
+          type: string
         created_at:
           type: string
-        email:
+        display_name:
           type: string
         id:
+          type: string
+        login:
+          type: string
+        role:
           type: string
         updated_at:
           type: string
@@ -55,6 +74,149 @@ info:
   version: "1.0"
 openapi: 3.1.0
 paths:
+  /api/v1/admin/users:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/dto.UserResponse'
+                type: array
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+      security:
+      - BearerAuth: []
+      summary: List users
+      tags:
+      - admin
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.CreateUserRequest'
+                description: Employee account payload
+                summary: request
+        description: Employee account payload
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.UserResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "409":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Conflict
+      security:
+      - BearerAuth: []
+      summary: Create a user
+      tags:
+      - admin
+  /api/v1/admin/users/{id}:
+    delete:
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "403":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Delete a user
+      tags:
+      - admin
   /api/v1/auth/login:
     post:
       requestBody:
@@ -100,53 +262,6 @@ paths:
                 type: object
           description: Internal Server Error
       summary: Login a user
-      tags:
-      - auth
-  /api/v1/auth/register:
-    post:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/dto.RegisterRequest'
-                description: Registration payload
-                summary: request
-        description: Registration payload
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/dto.RegisterResponse'
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Bad Request
-        "409":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Conflict
-        "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
-          description: Internal Server Error
-      summary: Register a new user
       tags:
       - auth
   /api/v1/files/{key}:
@@ -231,6 +346,176 @@ paths:
       summary: Upload an image
       tags:
       - files
+  /api/v1/me:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.UserResponse'
+          description: OK
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "404":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Not Found
+      security:
+      - BearerAuth: []
+      summary: Get current user's profile
+      tags:
+      - profile
+    patch:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.UpdateProfileRequest'
+                description: Profile fields
+                summary: request
+        description: Profile fields
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.UserResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+      security:
+      - BearerAuth: []
+      summary: Update current user's profile
+      tags:
+      - profile
+  /api/v1/me/avatar:
+    post:
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              title: file
+              type: file
+          multipart/form-data:
+            schema:
+              type: object
+        description: Avatar image
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/dto.UserResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "413":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Request Entity Too Large
+      security:
+      - BearerAuth: []
+      summary: Upload current user's avatar
+      tags:
+      - profile
+  /api/v1/me/password:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/dto.ChangePasswordRequest'
+                description: New password and current password
+                summary: request
+        description: New password and current password
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+      security:
+      - BearerAuth: []
+      summary: Change current user's password
+      tags:
+      - profile
   /ws:
     get:
       parameters:

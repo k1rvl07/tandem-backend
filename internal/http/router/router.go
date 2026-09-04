@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
+	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	"github.com/tandem/tandem/internal/http/handler"
@@ -16,14 +17,17 @@ import (
 )
 
 type Dependencies struct {
-	Logger        *zap.Logger
-	AllowedOrigin []string
-	FileStore     filestore.FileStore
-	Hub           ws.Hub
-	TokenService  service.TokenService
-	AuthHandler   *handler.AuthHandler
-	Files         *file.Service
-	EnableSwagger bool
+	Logger         *zap.Logger
+	AllowedOrigin  []string
+	FileStore      filestore.FileStore
+	Hub            ws.Hub
+	TokenService   service.TokenService
+	UserRepository repository.UserRepository
+	AuthHandler    *handler.AuthHandler
+	ProfileHandler *handler.ProfileHandler
+	AdminHandler   *handler.AdminHandler
+	Files          *file.Service
+	EnableSwagger  bool
 }
 
 func New(deps Dependencies) *gin.Engine {
@@ -49,7 +53,6 @@ func New(deps Dependencies) *gin.Engine {
 
 	api := r.Group("/api/v1")
 	if deps.AuthHandler != nil {
-		api.POST("/auth/register", deps.AuthHandler.Register)
 		api.POST("/auth/login", deps.AuthHandler.Login)
 	}
 
@@ -58,11 +61,25 @@ func New(deps Dependencies) *gin.Engine {
 		r.GET("/ws", wsHandler.Connect)
 	}
 
-	if deps.Files != nil && deps.TokenService != nil {
-		filesHandler := handler.NewFileHandler(deps.Files)
+	if deps.TokenService != nil {
 		protected := api.Group("", middleware.Auth(deps.TokenService))
-		protected.POST("/files/images", filesHandler.UploadImage)
-		api.GET("/files/*key", filesHandler.GetImage)
+		if deps.ProfileHandler != nil {
+			protected.GET("/me", deps.ProfileHandler.GetProfile)
+			protected.PATCH("/me", deps.ProfileHandler.UpdateProfile)
+			protected.POST("/me/avatar", deps.ProfileHandler.UploadAvatar)
+			protected.POST("/me/password", deps.ProfileHandler.ChangePassword)
+		}
+		if deps.AdminHandler != nil && deps.UserRepository != nil {
+			admin := protected.Group("", middleware.RequireStaff(deps.UserRepository))
+			admin.POST("/admin/users", deps.AdminHandler.CreateUser)
+			admin.GET("/admin/users", deps.AdminHandler.ListUsers)
+			admin.DELETE("/admin/users/:id", deps.AdminHandler.DeleteUser)
+		}
+		if deps.Files != nil {
+			filesHandler := handler.NewFileHandler(deps.Files)
+			protected.POST("/files/images", filesHandler.UploadImage)
+			api.GET("/files/*key", filesHandler.GetImage)
+		}
 	}
 
 	if deps.EnableSwagger {

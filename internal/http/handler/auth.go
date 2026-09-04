@@ -18,31 +18,6 @@ func NewAuthHandler(uc auth.UseCase) *AuthHandler {
 	return &AuthHandler{auth: uc}
 }
 
-// Register registers a new user.
-// @Summary Register a new user
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body dto.RegisterRequest true "Registration payload"
-// @Success 201 {object} dto.RegisterResponse
-// @Failure 400 {object} map[string]string
-// @Failure 409 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/v1/auth/register [post]
-func (h *AuthHandler) Register(c *gin.Context) {
-	var req dto.RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-	resp, err := h.auth.Register(c.Request.Context(), req)
-	if err != nil {
-		respondError(c, err)
-		return
-	}
-	c.JSON(http.StatusCreated, resp)
-}
-
 // Login authenticates a user and returns a token.
 // @Summary Login a user
 // @Tags auth
@@ -73,7 +48,7 @@ func respondError(c *gin.Context, err error) {
 	case errors.Is(err, pkgerrors.ErrValidation):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, pkgerrors.ErrConflict):
-		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
 	case errors.Is(err, pkgerrors.ErrUnauthorized):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 	case errors.Is(err, pkgerrors.ErrNotFound):

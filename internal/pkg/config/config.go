@@ -21,6 +21,8 @@ type AppConfig struct {
 	Port           string
 	Env            string
 	AllowedOrigins []string
+	AdminLogin     string
+	AdminPassword  string
 }
 
 type DatabaseConfig struct {
@@ -61,8 +63,10 @@ func Load(envFile string) (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Port: getEnv("APP_PORT", "8080"),
-			Env:  getEnv("APP_ENV", "dev"),
+			Port:          getEnv("APP_PORT", "8080"),
+			Env:           getEnv("APP_ENV", "dev"),
+			AdminLogin:    getEnv("ADMIN_LOGIN", ""),
+			AdminPassword: getEnv("ADMIN_PASSWORD", ""),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("POSTGRES_HOST", "localhost"),

@@ -8,7 +8,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/tandem/tandem/docs"
+	"github.com/tandem/tandem/internal/domain/models"
+	repoport "github.com/tandem/tandem/internal/domain/ports/repository"
+	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/http/handler"
 	"github.com/tandem/tandem/internal/http/router"
 	miniofs "github.com/tandem/tandem/internal/infrastructure/minio"
@@ -17,10 +21,13 @@ import (
 	"github.com/tandem/tandem/internal/infrastructure/token"
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
 	"github.com/tandem/tandem/internal/pkg/config"
+	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/repository"
 	"github.com/tandem/tandem/internal/repository/entity"
+	"github.com/tandem/tandem/internal/usecase/admin"
 	"github.com/tandem/tandem/internal/usecase/auth"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/profile"
 	"go.uber.org/zap"
 )
 
@@ -88,16 +95,27 @@ func (a *App) Run() error {
 	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL)
 	authHandler := handler.NewAuthHandler(authService)
 	fileService := file.NewService(a.fileStore)
+	profileService := profile.NewService(userRepo, hasher, fileService)
+	profileHandler := handler.NewProfileHandler(profileService)
+	adminService := admin.NewService(userRepo, hasher)
+	adminHandler := handler.NewAdminHandler(adminService)
+
+	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
+		return err
+	}
 
 	r := router.New(router.Dependencies{
-		Logger:        a.logger,
-		AllowedOrigin: a.config.App.AllowedOrigins,
-		FileStore:     a.fileStore,
-		Hub:           a.hub,
-		TokenService:  tokenManager,
-		AuthHandler:   authHandler,
-		Files:         fileService,
-		EnableSwagger: true,
+		Logger:         a.logger,
+		AllowedOrigin:  a.config.App.AllowedOrigins,
+		FileStore:      a.fileStore,
+		Hub:            a.hub,
+		TokenService:   tokenManager,
+		UserRepository: userRepo,
+		AuthHandler:    authHandler,
+		ProfileHandler: profileHandler,
+		AdminHandler:   adminHandler,
+		Files:          fileService,
+		EnableSwagger:  true,
 	})
 
 	a.server = &http.Server{
@@ -141,4 +159,44 @@ func (a *App) close() {
 	if err := a.postgres.Close(); err != nil {
 		a.logger.Warn("close postgres", zap.Error(err))
 	}
+}
+
+func (a *App) seedAdmin(ctx context.Context, repo repoport.UserRepository, hasher service.PasswordHasher) error {
+	login := validate.NormalizeLogin(a.config.App.AdminLogin)
+	if login == "" && a.config.App.AdminPassword == "" {
+		a.logger.Info("admin seed skipped: ADMIN_LOGIN and ADMIN_PASSWORD not set")
+		return nil
+	}
+	if err := validate.Login(login); err != nil {
+		return err
+	}
+	if err := validate.Password(a.config.App.AdminPassword); err != nil {
+		return err
+	}
+
+	exists, err := repo.ExistsByLogin(ctx, login)
+	if err != nil {
+		return err
+	}
+	if exists {
+		a.logger.Info("admin seed skipped: login already exists", zap.String("login", login))
+		return nil
+	}
+
+	passwordHash, err := hasher.Hash(a.config.App.AdminPassword)
+	if err != nil {
+		return err
+	}
+	user := &models.User{
+		ID:           uuid.New().String(),
+		Login:        login,
+		PasswordHash: passwordHash,
+		Role:         models.RoleAdmin,
+		DisplayName:  login,
+	}
+	if err := repo.Create(ctx, user); err != nil {
+		return err
+	}
+	a.logger.Info("admin seeded", zap.String("login", login))
+	return nil
 }
