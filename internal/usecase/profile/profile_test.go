@@ -12,6 +12,7 @@ import (
 	"github.com/tandem/tandem/internal/http/dto"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 
 type fakeRepo struct {
@@ -55,6 +56,14 @@ func (f *fakeRepo) List(_ context.Context) ([]*models.User, error) {
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+func (f *fakeRepo) ListPage(context.Context, string, int, int) ([]*models.User, error) {
+	return f.List(context.Background())
+}
+
+func (f *fakeRepo) Count(_ context.Context, _ string) (int, error) {
+	return len(f.users), nil
 }
 
 func (f *fakeRepo) Update(_ context.Context, user *models.User) error {
@@ -106,7 +115,7 @@ func (s *fakeStore) Exists(_ context.Context, key string) (bool, error) {
 
 func newTestService(repo *fakeRepo, store filestore.FileStore) *Service {
 	hasher := password.NewBCryptHasher()
-	return NewService(repo, hasher, file.NewService(store))
+	return NewService(repo, hasher, file.NewService(store), testutil.NewFakeCache())
 }
 
 func TestGetProfile(t *testing.T) {

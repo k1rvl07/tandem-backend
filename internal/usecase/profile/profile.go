@@ -2,16 +2,19 @@ package profile
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/tandem/tandem/internal/domain/models"
+	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/http/dto"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
+	"github.com/tandem/tandem/internal/usecase/cacheutil"
 	file "github.com/tandem/tandem/internal/usecase/file"
 )
 
@@ -33,18 +36,31 @@ type Service struct {
 	users  repository.UserRepository
 	hasher service.PasswordHasher
 	files  *file.Service
+	cache  cache.Cache
 }
 
-func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service) *Service {
-	return &Service{users: users, hasher: hasher, files: files}
+func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache) *Service {
+	return &Service{users: users, hasher: hasher, files: files, cache: cache}
 }
 
 func (s *Service) Get(ctx context.Context, userID string) (*dto.UserResponse, error) {
+	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+userID)
+	profileKey := fmt.Sprintf("u:%s:t:v1:profile:%s", userID, uver)
+	var cached dto.UserResponse
+	if cacheutil.Load(ctx, s.cache, profileKey, &cached) {
+		return &cached, nil
+	}
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	return toUserResponse(user), nil
+	resp := toUserResponse(user)
+	cacheutil.Store(ctx, s.cache, profileKey, resp, cacheutil.TTL)
+	return resp, nil
+}
+
+func (s *Service) bumpUser(ctx context.Context, userID string) {
+	cacheutil.Bump(ctx, s.cache, cacheutil.UVerKey+userID)
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, userID string, req dto.UpdateProfileRequest) (*dto.UserResponse, error) {
@@ -65,6 +81,7 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req dto.Upda
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
 	}
+	s.bumpUser(ctx, userID)
 	return toUserResponse(user), nil
 }
 
@@ -106,6 +123,7 @@ func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentTyp
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
 	}
+	s.bumpUser(ctx, userID)
 	return toUserResponse(user), nil
 }
 
