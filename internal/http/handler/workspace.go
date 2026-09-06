@@ -16,7 +16,6 @@ func NewWorkspaceHandler(uc workspace.UseCase) *WorkspaceHandler {
 	return &WorkspaceHandler{workspaces: uc}
 }
 
-// Create creates a workspace and adds the caller as its owner.
 // @Summary Create a workspace
 // @Tags workspaces
 // @Accept json
@@ -41,7 +40,6 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// List lists workspaces the caller is a member of.
 // @Summary List workspaces
 // @Tags workspaces
 // @Produce json
@@ -58,7 +56,6 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Get returns workspace details with its members.
 // @Summary Get a workspace
 // @Tags workspaces
 // @Produce json
@@ -79,7 +76,6 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Update updates workspace name and description.
 // @Summary Update a workspace
 // @Tags workspaces
 // @Accept json
@@ -107,7 +103,6 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Delete deletes a workspace and removes all its members.
 // @Summary Delete a workspace
 // @Tags workspaces
 // @Produce json
@@ -127,7 +122,33 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "workspace deleted"})
 }
 
-// AddMember adds a user to a workspace by login.
+// @Summary Set workspace theme
+// @Tags workspaces
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Workspace ID"
+// @Param request body dto.SetThemeRequest true "Theme payload"
+// @Success 200 {object} dto.WorkspaceResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/theme [put]
+func (h *WorkspaceHandler) SetTheme(c *gin.Context) {
+	var req dto.SetThemeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	resp, err := h.workspaces.SetTheme(c.Request.Context(), currentUserID(c), c.Param("id"), req.Theme)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // @Summary Add a workspace member
 // @Tags workspaces
 // @Accept json
@@ -156,7 +177,92 @@ func (h *WorkspaceHandler) AddMember(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// RemoveMember removes a member from a workspace.
+// @Summary Get a workspace invite token
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Workspace ID"
+// @Success 200 {object} dto.WorkspaceInviteResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/invite [get]
+func (h *WorkspaceHandler) GetInvite(c *gin.Context) {
+	resp, err := h.workspaces.GetInvite(c.Request.Context(), currentUserID(c), c.Param("id"))
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// @Summary Disable a workspace invite
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Workspace ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/invite [delete]
+func (h *WorkspaceHandler) DisableInvite(c *gin.Context) {
+	if err := h.workspaces.DisableInvite(c.Request.Context(), currentUserID(c), c.Param("id")); err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "invite disabled"})
+}
+
+// @Summary Join a workspace by invite
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param token path string true "Invite token"
+// @Success 200 {object} dto.WorkspaceResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/invite/{token}/join [post]
+func (h *WorkspaceHandler) JoinByInvite(c *gin.Context) {
+	resp, err := h.workspaces.JoinByInvite(c.Request.Context(), currentUserID(c), c.Param("token"))
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// @Summary Change a member's role
+// @Tags workspaces
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Workspace ID"
+// @Param userId path string true "User ID"
+// @Param request body dto.UpdateMemberRoleRequest true "Role payload"
+// @Success 200 {object} dto.WorkspaceMemberResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/members/{userId} [patch]
+func (h *WorkspaceHandler) UpdateRole(c *gin.Context) {
+	var req dto.UpdateMemberRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	resp, err := h.workspaces.UpdateRole(c.Request.Context(), currentUserID(c), c.Param("id"), c.Param("userId"), req)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // @Summary Remove a workspace member
 // @Tags workspaces
 // @Produce json
@@ -177,7 +283,6 @@ func (h *WorkspaceHandler) RemoveMember(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "member removed"})
 }
 
-// TransferOwner transfers workspace ownership to another member.
 // @Summary Transfer workspace ownership
 // @Tags workspaces
 // @Accept json

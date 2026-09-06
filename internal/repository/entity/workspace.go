@@ -6,6 +6,9 @@ type Workspace struct {
 	ID          string    `gorm:"type:uuid;primaryKey" json:"id"`
 	Name        string    `gorm:"size:80;not null" json:"name"`
 	Description string    `gorm:"size:400" json:"description"`
+	Prefix      string    `gorm:"size:10" json:"prefix"`
+	Theme       string    `gorm:"size:10" json:"theme"`
+	InviteToken string    `gorm:"size:64;index" json:"invite_token"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -5,11 +5,17 @@ import "time"
 type CreateWorkspaceRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Prefix      string `json:"prefix"`
 }
 
 type UpdateWorkspaceRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Prefix      string `json:"prefix"`
+}
+
+type SetThemeRequest struct {
+	Theme string `json:"theme"`
 }
 
 type AddMemberRequest struct {
@@ -21,13 +27,21 @@ type TransferOwnerRequest struct {
 	UserID string `json:"user_id"`
 }
 
+type UpdateMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
 type WorkspaceResponse struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Role        string    `json:"role"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string                   `json:"id"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Prefix      string                   `json:"prefix"`
+	Theme       string                   `json:"theme"`
+	Role        string                   `json:"role"`
+	IsFavorite  bool                     `json:"is_favorite"`
+	Owner       *WorkspaceMemberResponse `json:"owner"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
 }
 
 type WorkspaceMemberResponse struct {
@@ -43,8 +57,15 @@ type WorkspaceDetailResponse struct {
 	ID          string                    `json:"id"`
 	Name        string                    `json:"name"`
 	Description string                    `json:"description"`
+	Prefix      string                    `json:"prefix"`
+	Theme       string                    `json:"theme"`
 	Role        string                    `json:"role"`
+	IsFavorite  bool                      `json:"is_favorite"`
 	CreatedAt   time.Time                 `json:"created_at"`
 	UpdatedAt   time.Time                 `json:"updated_at"`
 	Members     []WorkspaceMemberResponse `json:"members"`
+}
+
+type WorkspaceInviteResponse struct {
+	InviteToken *string `json:"invite_token"`
 }

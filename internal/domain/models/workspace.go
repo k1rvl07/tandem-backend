@@ -10,10 +10,15 @@ const (
 	RoleViewer WorkspaceRole = "viewer"
 )
 
+const DefaultWorkspaceColor = "1d4ed8"
+
 type Workspace struct {
 	ID          string
 	Name        string
 	Description string
+	Prefix      string
+	Theme       string
+	InviteToken string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

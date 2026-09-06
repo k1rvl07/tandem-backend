@@ -45,14 +45,42 @@ func (r *WorkspaceRepo) FindWorkspaceByID(ctx context.Context, id string) (*mode
 	return workspaceToDomain(&e), nil
 }
 
+func (r *WorkspaceRepo) FindWorkspaceByInvite(ctx context.Context, token string) (*models.Workspace, error) {
+	var e entity.Workspace
+	err := r.db.WithContext(ctx).Where("invite_token = ? AND invite_token <> ''", token).First(&e).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
+	}
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return workspaceToDomain(&e), nil
+}
+
 func (r *WorkspaceRepo) UpdateWorkspace(ctx context.Context, ws *models.Workspace) error {
 	e := workspaceToEntity(ws)
 	err := r.db.WithContext(ctx).Model(&entity.Workspace{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
-		"name":        e.Name,
-		"description": e.Description,
+		"name":         e.Name,
+		"description":  e.Description,
+		"prefix":       e.Prefix,
+		"theme":        e.Theme,
+		"invite_token": e.InviteToken,
 	}).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
+func (r *WorkspaceRepo) UpdateInviteToken(ctx context.Context, workspaceID, token string) error {
+	res := r.db.WithContext(ctx).Model(&entity.Workspace{}).
+		Where("id = ?", workspaceID).
+		Update("invite_token", token)
+	if res.Error != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
 	return nil
 }
@@ -193,6 +221,9 @@ func workspaceToEntity(ws *models.Workspace) *entity.Workspace {
 		ID:          ws.ID,
 		Name:        ws.Name,
 		Description: ws.Description,
+		Prefix:      ws.Prefix,
+		Theme:       ws.Theme,
+		InviteToken: ws.InviteToken,
 		CreatedAt:   ws.CreatedAt,
 		UpdatedAt:   ws.UpdatedAt,
 	}
@@ -203,6 +234,9 @@ func workspaceToDomain(e *entity.Workspace) *models.Workspace {
 		ID:          e.ID,
 		Name:        e.Name,
 		Description: e.Description,
+		Prefix:      e.Prefix,
+		Theme:       e.Theme,
+		InviteToken: e.InviteToken,
 		CreatedAt:   e.CreatedAt,
 		UpdatedAt:   e.UpdatedAt,
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/http/dto"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
+	"github.com/tandem/tandem/internal/usecase/testutil"
 	"gorm.io/gorm"
 )
 
@@ -43,6 +44,15 @@ func (f *fakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mo
 	return ws, nil
 }
 
+func (f *fakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token string) (*models.Workspace, error) {
+	for _, ws := range f.workspaces {
+		if ws.InviteToken != "" && ws.InviteToken == token {
+			return ws, nil
+		}
+	}
+	return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+}
+
 func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *models.Workspace) error {
 	existing, ok := f.workspaces[ws.ID]
 	if !ok {
@@ -50,6 +60,16 @@ func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *models.Worksp
 	}
 	existing.Name = ws.Name
 	existing.Description = ws.Description
+	existing.InviteToken = ws.InviteToken
+	return nil
+}
+
+func (f *fakeWorkspaceRepo) UpdateInviteToken(_ context.Context, wsID, token string) error {
+	ws, ok := f.workspaces[wsID]
+	if !ok {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	}
+	ws.InviteToken = token
 	return nil
 }
 
@@ -162,8 +182,12 @@ func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*models.Use
 func (f *fakeUserRepo) Create(_ context.Context, _ *models.User) error      { return nil }
 func (f *fakeUserRepo) ExistsByLogin(context.Context, string) (bool, error) { return false, nil }
 func (f *fakeUserRepo) List(context.Context) ([]*models.User, error)        { return nil, nil }
-func (f *fakeUserRepo) Update(context.Context, *models.User) error          { return nil }
-func (f *fakeUserRepo) Delete(context.Context, string) error                { return nil }
+func (f *fakeUserRepo) ListPage(context.Context, string, int, int) ([]*models.User, error) {
+	return nil, nil
+}
+func (f *fakeUserRepo) Count(context.Context, string) (int, error) { return 0, nil }
+func (f *fakeUserRepo) Update(context.Context, *models.User) error { return nil }
+func (f *fakeUserRepo) Delete(context.Context, string) error       { return nil }
 
 var _ repository.UserRepository = (*fakeUserRepo)(nil)
 var _ repository.WorkspaceRepository = (*fakeWorkspaceRepo)(nil)
@@ -172,15 +196,22 @@ type testEnv struct {
 	svc      *Service
 	wsRepo   *fakeWorkspaceRepo
 	userRepo *fakeUserRepo
+	boards   *testutil.FakeBoardRepo
+	columns  *testutil.FakeColumnRepo
 }
 
 func newTestEnv() *testEnv {
 	wsRepo := newFakeWorkspaceRepo()
 	userRepo := &fakeUserRepo{users: make(map[string]*models.User)}
+	favorites := testutil.NewFakeFavoriteRepo()
+	boards := testutil.NewFakeBoardRepo()
+	columns := testutil.NewFakeColumnRepo()
 	return &testEnv{
-		svc:      NewService(wsRepo, userRepo),
+		svc:      NewService(wsRepo, userRepo, favorites, boards, columns, testutil.NewFakeHub(), testutil.NewFakeCache()),
 		wsRepo:   wsRepo,
 		userRepo: userRepo,
+		boards:   boards,
+		columns:  columns,
 	}
 }
 
@@ -218,6 +249,27 @@ func TestCreateWorkspaceOwnerAdded(t *testing.T) {
 	}
 	if member.Role != models.RoleOwner {
 		t.Errorf("expected owner membership, got %q", member.Role)
+	}
+
+	boards, err := e.boards.ListBoards(context.Background(), resp.ID)
+	if err != nil {
+		t.Fatalf("list boards: %v", err)
+	}
+	if len(boards) != 1 {
+		t.Fatalf("expected 1 auto-created board, got %d", len(boards))
+	}
+	if boards[0].Name != "Main" {
+		t.Errorf("expected board named Main, got %q", boards[0].Name)
+	}
+	if !boards[0].IsMain {
+		t.Errorf("expected auto-created board to be main")
+	}
+	cols, err := e.columns.ListColumns(context.Background(), boards[0].ID)
+	if err != nil {
+		t.Fatalf("list columns: %v", err)
+	}
+	if len(cols) != len(models.DefaultColumnNames) {
+		t.Errorf("expected %d default columns, got %d", len(models.DefaultColumnNames), len(cols))
 	}
 }
 
@@ -458,5 +510,184 @@ func TestTransferOwner(t *testing.T) {
 	oldOwner, _ := e.wsRepo.FindMember(ctx, wsID, owner.ID)
 	if oldOwner.Role != models.RoleEditor {
 		t.Errorf("expected old owner demoted to editor, got %q", oldOwner.Role)
+	}
+}
+
+func TestUpdateMemberRole(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.one")
+	editor := e.userRepo.seedUser("editor.one")
+	viewer := e.userRepo.seedUser("viewer.one")
+	other := e.userRepo.seedUser("other.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	ctx := context.Background()
+
+	if _, err := e.svc.UpdateRole(ctx, viewer.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)}); !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Fatalf("expected forbidden for non-owner, got %v", err)
+	}
+	if _, err := e.svc.UpdateRole(ctx, owner.ID, wsID, other.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)}); !errors.Is(err, pkgerrors.ErrNotFound) {
+		t.Fatalf("expected not found for non-member, got %v", err)
+	}
+	if _, err := e.svc.UpdateRole(ctx, owner.ID, wsID, owner.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)}); !errors.Is(err, pkgerrors.ErrValidation) {
+		t.Fatalf("expected validation error changing owner role, got %v", err)
+	}
+	if _, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: "superadmin"}); !errors.Is(err, pkgerrors.ErrValidation) {
+		t.Fatalf("expected validation error for bad role, got %v", err)
+	}
+
+	resp, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)})
+	if err != nil {
+		t.Fatalf("update role failed: %v", err)
+	}
+	if resp.Role != string(models.RoleViewer) {
+		t.Errorf("expected viewer role in response, got %q", resp.Role)
+	}
+	if resp.ID != editor.ID {
+		t.Errorf("expected editor as responder, got %q", resp.ID)
+	}
+	member, err := e.wsRepo.FindMember(ctx, wsID, editor.ID)
+	if err != nil {
+		t.Fatalf("member missing: %v", err)
+	}
+	if member.Role != models.RoleViewer {
+		t.Errorf("expected stored viewer role, got %q", member.Role)
+	}
+}
+
+func TestSetThemePermissions(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.theme")
+	editor := e.userRepo.seedUser("editor.theme")
+	viewer := e.userRepo.seedUser("viewer.theme")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+
+	if _, err := e.svc.SetTheme(ctx, owner.ID, wsID, "be123c"); err != nil {
+		t.Errorf("owner should be able to set theme: %v", err)
+	}
+	resp, err := e.svc.SetTheme(ctx, editor.ID, wsID, "16a34a")
+	if err != nil {
+		t.Errorf("editor should be able to set theme: %v", err)
+	}
+	if resp.Theme != "16a34a" {
+		t.Errorf("expected theme 16a34a in response, got %q", resp.Theme)
+	}
+	if _, err := e.svc.SetTheme(ctx, viewer.ID, wsID, "db2777"); !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Errorf("expected viewer to be forbidden, got %v", err)
+	}
+}
+
+func TestGetInviteGeneratesToken(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	editor := e.userRepo.seedUser("editor.invite")
+	viewer := e.userRepo.seedUser("viewer.invite")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+
+	resp, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.InviteToken == nil || *resp.InviteToken == "" {
+		t.Fatal("expected a generated invite token")
+	}
+	second, err := e.svc.GetInvite(ctx, editor.ID, wsID)
+	if err != nil {
+		t.Fatalf("editor get invite failed: %v", err)
+	}
+	if second.InviteToken == nil || *second.InviteToken != *resp.InviteToken {
+		t.Fatal("expected the same token on re-fetch")
+	}
+	if _, err := e.svc.GetInvite(ctx, viewer.ID, wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Fatalf("expected forbidden for viewer, got %v", err)
+	}
+	if _, err := e.svc.GetInvite(ctx, uuid.NewString(), wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Fatalf("expected forbidden for non-member, got %v", err)
+	}
+}
+
+func TestDisableInvite(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	viewer := e.userRepo.seedUser("viewer.invite")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), viewer.ID)
+
+	if _, err := e.svc.GetInvite(ctx, owner.ID, wsID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := e.svc.DisableInvite(ctx, owner.ID, wsID); err != nil {
+		t.Fatalf("disable failed: %v", err)
+	}
+	ws := e.wsRepo.workspaces[wsID]
+	if ws.InviteToken != "" {
+		t.Fatalf("expected empty token after disable, got %q", ws.InviteToken)
+	}
+	regenerated, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	if err != nil || regenerated.InviteToken == nil || *regenerated.InviteToken == "" {
+		t.Fatalf("expected token regeneration after disable, got %v", err)
+	}
+	if err := e.svc.DisableInvite(ctx, viewer.ID, wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Fatalf("expected forbidden for viewer, got %v", err)
+	}
+}
+
+func TestJoinByInvite(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	viewer := e.userRepo.seedUser("viewer.invite")
+	newbie := e.userRepo.seedUser("newbie.invite")
+	wsID := e.seedWorkspace(owner.ID, owner.ID, viewer.ID)
+
+	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	resp, err := e.svc.JoinByInvite(ctx, newbie.ID, *invite.InviteToken)
+	if err != nil {
+		t.Fatalf("join failed: %v", err)
+	}
+	if resp.ID != wsID {
+		t.Fatalf("expected workspace %q, got %q", wsID, resp.ID)
+	}
+	member, err := e.wsRepo.FindMember(ctx, wsID, newbie.ID)
+	if err != nil {
+		t.Fatalf("member not added: %v", err)
+	}
+	if member.Role != models.RoleViewer {
+		t.Fatalf("expected viewer role after join, got %q", member.Role)
+	}
+
+	if _, err := e.svc.JoinByInvite(ctx, newbie.ID, *invite.InviteToken); err != nil {
+		t.Fatalf("re-join as existing member should succeed: %v", err)
+	}
+	if _, err := e.svc.JoinByInvite(ctx, newbie.ID, "bogus-token"); !errors.Is(err, pkgerrors.ErrNotFound) {
+		t.Fatalf("expected not found for bogus token, got %v", err)
+	}
+}
+
+func TestJoinByInviteDisabled(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	newbie := e.userRepo.seedUser("newbie.invite")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+
+	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	token := *invite.InviteToken
+	if token == "" {
+		t.Fatal("expected a non-empty token")
+	}
+	if err := e.svc.DisableInvite(ctx, owner.ID, wsID); err != nil {
+		t.Fatalf("disable failed: %v", err)
+	}
+	if _, err := e.svc.JoinByInvite(ctx, newbie.ID, token); !errors.Is(err, pkgerrors.ErrNotFound) {
+		t.Fatalf("expected not found for disabled invite, got %v", err)
 	}
 }

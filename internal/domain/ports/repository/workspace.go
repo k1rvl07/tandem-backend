@@ -9,7 +9,9 @@ import (
 type WorkspaceRepository interface {
 	CreateWorkspace(ctx context.Context, ws *models.Workspace) error
 	FindWorkspaceByID(ctx context.Context, id string) (*models.Workspace, error)
+	FindWorkspaceByInvite(ctx context.Context, token string) (*models.Workspace, error)
 	UpdateWorkspace(ctx context.Context, ws *models.Workspace) error
+	UpdateInviteToken(ctx context.Context, workspaceID, token string) error
 	DeleteWorkspace(ctx context.Context, id string) error
 	ListWorkspacesForUser(ctx context.Context, userID string) ([]models.WorkspaceMembership, error)
 	AddMember(ctx context.Context, workspaceID, userID string, role models.WorkspaceRole) error
