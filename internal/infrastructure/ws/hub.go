@@ -113,6 +113,19 @@ func (h *Hub) Broadcast(msg *ws.Message) {
 	}
 }
 
+func (h *Hub) SendToUser(userID string, msg *ws.Message) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.closed {
+		return
+	}
+	for conn := range h.clients {
+		if conn.UserID() == userID {
+			conn.Send(msg)
+		}
+	}
+}
+
 func (h *Hub) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()

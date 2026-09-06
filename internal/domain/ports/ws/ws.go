@@ -14,6 +14,7 @@ type Hub interface {
 	RoomMembers(room string) []string
 	BroadcastToRoom(room string, msg *Message)
 	Broadcast(msg *Message)
+	SendToUser(userID string, msg *Message)
 	Close()
 }
 

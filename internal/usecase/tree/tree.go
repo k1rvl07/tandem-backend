@@ -1,0 +1,317 @@
+package tree
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+
+	"github.com/tandem/tandem/internal/domain/models"
+	"github.com/tandem/tandem/internal/domain/ports/cache"
+	"github.com/tandem/tandem/internal/domain/ports/repository"
+	"github.com/tandem/tandem/internal/http/dto"
+	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
+	"github.com/tandem/tandem/internal/usecase/cacheutil"
+)
+
+const taskFilterAll = "all"
+
+type UseCase interface {
+	List(ctx context.Context, actorID string, query dto.TreeQuery) ([]dto.TreeWorkspaceResponse, error)
+}
+
+type Service struct {
+	workspaces repository.WorkspaceRepository
+	boards     repository.BoardRepository
+	columns    repository.ColumnRepository
+	tasks      repository.TaskRepository
+	users      repository.UserRepository
+	favorites  repository.FavoriteRepository
+	cache      cache.Cache
+}
+
+func NewService(
+	workspaces repository.WorkspaceRepository,
+	boards repository.BoardRepository,
+	columns repository.ColumnRepository,
+	tasks repository.TaskRepository,
+	users repository.UserRepository,
+	favorites repository.FavoriteRepository,
+	cache cache.Cache,
+) *Service {
+	return &Service{
+		workspaces: workspaces,
+		boards:     boards,
+		columns:    columns,
+		tasks:      tasks,
+		users:      users,
+		favorites:  favorites,
+		cache:      cache,
+	}
+}
+
+type treeBrick struct {
+	Workspace dto.WorkspaceResponse   `json:"workspace"`
+	Boards    []dto.TreeBoardResponse `json:"boards"`
+}
+
+type favFragment struct {
+	Workspaces map[string]bool `json:"workspaces"`
+	Boards     map[string]bool `json:"boards"`
+}
+
+func (s *Service) List(ctx context.Context, actorID string, query dto.TreeQuery) ([]dto.TreeWorkspaceResponse, error) {
+	tasksFilter := query.Tasks
+	if tasksFilter == "" {
+		tasksFilter = taskFilterAll
+	}
+	switch tasksFilter {
+	case taskFilterAll, "mine", "for_me":
+	default:
+		return nil, pkgerrors.NewValidationError("tasks filter must be one of all, mine, for_me")
+	}
+	switch query.Workspaces {
+	case "", "all", "fav":
+	default:
+		return nil, pkgerrors.NewValidationError("workspaces filter must be one of all, fav")
+	}
+	favWsOnly := query.Workspaces == "fav"
+	favBoardOnly := query.Boards == "fav"
+
+	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
+	favKey := fmt.Sprintf("u:%s:t:v1:fav:%s", actorID, uver)
+	var fav favFragment
+	if !cacheutil.Load(ctx, s.cache, favKey, &fav) {
+		favWorkspaces, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteWorkspace)
+		if err != nil {
+			return nil, err
+		}
+		favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteBoard)
+		if err != nil {
+			return nil, err
+		}
+		fav = favFragment{Workspaces: favWorkspaces, Boards: favBoards}
+		cacheutil.Store(ctx, s.cache, favKey, &fav, cacheutil.TTL)
+	}
+
+	memberships, err := s.workspaces.ListWorkspacesForUser(ctx, actorID)
+	if err != nil {
+		return nil, err
+	}
+	brickKeys := make([]string, len(memberships))
+	for i := range memberships {
+		wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+memberships[i].Workspace.ID)
+		brickKeys[i] = fmt.Sprintf("u:%s:t:v1:tree:%s:%s:%s:%s", actorID, memberships[i].Workspace.ID, wsver, uver, tasksFilter)
+	}
+	values, err := s.cache.MGet(ctx, brickKeys...)
+	if err != nil {
+		values = make([]string, len(brickKeys))
+	}
+
+	result := make([]dto.TreeWorkspaceResponse, 0, len(memberships))
+	for i := range memberships {
+		workspace := &memberships[i].Workspace
+		if favWsOnly && !fav.Workspaces[workspace.ID] {
+			continue
+		}
+		brick, err := s.loadBrick(ctx, values, i, actorID, workspace, memberships[i].Role, tasksFilter, brickKeys[i])
+		if err != nil {
+			return nil, err
+		}
+		treeBoards := make([]dto.TreeBoardResponse, 0, len(brick.Boards))
+		for j := range brick.Boards {
+			if favBoardOnly && !fav.Boards[brick.Boards[j].Board.ID] {
+				continue
+			}
+			tb := brick.Boards[j]
+			tb.Board.IsFavorite = fav.Boards[tb.Board.ID]
+			treeBoards = append(treeBoards, tb)
+		}
+		if len(treeBoards) == 0 {
+			continue
+		}
+		wsResp := brick.Workspace
+		wsResp.IsFavorite = fav.Workspaces[workspace.ID]
+		result = append(result, dto.TreeWorkspaceResponse{Workspace: wsResp, Boards: treeBoards})
+	}
+	return result, nil
+}
+
+func (s *Service) loadBrick(ctx context.Context, values []string, index int, actorID string, workspace *models.Workspace, role models.WorkspaceRole, tasksFilter, key string) (treeBrick, error) {
+	var brick treeBrick
+	if index < len(values) && values[index] != "" && cacheutil.Unmarshal(values[index], &brick) {
+		return brick, nil
+	}
+	brick, err := s.buildBrick(ctx, actorID, workspace, role, tasksFilter)
+	if err != nil {
+		return treeBrick{}, err
+	}
+	cacheutil.Store(ctx, s.cache, key, &brick, cacheutil.TTL)
+	return brick, nil
+}
+
+func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *models.Workspace, role models.WorkspaceRole, tasksFilter string) (treeBrick, error) {
+	boards, err := s.boards.ListBoards(ctx, workspace.ID)
+	if err != nil {
+		return treeBrick{}, err
+	}
+	tasks, err := s.tasks.ListTasksForWorkspace(ctx, workspace.ID)
+	if err != nil {
+		return treeBrick{}, err
+	}
+	columns, err := s.columns.ListColumnsForWorkspace(ctx, workspace.ID)
+	if err != nil {
+		return treeBrick{}, err
+	}
+	columnBoard := make(map[string]string, len(columns))
+	columnOrder := make(map[string]int, len(columns))
+	for j := range columns {
+		columnBoard[columns[j].ID] = columns[j].BoardID
+		columnOrder[columns[j].ID] = columns[j].Position
+	}
+	treeBoards := make([]dto.TreeBoardResponse, 0, len(boards))
+	for _, board := range boards {
+		matching := make([]*models.Task, 0, 4)
+		for _, task := range tasks {
+			if task.ArchivedAt != nil || task.IsHidden {
+				continue
+			}
+			if columnBoard[task.ColumnID] != board.ID {
+				continue
+			}
+			if !s.taskMatches(tasksFilter, task, actorID) {
+				continue
+			}
+			matching = append(matching, task)
+		}
+		sort.SliceStable(matching, func(i, j int) bool {
+			if columnOrder[matching[i].ColumnID] != columnOrder[matching[j].ColumnID] {
+				return columnOrder[matching[i].ColumnID] < columnOrder[matching[j].ColumnID]
+			}
+			if matching[i].Position != matching[j].Position {
+				return matching[i].Position < matching[j].Position
+			}
+			return matching[i].CreatedAt.Before(matching[j].CreatedAt)
+		})
+		if len(matching) == 0 {
+			continue
+		}
+		responses, err := s.taskResponses(ctx, workspace, board, matching)
+		if err != nil {
+			return treeBrick{}, err
+		}
+		treeBoards = append(treeBoards, dto.TreeBoardResponse{
+			Board: dto.BoardResponse{
+				ID:          board.ID,
+				WorkspaceID: board.WorkspaceID,
+				Name:        board.Name,
+				Position:    board.Position,
+				IsMain:      board.IsMain,
+				IsFavorite:  false,
+				CreatedAt:   board.CreatedAt,
+				UpdatedAt:   board.UpdatedAt,
+			},
+			Tasks: responses,
+		})
+	}
+	return treeBrick{
+		Workspace: dto.WorkspaceResponse{
+			ID:         workspace.ID,
+			Name:       workspace.Name,
+			Prefix:     workspace.Prefix,
+			Theme:      workspace.Theme,
+			Role:       string(role),
+			IsFavorite: false,
+			CreatedAt:  workspace.CreatedAt,
+			UpdatedAt:  workspace.UpdatedAt,
+		},
+		Boards: treeBoards,
+	}, nil
+}
+
+func (s *Service) taskMatches(filter string, task *models.Task, actorID string) bool {
+	switch filter {
+	case "mine":
+		return task.AuthorID == actorID || task.CuratorID == actorID || task.AssigneeID == actorID
+	case "for_me":
+		return task.AssigneeID == actorID
+	default:
+		return true
+	}
+}
+
+func (s *Service) taskResponses(ctx context.Context, workspace *models.Workspace, board *models.Board, tasks []*models.Task) ([]dto.TaskResponse, error) {
+	columnNames := make(map[string]string)
+	ids := make(map[string]bool)
+	for _, task := range tasks {
+		columnNames[task.ColumnID] = ""
+		for _, id := range []string{task.AuthorID, task.AssigneeID, task.CuratorID} {
+			if id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	columns, err := s.columns.ListColumnsForWorkspace(ctx, workspace.ID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range columns {
+		columnNames[columns[i].ID] = columns[i].Name
+	}
+	users := make(map[string]*dto.TaskUserResponse)
+	for id := range ids {
+		user, err := s.users.FindByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, pkgerrors.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		users[id] = &dto.TaskUserResponse{
+			ID:          user.ID,
+			Login:       user.Login,
+			DisplayName: user.DisplayName,
+			AvatarKey:   user.AvatarKey,
+		}
+	}
+	responses := make([]dto.TaskResponse, 0, len(tasks))
+	for _, task := range tasks {
+		responses = append(responses, dto.TaskResponse{
+			ID:          task.ID,
+			DisplayID:   displayID(workspace.Prefix, task.ID),
+			WorkspaceID: workspace.ID,
+			BoardID:     board.ID,
+			BoardName:   board.Name,
+			ColumnID:    task.ColumnID,
+			ColumnName:  columnNames[task.ColumnID],
+			Title:       task.Title,
+			Description: task.Description,
+			Author:      users[task.AuthorID],
+			Assignee:    users[task.AssigneeID],
+			Curator:     users[task.CuratorID],
+			ParentID:    task.ParentID,
+			DueDate:     task.DueDate,
+			Position:    task.Position,
+			IsUrgent:    task.IsUrgent,
+			IsHidden:    task.IsHidden,
+			ImageKey:    task.ImageKey,
+			ArchivedAt:  task.ArchivedAt,
+			CreatedAt:   task.CreatedAt,
+			UpdatedAt:   task.UpdatedAt,
+		})
+	}
+	return responses, nil
+}
+
+func displayID(prefix, taskID string) string {
+	if prefix == "" {
+		prefix = "T"
+	}
+	short := taskID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return prefix + "-" + short
+}
+
+var _ UseCase = (*Service)(nil)

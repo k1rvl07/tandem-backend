@@ -70,6 +70,29 @@ func Title(title string) error {
 	return nil
 }
 
+var prefixRegexp = regexp.MustCompile(`^[A-Z][A-Z0-9-]{0,9}$`)
+var colorRegexp = regexp.MustCompile(`^[0-9a-fA-F]{6}$`)
+
+func Prefix(prefix string) error {
+	if prefix == "" {
+		return nil
+	}
+	if !prefixRegexp.MatchString(prefix) {
+		return pkgerrors.NewValidationError("prefix must start with a letter, contain only A-Z, 0-9 and dashes, max 10 characters")
+	}
+	return nil
+}
+
+func Color(color string) error {
+	if color == "" {
+		return nil
+	}
+	if !colorRegexp.MatchString(color) {
+		return pkgerrors.NewValidationError("color must be a 6-digit hex value")
+	}
+	return nil
+}
+
 func Password(password string) error {
 	if password == "" {
 		return pkgerrors.NewValidationError("password is required")

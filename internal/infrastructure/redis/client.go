@@ -39,6 +39,23 @@ func (r *Redis) Get(ctx context.Context, key string) (string, error) {
 	return val, err
 }
 
+func (r *Redis) MGet(ctx context.Context, keys ...string) ([]string, error) {
+	vals, err := r.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	results := make([]string, len(vals))
+	for i := range vals {
+		switch v := vals[i].(type) {
+		case string:
+			results[i] = v
+		default:
+			results[i] = ""
+		}
+	}
+	return results, nil
+}
+
 func (r *Redis) Set(ctx context.Context, key, value string, ttl time.Duration) error {
 	return r.client.Set(ctx, key, value, ttl).Err()
 }
@@ -49,6 +66,10 @@ func (r *Redis) Delete(ctx context.Context, key string) error {
 
 func (r *Redis) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	return r.client.Expire(ctx, key, ttl).Err()
+}
+
+func (r *Redis) Incr(ctx context.Context, key string) (int64, error) {
+	return r.client.Incr(ctx, key).Result()
 }
 
 func (r *Redis) Ping(ctx context.Context) error {
