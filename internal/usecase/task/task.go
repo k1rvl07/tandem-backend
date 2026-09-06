@@ -3,17 +3,21 @@ package task
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/tandem/tandem/internal/domain/models"
+	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	"github.com/tandem/tandem/internal/http/dto"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
+	"github.com/tandem/tandem/internal/usecase/cacheutil"
 )
 
 const (
@@ -28,6 +32,8 @@ type UseCase interface {
 	Create(ctx context.Context, actorID, workspaceID, boardID string, req dto.CreateTaskRequest) (*dto.TaskResponse, error)
 	Update(ctx context.Context, actorID, workspaceID, boardID, taskID string, req dto.UpdateTaskRequest) (*dto.TaskResponse, error)
 	Delete(ctx context.Context, actorID, workspaceID, boardID, taskID string) error
+	Get(ctx context.Context, actorID, workspaceID, taskID string) (*dto.TaskDetailResponse, error)
+	List(ctx context.Context, actorID, workspaceID string, query dto.ListWorkspaceTasksQuery) ([]dto.TaskResponse, error)
 }
 
 type Service struct {
@@ -37,6 +43,7 @@ type Service struct {
 	workspaces repository.WorkspaceRepository
 	users      repository.UserRepository
 	hub        ws.Hub
+	cache      cache.Cache
 }
 
 func NewService(
@@ -46,6 +53,7 @@ func NewService(
 	workspaces repository.WorkspaceRepository,
 	users repository.UserRepository,
 	hub ws.Hub,
+	cache cache.Cache,
 ) *Service {
 	return &Service{
 		tasks:      tasks,
@@ -54,7 +62,12 @@ func NewService(
 		workspaces: workspaces,
 		users:      users,
 		hub:        hub,
+		cache:      cache,
 	}
+}
+
+func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
+	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 }
 
 func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID string, req dto.CreateTaskRequest) (*dto.TaskResponse, error) {
@@ -67,11 +80,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 	if err := validate.UUID(req.ColumnID); err != nil {
 		return nil, err
 	}
-	member, err := s.memberOf(ctx, actorID, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.requireEditor(member.Role); err != nil {
+	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
 		return nil, err
 	}
 	if _, err := s.boardInWorkspace(ctx, workspaceID, boardID); err != nil {
@@ -86,15 +95,19 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 	if utf8.RuneCountInString(strings.TrimSpace(req.Description)) > maxDescriptionLen {
 		return nil, pkgerrors.NewValidationError("description must be at most %d characters", maxDescriptionLen)
 	}
-	priority, err := normalizePriority(req.Priority)
-	if err != nil {
-		return nil, err
-	}
 	dueDate, err := parseDueDate(req.DueDate)
 	if err != nil {
 		return nil, err
 	}
 	assigneeID, err := s.validateAssignee(ctx, workspaceID, strings.TrimSpace(req.AssigneeID))
+	if err != nil {
+		return nil, err
+	}
+	curatorID, err := s.validateCurator(ctx, workspaceID, strings.TrimSpace(req.CuratorID))
+	if err != nil {
+		return nil, err
+	}
+	parentID, err := s.validateParent(ctx, workspaceID, strings.TrimSpace(req.ParentID), "")
 	if err != nil {
 		return nil, err
 	}
@@ -108,19 +121,23 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 		ColumnID:    req.ColumnID,
 		Title:       strings.TrimSpace(req.Title),
 		Description: strings.TrimSpace(req.Description),
+		AuthorID:    actorID,
 		AssigneeID:  assigneeID,
-		Priority:    priority,
+		CuratorID:   curatorID,
+		ParentID:    parentID,
 		DueDate:     dueDate,
 		Position:    len(columnTasks),
+		IsUrgent:    req.IsUrgent,
+		IsHidden:    req.IsHidden,
 	}
 	if err := s.tasks.CreateTask(ctx, task); err != nil {
 		return nil, err
 	}
-	assignee, err := s.resolveAssignee(ctx, assigneeID)
+	response, err := s.responseFor(ctx, workspaceID, task)
 	if err != nil {
 		return nil, err
 	}
-	response := taskToResponse(task, assignee)
+	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventTaskCreated, Data: response})
 	return response, nil
 }
@@ -135,11 +152,7 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 	if err := validate.UUID(taskID); err != nil {
 		return nil, err
 	}
-	member, err := s.memberOf(ctx, actorID, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.requireEditor(member.Role); err != nil {
+	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
 		return nil, err
 	}
 	if _, err := s.boardInWorkspace(ctx, workspaceID, boardID); err != nil {
@@ -154,20 +167,15 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 		if err := validate.Title(*req.Title); err != nil {
 			return nil, err
 		}
-		task.Title = strings.TrimSpace(*req.Title)
+		next := strings.TrimSpace(*req.Title)
+		task.Title = next
 	}
 	if req.Description != nil {
 		if utf8.RuneCountInString(strings.TrimSpace(*req.Description)) > maxDescriptionLen {
 			return nil, pkgerrors.NewValidationError("description must be at most %d characters", maxDescriptionLen)
 		}
-		task.Description = strings.TrimSpace(*req.Description)
-	}
-	if req.Priority != nil {
-		priority, err := normalizePriority(*req.Priority)
-		if err != nil {
-			return nil, err
-		}
-		task.Priority = priority
+		next := strings.TrimSpace(*req.Description)
+		task.Description = next
 	}
 	if req.DueDate != nil {
 		dueDate, err := parseDueDate(*req.DueDate)
@@ -183,18 +191,70 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 		}
 		task.AssigneeID = assigneeID
 	}
-
-	targetColumnID := task.ColumnID
-	if req.ColumnID != nil {
-		if err := validate.UUID(*req.ColumnID); err != nil {
+	if req.CuratorID != nil {
+		curatorID, err := s.validateCurator(ctx, workspaceID, strings.TrimSpace(*req.CuratorID))
+		if err != nil {
 			return nil, err
 		}
-		if _, err := s.columnInBoard(ctx, boardID, *req.ColumnID); err != nil {
-			return nil, err
-		}
-		targetColumnID = *req.ColumnID
+		task.CuratorID = curatorID
 	}
-	if req.ColumnID != nil || req.Position != nil {
+	if req.ParentID != nil {
+		parentID, err := s.validateParent(ctx, workspaceID, strings.TrimSpace(*req.ParentID), task.ID)
+		if err != nil {
+			return nil, err
+		}
+		task.ParentID = parentID
+	}
+	if req.IsUrgent != nil {
+		task.IsUrgent = *req.IsUrgent
+	}
+	if req.IsHidden != nil {
+		task.IsHidden = *req.IsHidden
+	}
+	if req.ImageKey != nil {
+		task.ImageKey = *req.ImageKey
+	}
+	if req.Archived != nil {
+		now := time.Now().UTC()
+		if *req.Archived && task.ArchivedAt == nil {
+			task.ArchivedAt = &now
+		} else if !*req.Archived && task.ArchivedAt != nil {
+			task.ArchivedAt = nil
+		}
+	}
+	if req.BoardID != nil && *req.BoardID != boardID {
+		target, err := s.boardInWorkspace(ctx, workspaceID, *req.BoardID)
+		if err != nil {
+			return nil, err
+		}
+		columns, err := s.columns.ListColumns(ctx, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(columns) == 0 {
+			return nil, pkgerrors.NewValidationError("target board has no columns")
+		}
+		first := columns[0]
+		targetTasks, err := s.tasks.ListTasksForColumn(ctx, first.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.leaveColumn(ctx, task); err != nil {
+			return nil, err
+		}
+		task.ColumnID = first.ID
+		task.Position = len(targetTasks)
+	} else if req.ColumnID != nil || req.Position != nil {
+		targetColumnID := task.ColumnID
+		if req.ColumnID != nil {
+			if err := validate.UUID(*req.ColumnID); err != nil {
+				return nil, err
+			}
+			if _, err := s.columnInBoard(ctx, boardID, *req.ColumnID); err != nil {
+				return nil, err
+			}
+			targetColumnID = *req.ColumnID
+		}
 		position := -1
 		if req.Position != nil {
 			position = *req.Position
@@ -207,11 +267,11 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 	if err := s.tasks.UpdateTask(ctx, task); err != nil {
 		return nil, err
 	}
-	assignee, err := s.resolveAssignee(ctx, task.AssigneeID)
+	response, err := s.responseFor(ctx, workspaceID, task)
 	if err != nil {
 		return nil, err
 	}
-	response := taskToResponse(task, assignee)
+	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventTaskUpdated, Data: response})
 	return response, nil
 }
@@ -226,11 +286,7 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID, tas
 	if err := validate.UUID(taskID); err != nil {
 		return err
 	}
-	member, err := s.memberOf(ctx, actorID, workspaceID)
-	if err != nil {
-		return err
-	}
-	if err := s.requireEditor(member.Role); err != nil {
+	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
 		return err
 	}
 	if _, err := s.boardInWorkspace(ctx, workspaceID, boardID); err != nil {
@@ -243,11 +299,146 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID, tas
 	if err := s.tasks.DeleteTask(ctx, task.ID); err != nil {
 		return err
 	}
+	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{
 		Type: eventTaskDeleted,
 		Data: map[string]string{"id": task.ID},
 	})
 	return nil
+}
+
+func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) (*dto.TaskDetailResponse, error) {
+	if err := validate.UUID(workspaceID); err != nil {
+		return nil, err
+	}
+	if err := validate.UUID(taskID); err != nil {
+		return nil, err
+	}
+	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
+		return nil, err
+	}
+	if _, err := s.workspaceTask(ctx, workspaceID, taskID); err != nil {
+		return nil, err
+	}
+	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
+	detailKey := fmt.Sprintf("u:%s:t:v1:task:%s:%s:%s", actorID, taskID, wsver, uver)
+	var cached dto.TaskDetailResponse
+	if cacheutil.Load(ctx, s.cache, detailKey, &cached) {
+		return &cached, nil
+	}
+	task, err := s.tasks.FindTaskByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	response, err := s.responseFor(ctx, workspaceID, task)
+	if err != nil {
+		return nil, err
+	}
+	detail := &dto.TaskDetailResponse{TaskResponse: *response}
+	if task.ParentID != "" {
+		parent, err := s.tasks.FindTaskByID(ctx, task.ParentID)
+		if err != nil {
+			if !errors.Is(err, pkgerrors.ErrNotFound) {
+				return nil, err
+			}
+		} else if parent != nil {
+			ref, err := s.taskReference(ctx, parent)
+			if err != nil {
+				return nil, err
+			}
+			detail.Parent = ref
+		}
+	}
+	children, err := s.tasks.ListChildTasks(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	subtasks := make([]dto.TaskReference, 0, len(children))
+	for _, child := range children {
+		if child.ArchivedAt != nil {
+			continue
+		}
+		ref, err := s.taskReference(ctx, child)
+		if err != nil {
+			return nil, err
+		}
+		subtasks = append(subtasks, *ref)
+	}
+	detail.Subtasks = subtasks
+	cacheutil.Store(ctx, s.cache, detailKey, detail, cacheutil.TTL)
+	return detail, nil
+}
+
+func (s *Service) List(ctx context.Context, actorID, workspaceID string, query dto.ListWorkspaceTasksQuery) ([]dto.TaskResponse, error) {
+	if err := validate.UUID(workspaceID); err != nil {
+		return nil, err
+	}
+	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
+		return nil, err
+	}
+	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
+	queryHash := cacheutil.QueryHash(query.Q, query.BoardID, query.AssigneeID, query.Status, query.Only, strconv.FormatBool(query.ExcludeSubtasks))
+	listKey := fmt.Sprintf("u:%s:t:v1:tasks:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, queryHash)
+	var cached []dto.TaskResponse
+	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
+		return cached, nil
+	}
+	tasks, err := s.tasks.ListTasksForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	columns, err := s.columns.ListColumnsForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	columnInfo := make(map[string]workspaceColumn, len(columns))
+	for i := range columns {
+		columnInfo[columns[i].ID] = workspaceColumn{name: columns[i].Name, boardID: columns[i].BoardID}
+	}
+	filtered := make([]*models.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.ArchivedAt != nil {
+			continue
+		}
+		info, ok := columnInfo[task.ColumnID]
+		if !ok {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(task.Title), strings.ToLower(query.Q)) {
+			continue
+		}
+		if query.BoardID != "" && info.boardID != query.BoardID {
+			continue
+		}
+		if query.AssigneeID != "" && task.AssigneeID != query.AssigneeID {
+			continue
+		}
+		if query.Status != "" && !strings.EqualFold(strings.TrimSpace(query.Status), info.name) {
+			continue
+		}
+		if query.ExcludeSubtasks && task.ParentID != "" {
+			continue
+		}
+		switch query.Only {
+		case "mine":
+			if task.AuthorID != actorID && task.CuratorID != actorID && task.AssigneeID != actorID {
+				continue
+			}
+		case "for_me":
+			if task.AssigneeID != actorID {
+				continue
+			}
+		}
+		filtered = append(filtered, task)
+	}
+	responses, err := s.responsesFor(ctx, workspaceID, filtered)
+	if err != nil {
+		return nil, err
+	}
+	cacheutil.Store(ctx, s.cache, listKey, responses, cacheutil.TTL)
+	return responses, nil
 }
 
 func (s *Service) moveTask(ctx context.Context, task *models.Task, targetColumnID string, position int) error {
@@ -261,15 +452,9 @@ func (s *Service) moveTask(ctx context.Context, task *models.Task, targetColumnI
 		return s.rewritePositions(ctx, order)
 	}
 
-	source, err := s.tasks.ListTasksForColumn(ctx, task.ColumnID)
-	if err != nil {
+	if err := s.leaveColumn(ctx, task); err != nil {
 		return err
 	}
-	source = removeTask(source, task.ID)
-	if err := s.rewritePositions(ctx, source); err != nil {
-		return err
-	}
-
 	target, err := s.tasks.ListTasksForColumn(ctx, targetColumnID)
 	if err != nil {
 		return err
@@ -280,6 +465,15 @@ func (s *Service) moveTask(ctx context.Context, task *models.Task, targetColumnI
 	}
 	task.ColumnID = targetColumnID
 	return nil
+}
+
+func (s *Service) leaveColumn(ctx context.Context, task *models.Task) error {
+	source, err := s.tasks.ListTasksForColumn(ctx, task.ColumnID)
+	if err != nil {
+		return err
+	}
+	source = removeTask(source, task.ID)
+	return s.rewritePositions(ctx, source)
 }
 
 func (s *Service) rewritePositions(ctx context.Context, order []*models.Task) error {
@@ -311,23 +505,52 @@ func (s *Service) validateAssignee(ctx context.Context, workspaceID, assigneeID 
 	return assigneeID, nil
 }
 
-func (s *Service) resolveAssignee(ctx context.Context, assigneeID string) (*dto.TaskAssigneeResponse, error) {
-	if assigneeID == "" {
-		return nil, nil
+func (s *Service) validateCurator(ctx context.Context, workspaceID, curatorID string) (string, error) {
+	if curatorID == "" {
+		return "", nil
 	}
-	user, err := s.users.FindByID(ctx, assigneeID)
-	if err != nil {
+	if err := validate.UUID(curatorID); err != nil {
+		return "", err
+	}
+	if _, err := s.workspaces.FindMember(ctx, workspaceID, curatorID); err != nil {
 		if errors.Is(err, pkgerrors.ErrNotFound) {
-			return nil, nil
+			return "", pkgerrors.NewValidationError("curator must be a workspace member")
 		}
-		return nil, err
+		return "", err
 	}
-	return &dto.TaskAssigneeResponse{
-		ID:          user.ID,
-		Login:       user.Login,
-		DisplayName: user.DisplayName,
-		AvatarKey:   user.AvatarKey,
-	}, nil
+	return curatorID, nil
+}
+
+func (s *Service) validateParent(ctx context.Context, workspaceID, parentID, selfID string) (string, error) {
+	if parentID == "" {
+		return "", nil
+	}
+	if err := validate.UUID(parentID); err != nil {
+		return "", err
+	}
+	if selfID != "" && parentID == selfID {
+		return "", pkgerrors.NewValidationError("task cannot be its own parent")
+	}
+	if _, err := s.workspaceTask(ctx, workspaceID, parentID); err != nil {
+		return "", err
+	}
+	seen := map[string]bool{selfID: true}
+	current := parentID
+	for current != "" {
+		parent, err := s.tasks.FindTaskByID(ctx, current)
+		if err != nil {
+			return "", err
+		}
+		if seen[parent.ID] {
+			return "", pkgerrors.NewValidationError("parent creates a circular dependency")
+		}
+		seen[parent.ID] = true
+		if _, err := s.workspaceTask(ctx, workspaceID, parent.ID); err != nil {
+			return "", err
+		}
+		current = parent.ParentID
+	}
+	return parentID, nil
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*models.WorkspaceMember, error) {
@@ -339,13 +562,6 @@ func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*m
 		return nil, err
 	}
 	return member, nil
-}
-
-func (s *Service) requireEditor(role models.WorkspaceRole) error {
-	if role != models.RoleOwner && role != models.RoleEditor {
-		return pkgerrors.ErrForbidden
-	}
-	return nil
 }
 
 func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*models.Board, error) {
@@ -385,6 +601,169 @@ func (s *Service) taskInBoard(ctx context.Context, boardID, taskID string) (*mod
 	return task, nil
 }
 
+func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*models.Task, error) {
+	task, err := s.tasks.FindTaskByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	column, err := s.columns.FindColumnByID(ctx, task.ColumnID)
+	if err != nil {
+		return nil, err
+	}
+	board, err := s.boards.FindBoardByID(ctx, column.BoardID)
+	if err != nil {
+		return nil, err
+	}
+	if board.WorkspaceID != workspaceID {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("task not in workspace"))
+	}
+	return task, nil
+}
+
+func (s *Service) responseFor(ctx context.Context, workspaceID string, task *models.Task) (*dto.TaskResponse, error) {
+	responses, err := s.responsesFor(ctx, workspaceID, []*models.Task{task})
+	if err != nil {
+		return nil, err
+	}
+	return &responses[0], nil
+}
+
+func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []*models.Task) ([]dto.TaskResponse, error) {
+	if len(tasks) == 0 {
+		return []dto.TaskResponse{}, nil
+	}
+	workspace, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	columns, err := s.columns.ListColumnsForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	boards, err := s.boards.ListBoards(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	boardNameByID := make(map[string]string, len(boards))
+	for i := range boards {
+		boardNameByID[boards[i].ID] = boards[i].Name
+	}
+	columnInfo := make(map[string]workspaceColumn, len(columns))
+	for i := range columns {
+		columnInfo[columns[i].ID] = workspaceColumn{name: columns[i].Name, boardID: columns[i].BoardID, boardName: boardNameByID[columns[i].BoardID]}
+	}
+	users, err := s.resolveUsers(ctx, tasks)
+	if err != nil {
+		return nil, err
+	}
+	responses := make([]dto.TaskResponse, 0, len(tasks))
+	for _, task := range tasks {
+		info, ok := columnInfo[task.ColumnID]
+		if !ok {
+			info = workspaceColumn{boardID: ""}
+		}
+		responses = append(responses, dto.TaskResponse{
+			ID:          task.ID,
+			DisplayID:   displayID(workspace.Prefix, task.ID),
+			WorkspaceID: workspaceID,
+			BoardID:     info.boardID,
+			BoardName:   info.boardName,
+			ColumnID:    task.ColumnID,
+			ColumnName:  info.name,
+			Title:       task.Title,
+			Description: task.Description,
+			Author:      users[task.AuthorID],
+			Assignee:    users[task.AssigneeID],
+			Curator:     users[task.CuratorID],
+			ParentID:    task.ParentID,
+			DueDate:     task.DueDate,
+			Position:    task.Position,
+			IsUrgent:    task.IsUrgent,
+			IsHidden:    task.IsHidden,
+			ImageKey:    task.ImageKey,
+			ArchivedAt:  task.ArchivedAt,
+			CreatedAt:   task.CreatedAt,
+			UpdatedAt:   task.UpdatedAt,
+		})
+	}
+	return responses, nil
+}
+
+func (s *Service) taskReference(ctx context.Context, task *models.Task) (*dto.TaskReference, error) {
+	column, err := s.columns.FindColumnByID(ctx, task.ColumnID)
+	if err != nil {
+		return nil, err
+	}
+	board, err := s.boards.FindBoardByID(ctx, column.BoardID)
+	if err != nil {
+		return nil, err
+	}
+	workspace, err := s.workspaces.FindWorkspaceByID(ctx, board.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.TaskReference{
+		ID:          task.ID,
+		DisplayID:   displayID(workspace.Prefix, task.ID),
+		Title:       task.Title,
+		WorkspaceID: board.WorkspaceID,
+		BoardID:     board.ID,
+		BoardName:   board.Name,
+		ColumnID:    column.ID,
+		ColumnName:  column.Name,
+		IsUrgent:    task.IsUrgent,
+	}, nil
+}
+
+func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[string]*dto.TaskUserResponse, error) {
+	ids := make(map[string]bool)
+	for _, task := range tasks {
+		if task.AuthorID != "" {
+			ids[task.AuthorID] = true
+		}
+		if task.AssigneeID != "" {
+			ids[task.AssigneeID] = true
+		}
+		if task.CuratorID != "" {
+			ids[task.CuratorID] = true
+		}
+	}
+	result := make(map[string]*dto.TaskUserResponse)
+	for id := range ids {
+		user, err := s.users.FindByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, pkgerrors.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		result[id] = &dto.TaskUserResponse{
+			ID:          user.ID,
+			Login:       user.Login,
+			DisplayName: user.DisplayName,
+			AvatarKey:   user.AvatarKey,
+		}
+	}
+	return result, nil
+}
+
+type workspaceColumn struct {
+	name      string
+	boardID   string
+	boardName string
+}
+
+func displayID(prefix, taskID string) string {
+	if prefix == "" {
+		prefix = "T"
+	}
+	short := taskID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return prefix + "-" + short
+}
+
 func removeTask(tasks []*models.Task, id string) []*models.Task {
 	filtered := make([]*models.Task, 0, len(tasks))
 	for _, t := range tasks {
@@ -405,17 +784,6 @@ func insertTask(tasks []*models.Task, position int, task *models.Task) []*models
 	return tasks
 }
 
-func normalizePriority(priority string) (string, error) {
-	switch priority {
-	case "", models.PriorityMedium:
-		return models.PriorityMedium, nil
-	case models.PriorityLow, models.PriorityHigh:
-		return priority, nil
-	default:
-		return "", pkgerrors.NewValidationError("invalid priority")
-	}
-}
-
 func parseDueDate(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -430,21 +798,6 @@ func parseDueDate(value string) (*time.Time, error) {
 
 func boardRoom(workspaceID string) string {
 	return "workspace:" + workspaceID
-}
-
-func taskToResponse(task *models.Task, assignee *dto.TaskAssigneeResponse) *dto.TaskResponse {
-	return &dto.TaskResponse{
-		ID:          task.ID,
-		ColumnID:    task.ColumnID,
-		Title:       task.Title,
-		Description: task.Description,
-		Priority:    task.Priority,
-		Assignee:    assignee,
-		DueDate:     task.DueDate,
-		Position:    task.Position,
-		CreatedAt:   task.CreatedAt,
-		UpdatedAt:   task.UpdatedAt,
-	}
 }
 
 var _ UseCase = (*Service)(nil)

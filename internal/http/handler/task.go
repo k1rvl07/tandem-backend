@@ -16,7 +16,6 @@ func NewTaskHandler(uc task.UseCase) *TaskHandler {
 	return &TaskHandler{tasks: uc}
 }
 
-// Create adds a task to a column.
 // @Summary Create a task
 // @Tags tasks
 // @Accept json
@@ -45,7 +44,6 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// Update edits a task or moves it between columns.
 // @Summary Update a task
 // @Tags tasks
 // @Accept json
@@ -75,7 +73,57 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Delete removes a task.
+// @Summary Get a task
+// @Tags tasks
+// @Produce json
+// @Security BearerAuth
+// @Param wsId path string true "Workspace ID"
+// @Param taskId path string true "Task ID"
+// @Success 200 {object} dto.TaskDetailResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/tasks/{taskId} [get]
+func (h *TaskHandler) Get(c *gin.Context) {
+	resp, err := h.tasks.Get(c.Request.Context(), currentUserID(c), c.Param("id"), c.Param("taskId"))
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// @Summary List workspace tasks
+// @Tags tasks
+// @Produce json
+// @Security BearerAuth
+// @Param wsId path string true "Workspace ID"
+// @Param q query string false "Search in title"
+// @Param board_id query string false "Filter by board"
+// @Param assignee_id query string false "Filter by assignee"
+// @Param status query string false "Filter by column name"
+// @Param only query string false "mine|for_me"
+// @Param exclude_subtasks query bool false "Exclude subtasks"
+// @Success 200 {array} dto.TaskResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/tasks [get]
+func (h *TaskHandler) List(c *gin.Context) {
+	var query dto.ListWorkspaceTasksQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query"})
+		return
+	}
+	resp, err := h.tasks.List(c.Request.Context(), currentUserID(c), c.Param("id"), query)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // @Summary Delete a task
 // @Tags tasks
 // @Produce json

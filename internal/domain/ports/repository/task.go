@@ -9,8 +9,11 @@ import (
 type TaskRepository interface {
 	CreateTask(ctx context.Context, task *models.Task) error
 	FindTaskByID(ctx context.Context, id string) (*models.Task, error)
+	FindTasksByIDs(ctx context.Context, ids []string) (map[string]*models.Task, error)
 	UpdateTask(ctx context.Context, task *models.Task) error
 	DeleteTask(ctx context.Context, id string) error
 	ListTasksForBoard(ctx context.Context, boardID string) ([]*models.Task, error)
 	ListTasksForColumn(ctx context.Context, columnID string) ([]*models.Task, error)
+	ListTasksForWorkspace(ctx context.Context, workspaceID string) ([]*models.Task, error)
+	ListChildTasks(ctx context.Context, parentID string) ([]*models.Task, error)
 }

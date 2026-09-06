@@ -47,14 +47,24 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *models.Task) error {
 		"column_id":   task.ColumnID,
 		"title":       task.Title,
 		"description": task.Description,
+		"author_id":   task.AuthorID,
 		"assignee_id": task.AssigneeID,
-		"priority":    task.Priority,
+		"curator_id":  task.CuratorID,
+		"parent_id":   task.ParentID,
 		"position":    task.Position,
+		"is_urgent":   task.IsUrgent,
+		"is_hidden":   task.IsHidden,
+		"image_key":   task.ImageKey,
 	}
 	if task.DueDate != nil {
 		updates["due_date"] = *task.DueDate
 	} else {
 		updates["due_date"] = nil
+	}
+	if task.ArchivedAt != nil {
+		updates["archived_at"] = *task.ArchivedAt
+	} else {
+		updates["archived_at"] = nil
 	}
 	err := r.db.WithContext(ctx).Model(&entity.Task{}).Where("id = ?", task.ID).Updates(updates).Error
 	if err != nil {
@@ -98,16 +108,63 @@ func (r *TaskRepo) ListTasksForColumn(ctx context.Context, columnID string) ([]*
 	return tasksToDomain(es), nil
 }
 
+func (r *TaskRepo) ListTasksForWorkspace(ctx context.Context, workspaceID string) ([]*models.Task, error) {
+	var es []entity.Task
+	err := r.db.WithContext(ctx).
+		Table("tasks").
+		Select("tasks.*").
+		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
+		Joins("JOIN boards ON boards.id = board_columns.board_id").
+		Where("boards.workspace_id = ?", workspaceID).
+		Order("tasks.position ASC, tasks.created_at ASC").
+		Find(&es).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return tasksToDomain(es), nil
+}
+
+func (r *TaskRepo) FindTasksByIDs(ctx context.Context, ids []string) (map[string]*models.Task, error) {
+	if len(ids) == 0 {
+		return map[string]*models.Task{}, nil
+	}
+	var es []entity.Task
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&es).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	result := make(map[string]*models.Task, len(es))
+	for i := range es {
+		result[es[i].ID] = taskToDomain(&es[i])
+	}
+	return result, nil
+}
+
+func (r *TaskRepo) ListChildTasks(ctx context.Context, parentID string) ([]*models.Task, error) {
+	var es []entity.Task
+	err := r.db.WithContext(ctx).Where("parent_id = ?", parentID).Order("position ASC, created_at ASC").Find(&es).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return tasksToDomain(es), nil
+}
+
 func taskToEntity(t *models.Task) *entity.Task {
 	return &entity.Task{
 		ID:          t.ID,
 		ColumnID:    t.ColumnID,
 		Title:       t.Title,
 		Description: t.Description,
+		AuthorID:    t.AuthorID,
 		AssigneeID:  t.AssigneeID,
-		Priority:    t.Priority,
+		CuratorID:   t.CuratorID,
+		ParentID:    t.ParentID,
 		DueDate:     t.DueDate,
 		Position:    t.Position,
+		IsUrgent:    t.IsUrgent,
+		IsHidden:    t.IsHidden,
+		ImageKey:    t.ImageKey,
+		ArchivedAt:  t.ArchivedAt,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}
@@ -119,10 +176,16 @@ func taskToDomain(e *entity.Task) *models.Task {
 		ColumnID:    e.ColumnID,
 		Title:       e.Title,
 		Description: e.Description,
+		AuthorID:    e.AuthorID,
 		AssigneeID:  e.AssigneeID,
-		Priority:    e.Priority,
+		CuratorID:   e.CuratorID,
+		ParentID:    e.ParentID,
 		DueDate:     e.DueDate,
 		Position:    e.Position,
+		IsUrgent:    e.IsUrgent,
+		IsHidden:    e.IsHidden,
+		ImageKey:    e.ImageKey,
+		ArchivedAt:  e.ArchivedAt,
 		CreatedAt:   e.CreatedAt,
 		UpdatedAt:   e.UpdatedAt,
 	}
