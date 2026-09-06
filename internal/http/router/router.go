@@ -29,8 +29,10 @@ type Dependencies struct {
 	AdminHandler        *handler.AdminHandler
 	WorkspaceHandler    *handler.WorkspaceHandler
 	BoardHandler        *handler.BoardHandler
-	ColumnHandler       *handler.ColumnHandler
 	TaskHandler         *handler.TaskHandler
+	AttachmentHandler   *handler.AttachmentHandler
+	FavoriteHandler     *handler.FavoriteHandler
+	TreeHandler         *handler.TreeHandler
 	Files               *file.Service
 	EnableSwagger       bool
 }
@@ -78,6 +80,7 @@ func New(deps Dependencies) *gin.Engine {
 			admin := protected.Group("", middleware.RequireStaff(deps.UserRepository))
 			admin.POST("/admin/users", deps.AdminHandler.CreateUser)
 			admin.GET("/admin/users", deps.AdminHandler.ListUsers)
+			admin.PATCH("/admin/users/:id/role", deps.AdminHandler.UpdateUserRole)
 			admin.DELETE("/admin/users/:id", deps.AdminHandler.DeleteUser)
 		}
 		if deps.WorkspaceHandler != nil {
@@ -85,27 +88,47 @@ func New(deps Dependencies) *gin.Engine {
 			protected.GET("/workspaces", deps.WorkspaceHandler.List)
 			protected.GET("/workspaces/:id", deps.WorkspaceHandler.Get)
 			protected.PATCH("/workspaces/:id", deps.WorkspaceHandler.Update)
+			protected.PUT("/workspaces/:id/theme", deps.WorkspaceHandler.SetTheme)
 			protected.DELETE("/workspaces/:id", deps.WorkspaceHandler.Delete)
 			protected.POST("/workspaces/:id/members", deps.WorkspaceHandler.AddMember)
+			protected.PATCH("/workspaces/:id/members/:userId", deps.WorkspaceHandler.UpdateRole)
 			protected.DELETE("/workspaces/:id/members/:userId", deps.WorkspaceHandler.RemoveMember)
 			protected.POST("/workspaces/:id/owner", deps.WorkspaceHandler.TransferOwner)
+			protected.GET("/workspaces/:id/invite", deps.WorkspaceHandler.GetInvite)
+			protected.DELETE("/workspaces/:id/invite", deps.WorkspaceHandler.DisableInvite)
+			protected.POST("/invite/:token/join", deps.WorkspaceHandler.JoinByInvite)
 		}
 		if deps.BoardHandler != nil {
 			protected.GET("/workspaces/:id/boards", deps.BoardHandler.List)
 			protected.POST("/workspaces/:id/boards", deps.BoardHandler.Create)
+			protected.PUT("/workspaces/:id/boards/reorder", deps.BoardHandler.Reorder)
 			protected.GET("/workspaces/:id/boards/:boardId", deps.BoardHandler.Get)
 			protected.PATCH("/workspaces/:id/boards/:boardId", deps.BoardHandler.Update)
+			protected.PUT("/workspaces/:id/boards/:boardId/main", deps.BoardHandler.SetMain)
+			protected.PUT("/workspaces/:id/boards/:boardId/archive", deps.BoardHandler.Archive)
 			protected.DELETE("/workspaces/:id/boards/:boardId", deps.BoardHandler.Delete)
 		}
-		if deps.ColumnHandler != nil {
-			protected.POST("/workspaces/:id/boards/:boardId/columns", deps.ColumnHandler.Create)
-			protected.PATCH("/workspaces/:id/boards/:boardId/columns/:columnId", deps.ColumnHandler.Update)
-			protected.DELETE("/workspaces/:id/boards/:boardId/columns/:columnId", deps.ColumnHandler.Delete)
-		}
 		if deps.TaskHandler != nil {
+			protected.GET("/workspaces/:id/tasks", deps.TaskHandler.List)
+			protected.GET("/workspaces/:id/tasks/:taskId", deps.TaskHandler.Get)
 			protected.POST("/workspaces/:id/boards/:boardId/tasks", deps.TaskHandler.Create)
 			protected.PATCH("/workspaces/:id/boards/:boardId/tasks/:taskId", deps.TaskHandler.Update)
 			protected.DELETE("/workspaces/:id/boards/:boardId/tasks/:taskId", deps.TaskHandler.Delete)
+		}
+		if deps.AttachmentHandler != nil {
+			protected.GET("/workspaces/:id/tasks/:taskId/attachments", deps.AttachmentHandler.List)
+			protected.POST("/workspaces/:id/tasks/:taskId/attachments", deps.AttachmentHandler.Create)
+			protected.GET("/workspaces/:id/tasks/:taskId/attachments/:attachmentId", deps.AttachmentHandler.Download)
+			protected.DELETE("/workspaces/:id/tasks/:taskId/attachments/:attachmentId", deps.AttachmentHandler.Delete)
+		}
+		if deps.FavoriteHandler != nil {
+			protected.PUT("/favorites/workspaces/:workspaceId", deps.FavoriteHandler.AddWorkspace)
+			protected.DELETE("/favorites/workspaces/:workspaceId", deps.FavoriteHandler.RemoveWorkspace)
+			protected.PUT("/favorites/boards/:boardId", deps.FavoriteHandler.AddBoard)
+			protected.DELETE("/favorites/boards/:boardId", deps.FavoriteHandler.RemoveBoard)
+		}
+		if deps.TreeHandler != nil {
+			protected.GET("/tasks/tree", deps.TreeHandler.List)
 		}
 		if deps.Files != nil {
 			filesHandler := handler.NewFileHandler(deps.Files)
@@ -148,8 +171,9 @@ func (nopHub) LeaveRoom(string, ws.Client) {}
 func (nopHub) RoomMembers(string) []string { return nil }
 func (nopHub) BroadcastToRoom(string, *ws.Message) {
 }
-func (nopHub) Broadcast(*ws.Message) {}
-func (nopHub) Close()                {}
+func (nopHub) Broadcast(*ws.Message)          {}
+func (nopHub) SendToUser(string, *ws.Message) {}
+func (nopHub) Close()                         {}
 
 var _ filestore.FileStore = nopFileStore{}
 var _ ws.Hub = nopHub{}

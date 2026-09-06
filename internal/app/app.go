@@ -25,12 +25,14 @@ import (
 	"github.com/tandem/tandem/internal/repository"
 	"github.com/tandem/tandem/internal/repository/entity"
 	"github.com/tandem/tandem/internal/usecase/admin"
+	"github.com/tandem/tandem/internal/usecase/attachment"
 	"github.com/tandem/tandem/internal/usecase/auth"
 	"github.com/tandem/tandem/internal/usecase/board"
-	"github.com/tandem/tandem/internal/usecase/column"
+	"github.com/tandem/tandem/internal/usecase/favorite"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/profile"
 	"github.com/tandem/tandem/internal/usecase/task"
+	"github.com/tandem/tandem/internal/usecase/tree"
 	"github.com/tandem/tandem/internal/usecase/workspace"
 	"go.uber.org/zap"
 )
@@ -72,7 +74,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	hub := wshub.New()
 	logger.Info("websocket hub initialized")
 
-	if err := postgres.AutoMigrate(&entity.User{}, &entity.Workspace{}, &entity.WorkspaceMember{}, &entity.Board{}, &entity.Column{}, &entity.Task{}); err != nil {
+	if err := postgres.AutoMigrate(&entity.User{}, &entity.Workspace{}, &entity.WorkspaceMember{}, &entity.Board{}, &entity.Column{}, &entity.Task{}, &entity.TaskAttachment{}, &entity.Favorite{}); err != nil {
+		_ = redis.Close()
+		_ = postgres.Close()
+		return nil, err
+	}
+	if err := postgres.DB.Exec("DROP TABLE IF EXISTS task_comments").Error; err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
@@ -99,22 +106,28 @@ func (a *App) Run() error {
 	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL)
 	authHandler := handler.NewAuthHandler(authService)
 	fileService := file.NewService(a.fileStore)
-	profileService := profile.NewService(userRepo, hasher, fileService)
+	profileService := profile.NewService(userRepo, hasher, fileService, a.redis)
 	profileHandler := handler.NewProfileHandler(profileService)
-	adminService := admin.NewService(userRepo, hasher)
+	adminService := admin.NewService(userRepo, hasher, a.redis)
 	adminHandler := handler.NewAdminHandler(adminService)
 	workspaceRepo := repository.NewWorkspaceRepo(a.postgres.DB)
-	workspaceService := workspace.NewService(workspaceRepo, userRepo)
-	workspaceHandler := handler.NewWorkspaceHandler(workspaceService)
+	favoriteRepo := repository.NewFavoriteRepo(a.postgres.DB)
 	boardRepo := repository.NewBoardRepo(a.postgres.DB)
 	columnRepo := repository.NewColumnRepo(a.postgres.DB)
+	workspaceService := workspace.NewService(workspaceRepo, userRepo, favoriteRepo, boardRepo, columnRepo, a.hub, a.redis)
+	workspaceHandler := handler.NewWorkspaceHandler(workspaceService)
 	taskRepo := repository.NewTaskRepo(a.postgres.DB)
-	boardService := board.NewService(boardRepo, columnRepo, taskRepo, workspaceRepo, userRepo, a.hub)
+	attachmentRepo := repository.NewAttachmentRepo(a.postgres.DB)
+	boardService := board.NewService(boardRepo, columnRepo, taskRepo, workspaceRepo, userRepo, favoriteRepo, a.hub, a.redis)
 	boardHandler := handler.NewBoardHandler(boardService)
-	columnService := column.NewService(columnRepo, boardRepo, workspaceRepo, a.hub)
-	columnHandler := handler.NewColumnHandler(columnService)
-	taskService := task.NewService(taskRepo, columnRepo, boardRepo, workspaceRepo, userRepo, a.hub)
+	taskService := task.NewService(taskRepo, columnRepo, boardRepo, workspaceRepo, userRepo, a.hub, a.redis)
 	taskHandler := handler.NewTaskHandler(taskService)
+	attachmentService := attachment.NewService(attachmentRepo, taskRepo, columnRepo, boardRepo, workspaceRepo, fileService, a.hub, a.redis)
+	attachmentHandler := handler.NewAttachmentHandler(attachmentService)
+	favoriteService := favorite.NewService(favoriteRepo, workspaceRepo, boardRepo, a.hub, a.redis)
+	favoriteHandler := handler.NewFavoriteHandler(favoriteService)
+	treeService := tree.NewService(workspaceRepo, boardRepo, columnRepo, taskRepo, userRepo, favoriteRepo, a.redis)
+	treeHandler := handler.NewTreeHandler(treeService)
 
 	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
 		return err
@@ -133,8 +146,10 @@ func (a *App) Run() error {
 		AdminHandler:        adminHandler,
 		WorkspaceHandler:    workspaceHandler,
 		BoardHandler:        boardHandler,
-		ColumnHandler:       columnHandler,
 		TaskHandler:         taskHandler,
+		AttachmentHandler:   attachmentHandler,
+		FavoriteHandler:     favoriteHandler,
+		TreeHandler:         treeHandler,
 		Files:               fileService,
 		EnableSwagger:       true,
 	})
