@@ -45,9 +45,19 @@ func (r *BoardRepo) FindBoardByID(ctx context.Context, id string) (*models.Board
 func (r *BoardRepo) UpdateBoard(ctx context.Context, board *models.Board) error {
 	e := boardToEntity(board)
 	err := r.db.WithContext(ctx).Model(&entity.Board{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
-		"name":     e.Name,
-		"position": e.Position,
+		"name":        e.Name,
+		"position":    e.Position,
+		"is_main":     e.IsMain,
+		"archived_at": e.ArchivedAt,
 	}).Error
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
+func (r *BoardRepo) ClearMainBoards(ctx context.Context, workspaceID string) error {
+	err := r.db.WithContext(ctx).Model(&entity.Board{}).Where("workspace_id = ?", workspaceID).Update("is_main", false).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -93,12 +103,52 @@ func (r *BoardRepo) ListBoards(ctx context.Context, workspaceID string) ([]*mode
 	return boards, nil
 }
 
+func (r *BoardRepo) CountTasksByBoard(ctx context.Context, workspaceID string) (map[string]int, error) {
+	type row struct {
+		BoardID string
+		Count   int
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).
+		Model(&entity.Task{}).
+		Select("cols.board_id as board_id, count(tasks.id) as count").
+		Joins("JOIN board_columns cols ON cols.id = tasks.column_id").
+		Where("cols.board_id IN (SELECT id FROM boards WHERE workspace_id = ?)", workspaceID).
+		Where("tasks.archived_at IS NULL").
+		Group("cols.board_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	counts := make(map[string]int, len(rows))
+	for _, r := range rows {
+		counts[r.BoardID] = r.Count
+	}
+	return counts, nil
+}
+
+func (r *BoardRepo) ReorderBoards(ctx context.Context, workspaceID string, boardIDs []string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for i, id := range boardIDs {
+			res := tx.Model(&entity.Board{}).
+				Where("id = ? AND workspace_id = ?", id, workspaceID).
+				Update("position", i)
+			if res.Error != nil {
+				return res.Error
+			}
+		}
+		return nil
+	})
+}
+
 func boardToEntity(b *models.Board) *entity.Board {
 	return &entity.Board{
 		ID:          b.ID,
 		WorkspaceID: b.WorkspaceID,
 		Name:        b.Name,
 		Position:    b.Position,
+		IsMain:      b.IsMain,
+		ArchivedAt:  b.ArchivedAt,
 		CreatedAt:   b.CreatedAt,
 		UpdatedAt:   b.UpdatedAt,
 	}
@@ -110,6 +160,8 @@ func boardToDomain(e *entity.Board) *models.Board {
 		WorkspaceID: e.WorkspaceID,
 		Name:        e.Name,
 		Position:    e.Position,
+		IsMain:      e.IsMain,
+		ArchivedAt:  e.ArchivedAt,
 		CreatedAt:   e.CreatedAt,
 		UpdatedAt:   e.UpdatedAt,
 	}

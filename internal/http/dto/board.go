@@ -11,42 +11,25 @@ type UpdateBoardRequest struct {
 }
 
 type BoardResponse struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	Name        string    `json:"name"`
-	Position    int       `json:"position"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	WorkspaceID string     `json:"workspace_id"`
+	Name        string     `json:"name"`
+	Position    int        `json:"position"`
+	IsMain      bool       `json:"is_main"`
+	Archived    bool       `json:"archived"`
+	IsFavorite  bool       `json:"is_favorite"`
+	TaskCount   int        `json:"task_count"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ArchivedAt  *time.Time `json:"archived_at"`
 }
 
-type TaskAssigneeResponse struct {
-	ID          string `json:"id"`
-	Login       string `json:"login"`
-	DisplayName string `json:"display_name"`
-	AvatarKey   string `json:"avatar_key"`
+type ArchiveBoardRequest struct {
+	Archived bool `json:"archived"`
 }
 
-type TaskResponse struct {
-	ID          string                `json:"id"`
-	ColumnID    string                `json:"column_id"`
-	Title       string                `json:"title"`
-	Description string                `json:"description"`
-	Priority    string                `json:"priority"`
-	Assignee    *TaskAssigneeResponse `json:"assignee"`
-	DueDate     *time.Time            `json:"due_date"`
-	Position    int                   `json:"position"`
-	CreatedAt   time.Time             `json:"created_at"`
-	UpdatedAt   time.Time             `json:"updated_at"`
-}
-
-type ColumnResponse struct {
-	ID        string    `json:"id"`
-	BoardID   string    `json:"board_id"`
-	Name      string    `json:"name"`
-	Position  int       `json:"position"`
-	TaskCount int       `json:"task_count"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+type ReorderBoardsRequest struct {
+	BoardIDs []string `json:"board_ids"`
 }
 
 type ColumnDetailResponse struct {
@@ -65,6 +48,7 @@ type BoardDetailResponse struct {
 	WorkspaceID string                 `json:"workspace_id"`
 	Name        string                 `json:"name"`
 	Position    int                    `json:"position"`
+	IsMain      bool                   `json:"is_main"`
 	Columns     []ColumnDetailResponse `json:"columns"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`

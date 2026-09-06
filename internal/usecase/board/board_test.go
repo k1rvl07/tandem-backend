@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/http/dto"
@@ -31,6 +32,7 @@ func newEnv(t *testing.T) *env {
 	tasks := testutil.NewFakeTaskRepo()
 	ws := testutil.NewFakeWorkspaceRepo()
 	users := testutil.NewFakeUserRepo()
+	favorites := testutil.NewFakeFavoriteRepo()
 	hub := testutil.NewFakeHub()
 
 	actorA := testutil.NewUUID()
@@ -44,7 +46,7 @@ func newEnv(t *testing.T) *env {
 	ws.AddMemberFixture(wsA, actorB, models.RoleViewer)
 
 	return &env{
-		svc:    NewService(boards, cols, tasks, ws, users, hub),
+		svc:    NewService(boards, cols, tasks, ws, users, favorites, hub, testutil.NewFakeCache()),
 		ws:     ws,
 		cols:   cols,
 		tasks:  tasks,
@@ -106,7 +108,7 @@ func TestListBoards(t *testing.T) {
 	b2 := boardsRepo.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 	boardsRepo.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
 
-	list, err := e.svc.List(context.Background(), e.actorA, e.wsA)
+	list, err := e.svc.List(context.Background(), e.actorA, e.wsA, false)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -127,7 +129,7 @@ func TestGetBoard(t *testing.T) {
 	task1 := e.tasks.AddTaskFixture(testutil.NewUUID(), col1.ID, "Implement", 0)
 	task1.AssigneeID = assignee.ID
 
-	detail, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID)
+	detail, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID, false)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -145,7 +147,7 @@ func TestGetBoard(t *testing.T) {
 func TestGetBoardFromOtherWorkspace(t *testing.T) {
 	e := newEnv(t)
 	board := e.svc.boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
-	_, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID)
+	_, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID, false)
 	if !errors.Is(err, pkgerrors.ErrNotFound) {
 		t.Fatalf("expected not found, got %v", err)
 	}
@@ -155,7 +157,7 @@ func TestGetBoardNonMember(t *testing.T) {
 	e := newEnv(t)
 	board := e.svc.boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
 	outsider := testutil.NewUUID()
-	_, err := e.svc.Get(context.Background(), outsider, e.wsA, board.ID)
+	_, err := e.svc.Get(context.Background(), outsider, e.wsA, board.ID, false)
 	if !errors.Is(err, pkgerrors.ErrForbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
 	}
@@ -205,5 +207,144 @@ func TestDeleteBoardFromOtherWorkspace(t *testing.T) {
 	err := e.svc.Delete(context.Background(), e.actorA, e.wsA, board.ID)
 	if !errors.Is(err, pkgerrors.ErrNotFound) {
 		t.Fatalf("expected not found, got %v", err)
+	}
+}
+
+func TestArchiveBoard(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+
+	archived, err := e.svc.Archive(context.Background(), e.actorA, e.wsA, board.ID, true)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if !archived.Archived || archived.ArchivedAt == nil {
+		t.Fatalf("expected archived board, got %+v", archived)
+	}
+
+	list, err := e.svc.List(context.Background(), e.actorA, e.wsA, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected archive-hidden board, got %+v", list)
+	}
+
+	list, err = e.svc.List(context.Background(), e.actorA, e.wsA, true)
+	if err != nil {
+		t.Fatalf("list with archived: %v", err)
+	}
+	if len(list) != 1 || !list[0].Archived {
+		t.Fatalf("expected archived board in list, got %+v", list)
+	}
+
+	restored, err := e.svc.Archive(context.Background(), e.actorA, e.wsA, board.ID, false)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if restored.Archived || restored.ArchivedAt != nil {
+		t.Fatalf("expected restored board, got %+v", restored)
+	}
+}
+
+func TestArchiveBoardMainForbidden(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Main")
+	board.IsMain = true
+
+	_, err := e.svc.Archive(context.Background(), e.actorA, e.wsA, board.ID, true)
+	if !errors.Is(err, pkgerrors.ErrValidation) {
+		t.Fatalf("expected validation error archiving main board, got %v", err)
+	}
+}
+
+func TestArchiveBoardViewerForbidden(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+
+	_, err := e.svc.Archive(context.Background(), e.actorB, e.wsA, board.ID, true)
+	if !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+}
+
+func TestReorderBoards(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.boards.(*testutil.FakeBoardRepo)
+	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
+	b2 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
+	b3 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Gamma")
+
+	ordered, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{b3.ID, b1.ID, b2.ID}})
+	if err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	if len(ordered) != 3 || ordered[0].ID != b3.ID || ordered[1].ID != b1.ID || ordered[2].ID != b2.ID {
+		t.Fatalf("unexpected order: %+v", ordered)
+	}
+	if ordered[0].Position != 0 || ordered[1].Position != 1 || ordered[2].Position != 2 {
+		t.Fatalf("positions not sequential: %+v", ordered)
+	}
+
+	list, err := e.svc.List(context.Background(), e.actorA, e.wsA, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 3 || list[0].ID != b3.ID || list[2].ID != b2.ID {
+		t.Fatalf("stored order not reordered: %+v", list)
+	}
+}
+
+func TestReorderBoardsValidation(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.boards.(*testutil.FakeBoardRepo)
+	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
+	boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
+
+	if _, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{}}); !errors.Is(err, pkgerrors.ErrValidation) {
+		t.Fatalf("expected validation error for empty list, got %v", err)
+	}
+	if _, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{testutil.NewUUID()}}); !errors.Is(err, pkgerrors.ErrValidation) {
+		t.Fatalf("expected validation error for foreign board, got %v", err)
+	}
+	if _, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{b1.ID, b1.ID}}); !errors.Is(err, pkgerrors.ErrValidation) {
+		t.Fatalf("expected validation error for duplicates, got %v", err)
+	}
+}
+
+func TestReorderBoardsViewerForbidden(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.boards.(*testutil.FakeBoardRepo)
+	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
+
+	_, err := e.svc.Reorder(context.Background(), e.actorB, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})
+	if !errors.Is(err, pkgerrors.ErrForbidden) {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+}
+
+func TestListBoardsIncludeArchived(t *testing.T) {
+	e := newEnv(t)
+	board := e.svc.boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	now := time.Now()
+	board.ArchivedAt = &now
+
+	list, err := e.svc.List(context.Background(), e.actorA, e.wsA, false)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected archived hidden, got %+v", list)
+	}
+
+	list, err = e.svc.List(context.Background(), e.actorA, e.wsA, true)
+	if err != nil {
+		t.Fatalf("list with archived: %v", err)
+	}
+	if len(list) != 1 || !list[0].Archived {
+		t.Fatalf("expected archived board, got %+v", list)
 	}
 }

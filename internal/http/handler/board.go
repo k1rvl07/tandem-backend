@@ -16,19 +16,20 @@ func NewBoardHandler(uc board.UseCase) *BoardHandler {
 	return &BoardHandler{boards: uc}
 }
 
-// List lists boards of a workspace.
 // @Summary List workspace boards
 // @Tags boards
 // @Produce json
 // @Security BearerAuth
 // @Param wsId path string true "Workspace ID"
+// @Param include_archived query bool false "Include archived boards"
 // @Success 200 {array} dto.BoardResponse
 // @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
 // @Failure 403 {object} map[string]string
 // @Router /api/v1/workspaces/{id}/boards [get]
 func (h *BoardHandler) List(c *gin.Context) {
-	resp, err := h.boards.List(c.Request.Context(), currentUserID(c), c.Param("id"))
+	includeArchived := c.DefaultQuery("include_archived", "") == "1"
+	resp, err := h.boards.List(c.Request.Context(), currentUserID(c), c.Param("id"), includeArchived)
 	if err != nil {
 		respondError(c, err)
 		return
@@ -36,7 +37,6 @@ func (h *BoardHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Create creates a board with default columns.
 // @Summary Create a board
 // @Tags boards
 // @Accept json
@@ -63,13 +63,13 @@ func (h *BoardHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// Get returns a board with its columns and tasks.
 // @Summary Get a board
 // @Tags boards
 // @Produce json
 // @Security BearerAuth
 // @Param wsId path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
+// @Param include_archived query bool false "Include archived tasks"
 // @Success 200 {object} dto.BoardDetailResponse
 // @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
@@ -77,7 +77,8 @@ func (h *BoardHandler) Create(c *gin.Context) {
 // @Failure 404 {object} map[string]string
 // @Router /api/v1/workspaces/{id}/boards/{boardId} [get]
 func (h *BoardHandler) Get(c *gin.Context) {
-	resp, err := h.boards.Get(c.Request.Context(), currentUserID(c), c.Param("id"), c.Param("boardId"))
+	includeArchived := c.DefaultQuery("include_archived", "") == "1"
+	resp, err := h.boards.Get(c.Request.Context(), currentUserID(c), c.Param("id"), c.Param("boardId"), includeArchived)
 	if err != nil {
 		respondError(c, err)
 		return
@@ -85,7 +86,81 @@ func (h *BoardHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Update renames a board.
+// @Summary Set main board
+// @Tags boards
+// @Produce json
+// @Security BearerAuth
+// @Param wsId path string true "Workspace ID"
+// @Param boardId path string true "Board ID"
+// @Success 200 {object} dto.BoardResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/boards/{boardId}/main [put]
+func (h *BoardHandler) SetMain(c *gin.Context) {
+	resp, err := h.boards.SetMain(c.Request.Context(), currentUserID(c), c.Param("id"), c.Param("boardId"))
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// @Summary Archive or restore a board
+// @Tags boards
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param wsId path string true "Workspace ID"
+// @Param boardId path string true "Board ID"
+// @Param request body dto.ArchiveBoardRequest true "Archive payload"
+// @Success 200 {object} dto.BoardResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/boards/{boardId}/archive [put]
+func (h *BoardHandler) Archive(c *gin.Context) {
+	var req dto.ArchiveBoardRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	resp, err := h.boards.Archive(c.Request.Context(), currentUserID(c), c.Param("id"), c.Param("boardId"), req.Archived)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// @Summary Reorder boards
+// @Tags boards
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param wsId path string true "Workspace ID"
+// @Param request body dto.ReorderBoardsRequest true "Ordered board ids"
+// @Success 200 {array} dto.BoardResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/boards/reorder [put]
+func (h *BoardHandler) Reorder(c *gin.Context) {
+	var req dto.ReorderBoardsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	resp, err := h.boards.Reorder(c.Request.Context(), currentUserID(c), c.Param("id"), req)
+	if err != nil {
+		respondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // @Summary Update a board
 // @Tags boards
 // @Accept json
@@ -114,7 +189,6 @@ func (h *BoardHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Delete deletes a board with its columns and tasks.
 // @Summary Delete a board
 // @Tags boards
 // @Produce json

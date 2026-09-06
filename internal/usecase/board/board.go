@@ -3,31 +3,39 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/tandem/tandem/internal/domain/models"
+	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	"github.com/tandem/tandem/internal/http/dto"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
+	"github.com/tandem/tandem/internal/usecase/cacheutil"
 )
 
 const (
-	eventBoardCreated = "board.created"
-	eventBoardUpdated = "board.updated"
-	eventBoardDeleted = "board.deleted"
+	eventBoardCreated    = "board.created"
+	eventBoardUpdated    = "board.updated"
+	eventBoardDeleted    = "board.deleted"
+	eventBoardsReordered = "boards.reordered"
 )
 
-var defaultColumns = []string{"Backlog", "To Do", "In Progress", "Done"}
+var defaultColumns = models.DefaultColumnNames
 
 type UseCase interface {
 	Create(ctx context.Context, actorID, workspaceID string, req dto.CreateBoardRequest) (*dto.BoardResponse, error)
-	List(ctx context.Context, actorID, workspaceID string) ([]dto.BoardResponse, error)
-	Get(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardDetailResponse, error)
+	List(ctx context.Context, actorID, workspaceID string, includeArchived bool) ([]dto.BoardResponse, error)
+	Get(ctx context.Context, actorID, workspaceID, boardID string, includeArchived bool) (*dto.BoardDetailResponse, error)
 	Update(ctx context.Context, actorID, workspaceID, boardID string, req dto.UpdateBoardRequest) (*dto.BoardResponse, error)
 	Delete(ctx context.Context, actorID, workspaceID, boardID string) error
+	SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardResponse, error)
+	Archive(ctx context.Context, actorID, workspaceID, boardID string, archived bool) (*dto.BoardResponse, error)
+	Reorder(ctx context.Context, actorID, workspaceID string, req dto.ReorderBoardsRequest) ([]dto.BoardResponse, error)
 }
 
 type Service struct {
@@ -36,7 +44,9 @@ type Service struct {
 	tasks      repository.TaskRepository
 	workspaces repository.WorkspaceRepository
 	users      repository.UserRepository
+	favorites  repository.FavoriteRepository
 	hub        ws.Hub
+	cache      cache.Cache
 }
 
 func NewService(
@@ -45,7 +55,9 @@ func NewService(
 	tasks repository.TaskRepository,
 	workspaces repository.WorkspaceRepository,
 	users repository.UserRepository,
+	favorites repository.FavoriteRepository,
 	hub ws.Hub,
+	cache cache.Cache,
 ) *Service {
 	return &Service{
 		boards:     boards,
@@ -53,8 +65,14 @@ func NewService(
 		tasks:      tasks,
 		workspaces: workspaces,
 		users:      users,
+		favorites:  favorites,
 		hub:        hub,
+		cache:      cache,
 	}
+}
+
+func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
+	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 }
 
 func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req dto.CreateBoardRequest) (*dto.BoardResponse, error) {
@@ -97,11 +115,12 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req d
 		}
 	}
 	response := boardToResponse(board)
+	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardCreated, Data: response})
 	return response, nil
 }
 
-func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.BoardResponse, error) {
+func (s *Service) List(ctx context.Context, actorID, workspaceID string, includeArchived bool) ([]dto.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -110,18 +129,44 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.
 		return nil, err
 	}
 	_ = member
+	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
+	archived := "0"
+	if includeArchived {
+		archived = "1"
+	}
+	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, archived)
+	var cached []dto.BoardResponse
+	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
+		return cached, nil
+	}
 	boards, err := s.boards.ListBoards(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]dto.BoardResponse, 0, len(boards))
-	for i := range boards {
-		responses = append(responses, *boardToResponse(boards[i]))
+	counts, err := s.boards.CountTasksByBoard(ctx, workspaceID)
+	if err != nil {
+		return nil, err
 	}
+	responses := make([]dto.BoardResponse, 0, len(boards))
+	favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteBoard)
+	if err != nil {
+		return nil, err
+	}
+	for i := range boards {
+		if boards[i].ArchivedAt != nil && !includeArchived {
+			continue
+		}
+		resp := boardToResponse(boards[i])
+		resp.TaskCount = counts[boards[i].ID]
+		resp.IsFavorite = favBoards[boards[i].ID]
+		responses = append(responses, *resp)
+	}
+	cacheutil.Store(ctx, s.cache, listKey, responses, cacheutil.TTL)
 	return responses, nil
 }
 
-func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardDetailResponse, error) {
+func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string, includeArchived bool) (*dto.BoardDetailResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -135,6 +180,17 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 	if err != nil {
 		return nil, err
 	}
+	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
+	archived := "0"
+	if includeArchived {
+		archived = "1"
+	}
+	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s:%s", actorID, boardID, wsver, uver, archived)
+	var cached dto.BoardDetailResponse
+	if cacheutil.Load(ctx, s.cache, detailKey, &cached) {
+		return &cached, nil
+	}
 	columns, err := s.columns.ListColumns(ctx, board.ID)
 	if err != nil {
 		return nil, err
@@ -143,18 +199,33 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 	if err != nil {
 		return nil, err
 	}
-	assignees, err := s.resolveAssignees(ctx, tasks)
+	workspace, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
+	}
+	users, err := s.resolveUsers(ctx, tasks)
+	if err != nil {
+		return nil, err
+	}
+	columnNames := make(map[string]string, len(columns))
+	for i := range columns {
+		columnNames[columns[i].ID] = columns[i].Name
 	}
 
 	columnDetails := make([]dto.ColumnDetailResponse, 0, len(columns))
 	for i := range columns {
 		columnTasks := make([]dto.TaskResponse, 0)
 		for _, task := range tasks {
-			if task.ColumnID == columns[i].ID {
-				columnTasks = append(columnTasks, *taskToResponse(task, assignees[task.AssigneeID]))
+			if task.ColumnID != columns[i].ID {
+				continue
 			}
+			if task.IsHidden {
+				continue
+			}
+			if task.ArchivedAt != nil && !includeArchived {
+				continue
+			}
+			columnTasks = append(columnTasks, taskToResponse(task, users, workspace.Prefix, boardID, board.Name, columns[i].Name))
 		}
 		columnDetails = append(columnDetails, dto.ColumnDetailResponse{
 			ID:        columns[i].ID,
@@ -167,15 +238,18 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 			UpdatedAt: columns[i].UpdatedAt,
 		})
 	}
-	return &dto.BoardDetailResponse{
+	detail := &dto.BoardDetailResponse{
 		ID:          board.ID,
 		WorkspaceID: board.WorkspaceID,
 		Name:        board.Name,
 		Position:    board.Position,
+		IsMain:      board.IsMain,
 		Columns:     columnDetails,
 		CreatedAt:   board.CreatedAt,
 		UpdatedAt:   board.UpdatedAt,
-	}, nil
+	}
+	cacheutil.Store(ctx, s.cache, detailKey, detail, cacheutil.TTL)
+	return detail, nil
 }
 
 func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID string, req dto.UpdateBoardRequest) (*dto.BoardResponse, error) {
@@ -204,6 +278,7 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID stri
 		return nil, err
 	}
 	response := boardToResponse(board)
+	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardUpdated, Data: response})
 	return response, nil
 }
@@ -226,14 +301,141 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID stri
 	if err != nil {
 		return err
 	}
+	if board.IsMain {
+		return pkgerrors.NewValidationError("cannot delete the main board")
+	}
 	if err := s.boards.DeleteBoard(ctx, board.ID); err != nil {
 		return err
 	}
+	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{
 		Type: eventBoardDeleted,
 		Data: map[string]string{"id": board.ID},
 	})
 	return nil
+}
+
+func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardResponse, error) {
+	if err := validate.UUID(workspaceID); err != nil {
+		return nil, err
+	}
+	if err := validate.UUID(boardID); err != nil {
+		return nil, err
+	}
+	member, err := s.memberOf(ctx, actorID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if member.Role != models.RoleOwner {
+		return nil, pkgerrors.ErrForbidden
+	}
+	board, err := s.boardInWorkspace(ctx, workspaceID, boardID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.boards.ClearMainBoards(ctx, workspaceID); err != nil {
+		return nil, err
+	}
+	board.IsMain = true
+	if err := s.boards.UpdateBoard(ctx, board); err != nil {
+		return nil, err
+	}
+	response := boardToResponse(board)
+	s.bumpWorkspace(ctx, workspaceID)
+	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardUpdated, Data: response})
+	return response, nil
+}
+
+func (s *Service) Archive(ctx context.Context, actorID, workspaceID, boardID string, archived bool) (*dto.BoardResponse, error) {
+	if err := validate.UUID(workspaceID); err != nil {
+		return nil, err
+	}
+	if err := validate.UUID(boardID); err != nil {
+		return nil, err
+	}
+	member, err := s.memberOf(ctx, actorID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireEditor(member.Role); err != nil {
+		return nil, err
+	}
+	board, err := s.boardInWorkspace(ctx, workspaceID, boardID)
+	if err != nil {
+		return nil, err
+	}
+	if archived && board.IsMain {
+		return nil, pkgerrors.NewValidationError("cannot archive the main board")
+	}
+	if archived {
+		t := time.Now()
+		board.ArchivedAt = &t
+	} else {
+		board.ArchivedAt = nil
+	}
+	if err := s.boards.UpdateBoard(ctx, board); err != nil {
+		return nil, err
+	}
+	response := boardToResponse(board)
+	s.bumpWorkspace(ctx, workspaceID)
+	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardUpdated, Data: response})
+	return response, nil
+}
+
+func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req dto.ReorderBoardsRequest) ([]dto.BoardResponse, error) {
+	if err := validate.UUID(workspaceID); err != nil {
+		return nil, err
+	}
+	member, err := s.memberOf(ctx, actorID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireEditor(member.Role); err != nil {
+		return nil, err
+	}
+	boards, err := s.boards.ListBoards(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	valid := make(map[string]bool, len(boards))
+	for _, b := range boards {
+		valid[b.ID] = true
+	}
+	if len(req.BoardIDs) == 0 {
+		return nil, pkgerrors.NewValidationError("board_ids is required")
+	}
+	seen := make(map[string]bool, len(req.BoardIDs))
+	for _, id := range req.BoardIDs {
+		if !valid[id] {
+			return nil, pkgerrors.NewValidationError("board_ids contains a board not in this workspace")
+		}
+		if seen[id] {
+			return nil, pkgerrors.NewValidationError("board_ids contains duplicates")
+		}
+		seen[id] = true
+	}
+	if err := s.boards.ReorderBoards(ctx, workspaceID, req.BoardIDs); err != nil {
+		return nil, err
+	}
+	counts, err := s.boards.CountTasksByBoard(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ordered := make([]dto.BoardResponse, 0, len(req.BoardIDs))
+	for _, id := range req.BoardIDs {
+		for _, b := range boards {
+			if b.ID == id {
+				resp := boardToResponse(b)
+				resp.Position = len(ordered)
+				resp.TaskCount = counts[id]
+				ordered = append(ordered, *resp)
+				break
+			}
+		}
+	}
+	s.bumpWorkspace(ctx, workspaceID)
+	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardsReordered, Data: ordered})
+	return ordered, nil
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*models.WorkspaceMember, error) {
@@ -265,29 +467,36 @@ func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID str
 	return board, nil
 }
 
-func (s *Service) resolveAssignees(ctx context.Context, tasks []*models.Task) (map[string]*dto.TaskAssigneeResponse, error) {
-	assignees := make(map[string]*dto.TaskAssigneeResponse)
-	seen := make(map[string]bool)
+func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[string]*dto.TaskUserResponse, error) {
+	ids := make(map[string]bool)
 	for _, task := range tasks {
-		if task.AssigneeID == "" || seen[task.AssigneeID] {
-			continue
+		if task.AuthorID != "" {
+			ids[task.AuthorID] = true
 		}
-		seen[task.AssigneeID] = true
-		user, err := s.users.FindByID(ctx, task.AssigneeID)
+		if task.AssigneeID != "" {
+			ids[task.AssigneeID] = true
+		}
+		if task.CuratorID != "" {
+			ids[task.CuratorID] = true
+		}
+	}
+	result := make(map[string]*dto.TaskUserResponse)
+	for id := range ids {
+		user, err := s.users.FindByID(ctx, id)
 		if err != nil {
 			if errors.Is(err, pkgerrors.ErrNotFound) {
 				continue
 			}
 			return nil, err
 		}
-		assignees[user.ID] = &dto.TaskAssigneeResponse{
+		result[id] = &dto.TaskUserResponse{
 			ID:          user.ID,
 			Login:       user.Login,
 			DisplayName: user.DisplayName,
 			AvatarKey:   user.AvatarKey,
 		}
 	}
-	return assignees, nil
+	return result, nil
 }
 
 func boardRoom(workspaceID string) string {
@@ -295,26 +504,50 @@ func boardRoom(workspaceID string) string {
 }
 
 func boardToResponse(board *models.Board) *dto.BoardResponse {
+	var archived bool
+	if board.ArchivedAt != nil {
+		archived = true
+	}
 	return &dto.BoardResponse{
 		ID:          board.ID,
 		WorkspaceID: board.WorkspaceID,
 		Name:        board.Name,
 		Position:    board.Position,
+		IsMain:      board.IsMain,
+		Archived:    archived,
+		ArchivedAt:  board.ArchivedAt,
 		CreatedAt:   board.CreatedAt,
 		UpdatedAt:   board.UpdatedAt,
 	}
 }
 
-func taskToResponse(task *models.Task, assignee *dto.TaskAssigneeResponse) *dto.TaskResponse {
-	return &dto.TaskResponse{
+func taskToResponse(task *models.Task, users map[string]*dto.TaskUserResponse, prefix, boardID, boardName, columnName string) dto.TaskResponse {
+	short := task.ID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	if prefix == "" {
+		prefix = "T"
+	}
+	return dto.TaskResponse{
 		ID:          task.ID,
+		DisplayID:   prefix + "-" + short,
+		BoardID:     boardID,
+		BoardName:   boardName,
 		ColumnID:    task.ColumnID,
+		ColumnName:  columnName,
 		Title:       task.Title,
 		Description: task.Description,
-		Priority:    task.Priority,
-		Assignee:    assignee,
+		Author:      users[task.AuthorID],
+		Assignee:    users[task.AssigneeID],
+		Curator:     users[task.CuratorID],
+		ParentID:    task.ParentID,
 		DueDate:     task.DueDate,
 		Position:    task.Position,
+		IsUrgent:    task.IsUrgent,
+		IsHidden:    task.IsHidden,
+		ImageKey:    task.ImageKey,
+		ArchivedAt:  task.ArchivedAt,
 		CreatedAt:   task.CreatedAt,
 		UpdatedAt:   task.UpdatedAt,
 	}

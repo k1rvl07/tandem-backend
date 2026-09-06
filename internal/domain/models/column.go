@@ -2,6 +2,8 @@ package models
 
 import "time"
 
+var DefaultColumnNames = []string{"Backlog", "To Do", "In Progress", "Done"}
+
 type Column struct {
 	ID        string
 	BoardID   string
