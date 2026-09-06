@@ -5,3 +5,4 @@ tmp/
 bin/
 coverage.out
 air.log
+docs/
