@@ -67,6 +67,14 @@ func (f *fakeUserRepo) List(_ context.Context) ([]*models.User, error) {
 	return users, nil
 }
 
+func (f *fakeUserRepo) ListPage(context.Context, string, int, int) ([]*models.User, error) {
+	return f.List(context.Background())
+}
+
+func (f *fakeUserRepo) Count(_ context.Context, _ string) (int, error) {
+	return len(f.users), nil
+}
+
 func (f *fakeUserRepo) Update(_ context.Context, user *models.User) error {
 	if _, ok := f.users[user.Login]; !ok {
 		if _, exists := f.byID[user.ID]; !exists {

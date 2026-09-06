@@ -81,6 +81,42 @@ func (r *UserRepo) List(ctx context.Context) ([]*models.User, error) {
 	return users, nil
 }
 
+func likePattern(q string) string {
+	q = strings.ReplaceAll(q, `\`, `\\`)
+	q = strings.ReplaceAll(q, `%`, `\%`)
+	q = strings.ReplaceAll(q, `_`, `\_`)
+	return "%" + q + "%"
+}
+
+func (r *UserRepo) ListPage(ctx context.Context, query string, limit, offset int) ([]*models.User, error) {
+	db := r.db.WithContext(ctx)
+	if query != "" {
+		db = db.Where("login ILIKE ? ESCAPE '\\'", likePattern(query))
+	}
+	var es []entity.User
+	err := db.Order("created_at ASC").Limit(limit).Offset(offset).Find(&es).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	users := make([]*models.User, 0, len(es))
+	for i := range es {
+		users = append(users, toDomain(&es[i]))
+	}
+	return users, nil
+}
+
+func (r *UserRepo) Count(ctx context.Context, query string) (int, error) {
+	db := r.db.WithContext(ctx).Model(&entity.User{})
+	if query != "" {
+		db = db.Where("login ILIKE ? ESCAPE '\\'", likePattern(query))
+	}
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return 0, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return int(total), nil
+}
+
 func (r *UserRepo) Update(ctx context.Context, user *models.User) error {
 	e := toEntity(user)
 	err := r.db.WithContext(ctx).Model(&entity.User{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
