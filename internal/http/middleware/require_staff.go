@@ -19,7 +19,7 @@ func RequireStaff(users repository.UserRepository) gin.HandlerFunc {
 			return
 		}
 		user, err := users.FindByID(c.Request.Context(), uid)
-		if err != nil || !models.StaffRoles[user.Role] {
+		if err != nil || user == nil || !models.StaffRoles[user.Role] {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
