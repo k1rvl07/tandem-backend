@@ -18,7 +18,6 @@ func NewAuthHandler(uc auth.UseCase) *AuthHandler {
 	return &AuthHandler{auth: uc}
 }
 
-// Login authenticates a user and returns a token.
 // @Summary Login a user
 // @Tags auth
 // @Accept json

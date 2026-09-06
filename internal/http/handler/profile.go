@@ -18,7 +18,6 @@ func NewProfileHandler(uc profile.UserCase) *ProfileHandler {
 	return &ProfileHandler{profiles: uc}
 }
 
-// GetProfile returns the current user's profile.
 // @Summary Get current user's profile
 // @Tags profile
 // @Produce json
@@ -37,7 +36,6 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// UpdateProfile updates the current user's profile fields.
 // @Summary Update current user's profile
 // @Tags profile
 // @Accept json
@@ -64,7 +62,6 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// UploadAvatar replaces the current user's avatar.
 // @Summary Upload current user's avatar
 // @Tags profile
 // @Accept multipart/form-data
@@ -99,7 +96,6 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// ChangePassword changes the current user's password.
 // @Summary Change current user's password
 // @Tags profile
 // @Accept json

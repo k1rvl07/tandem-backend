@@ -45,7 +45,6 @@ type presenceMessage struct {
 	Members []string `json:"members"`
 }
 
-// Connect upgrades to a websocket connection authenticated by a query token.
 // @Summary WebSocket endpoint
 // @Tags ws
 // @Param token query string true "JWT token"

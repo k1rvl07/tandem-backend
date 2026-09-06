@@ -25,7 +25,6 @@ type uploadResponse struct {
 	URL string `json:"url"`
 }
 
-// UploadImage uploads an image file.
 // @Summary Upload an image
 // @Tags files
 // @Accept multipart/form-data
@@ -69,7 +68,6 @@ func (h *FileHandler) UploadImage(c *gin.Context) {
 	c.JSON(http.StatusCreated, uploadResponse{Key: key, URL: "/api/v1/files/" + key})
 }
 
-// GetImage streams an image file publicly.
 // @Summary Get an image
 // @Tags files
 // @Produce image/*
