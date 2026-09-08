@@ -4,16 +4,16 @@ import (
 	"context"
 	"time"
 
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
-	"github.com/tandem/tandem/internal/http/dto"
+	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 )
 
 type UseCase interface {
-	Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error)
+	Login(ctx context.Context, req dauth.LoginRequest) (*dauth.LoginResponse, error)
 	Logout(ctx context.Context, userID string) error
 }
 
@@ -28,7 +28,7 @@ func NewService(users repository.UserRepository, tokens service.TokenService, ha
 	return &Service{users: users, tokens: tokens, hasher: hasher, tokenTTL: tokenTTL}
 }
 
-func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error) {
+func (s *Service) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.LoginResponse, error) {
 	login := validate.NormalizeLogin(req.Login)
 	if login == "" {
 		return nil, pkgerrors.NewValidationError("login is required")
@@ -50,15 +50,15 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginRe
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 
-	return &dto.LoginResponse{Token: token, User: toUserResponse(user)}, nil
+	return &dauth.LoginResponse{Token: token, User: toUserResponse(user)}, nil
 }
 
 func (s *Service) Logout(ctx context.Context, userID string) error {
 	return s.tokens.Revoke(ctx, userID)
 }
 
-func toUserResponse(u *models.User) dto.UserResponse {
-	return dto.UserResponse{
+func toUserResponse(u *muser.User) dauth.UserResponse {
+	return dauth.UserResponse{
 		ID:          u.ID,
 		Login:       u.Login,
 		Role:        u.Role,

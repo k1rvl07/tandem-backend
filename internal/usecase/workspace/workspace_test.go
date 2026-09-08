@@ -11,9 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
+	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/http/dto"
+	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
@@ -22,26 +24,26 @@ import (
 )
 
 type fakeWorkspaceRepo struct {
-	workspaces map[string]*models.Workspace
-	members    map[string]map[string]*models.WorkspaceMember
+	workspaces map[string]*mworkspace.Workspace
+	members    map[string]map[string]*mworkspace.WorkspaceMember
 }
 
 func newFakeWorkspaceRepo() *fakeWorkspaceRepo {
 	return &fakeWorkspaceRepo{
-		workspaces: make(map[string]*models.Workspace),
-		members:    make(map[string]map[string]*models.WorkspaceMember),
+		workspaces: make(map[string]*mworkspace.Workspace),
+		members:    make(map[string]map[string]*mworkspace.WorkspaceMember),
 	}
 }
 
-func (f *fakeWorkspaceRepo) CreateWorkspace(_ context.Context, ws *models.Workspace) error {
-	f.workspaces[ws.ID] = &models.Workspace{
+func (f *fakeWorkspaceRepo) CreateWorkspace(_ context.Context, ws *mworkspace.Workspace) error {
+	f.workspaces[ws.ID] = &mworkspace.Workspace{
 		ID: ws.ID, Name: ws.Name, Description: ws.Description,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	return nil
 }
 
-func (f *fakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*models.Workspace, error) {
+func (f *fakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mworkspace.Workspace, error) {
 	ws, ok := f.workspaces[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -49,7 +51,7 @@ func (f *fakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mo
 	return ws, nil
 }
 
-func (f *fakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token string) (*models.Workspace, error) {
+func (f *fakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token string) (*mworkspace.Workspace, error) {
 	for _, ws := range f.workspaces {
 		if ws.InviteToken != "" && ws.InviteToken == token {
 			return ws, nil
@@ -58,7 +60,7 @@ func (f *fakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token strin
 	return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 }
 
-func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *models.Workspace) error {
+func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *mworkspace.Workspace) error {
 	existing, ok := f.workspaces[ws.ID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -88,11 +90,11 @@ func (f *fakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error 
 	return nil
 }
 
-func (f *fakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID string) ([]models.WorkspaceMembership, error) {
-	var out []models.WorkspaceMembership
+func (f *fakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID string) ([]mworkspace.WorkspaceMembership, error) {
+	var out []mworkspace.WorkspaceMembership
 	for wsID, mm := range f.members {
 		if m, ok := mm[userID]; ok {
-			out = append(out, models.WorkspaceMembership{
+			out = append(out, mworkspace.WorkspaceMembership{
 				Workspace: *f.workspaces[wsID],
 				Role:      m.Role,
 			})
@@ -104,20 +106,20 @@ func (f *fakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID stri
 	return out, nil
 }
 
-func (f *fakeWorkspaceRepo) AddMember(_ context.Context, wsID, userID string, role models.WorkspaceRole) error {
+func (f *fakeWorkspaceRepo) AddMember(_ context.Context, wsID, userID string, role mworkspace.WorkspaceRole) error {
 	if _, ok := f.members[wsID][userID]; ok {
 		return pkgerrors.Wrap(pkgerrors.ErrConflict, errors.New("unique constraint"))
 	}
 	if f.members[wsID] == nil {
-		f.members[wsID] = make(map[string]*models.WorkspaceMember)
+		f.members[wsID] = make(map[string]*mworkspace.WorkspaceMember)
 	}
-	f.members[wsID][userID] = &models.WorkspaceMember{
+	f.members[wsID][userID] = &mworkspace.WorkspaceMember{
 		WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now(),
 	}
 	return nil
 }
 
-func (f *fakeWorkspaceRepo) FindMember(_ context.Context, wsID, userID string) (*models.WorkspaceMember, error) {
+func (f *fakeWorkspaceRepo) FindMember(_ context.Context, wsID, userID string) (*mworkspace.WorkspaceMember, error) {
 	m, ok := f.members[wsID][userID]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -133,7 +135,7 @@ func (f *fakeWorkspaceRepo) RemoveMember(_ context.Context, wsID, userID string)
 	return nil
 }
 
-func (f *fakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID string, role models.WorkspaceRole) error {
+func (f *fakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID string, role mworkspace.WorkspaceRole) error {
 	m, ok := f.members[wsID][userID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -142,8 +144,8 @@ func (f *fakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID str
 	return nil
 }
 
-func (f *fakeWorkspaceRepo) ListMembers(_ context.Context, wsID string) ([]models.WorkspaceMember, error) {
-	var out []models.WorkspaceMember
+func (f *fakeWorkspaceRepo) ListMembers(_ context.Context, wsID string) ([]mworkspace.WorkspaceMember, error) {
+	var out []mworkspace.WorkspaceMember
 	for _, m := range f.members[wsID] {
 		out = append(out, *m)
 	}
@@ -174,22 +176,22 @@ func (f *fakeWorkspaceRepo) TransferOwnership(_ context.Context, wsID, oldOwnerI
 	if !okOld || !okNew {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
-	oldMember.Role = models.RoleEditor
-	newMember.Role = models.RoleOwner
+	oldMember.Role = mworkspace.RoleEditor
+	newMember.Role = mworkspace.RoleOwner
 	return nil
 }
 
 type fakeUserRepo struct {
-	users map[string]*models.User
+	users map[string]*muser.User
 }
 
-func (f *fakeUserRepo) seedUser(login string) *models.User {
-	u := &models.User{ID: uuid.New().String(), Login: login, Role: models.RoleUser, DisplayName: login}
+func (f *fakeUserRepo) seedUser(login string) *muser.User {
+	u := &muser.User{ID: uuid.New().String(), Login: login, Role: muser.RoleUser, DisplayName: login}
 	f.users[u.ID] = u
 	return u
 }
 
-func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*models.User, error) {
+func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
 	u, ok := f.users[id]
 	if !ok {
 		return nil, pkgerrors.ErrNotFound
@@ -197,7 +199,7 @@ func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*models.User, err
 	return u, nil
 }
 
-func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*models.User, error) {
+func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*muser.User, error) {
 	for _, u := range f.users {
 		if u.Login == login {
 			return u, nil
@@ -206,14 +208,14 @@ func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*models.Use
 	return nil, pkgerrors.ErrNotFound
 }
 
-func (f *fakeUserRepo) Create(_ context.Context, _ *models.User) error      { return nil }
+func (f *fakeUserRepo) Create(_ context.Context, _ *muser.User) error       { return nil }
 func (f *fakeUserRepo) ExistsByLogin(context.Context, string) (bool, error) { return false, nil }
-func (f *fakeUserRepo) List(context.Context) ([]*models.User, error)        { return nil, nil }
-func (f *fakeUserRepo) ListPage(context.Context, string, int, int) ([]*models.User, error) {
+func (f *fakeUserRepo) List(context.Context) ([]*muser.User, error)         { return nil, nil }
+func (f *fakeUserRepo) ListPage(context.Context, string, int, int) ([]*muser.User, error) {
 	return nil, nil
 }
 func (f *fakeUserRepo) Count(context.Context, string) (int, error) { return 0, nil }
-func (f *fakeUserRepo) Update(context.Context, *models.User) error { return nil }
+func (f *fakeUserRepo) Update(context.Context, *muser.User) error  { return nil }
 func (f *fakeUserRepo) Delete(context.Context, string) error       { return nil }
 
 var _ repository.UserRepository = (*fakeUserRepo)(nil)
@@ -229,7 +231,7 @@ type testEnv struct {
 
 func newTestEnv() *testEnv {
 	wsRepo := newFakeWorkspaceRepo()
-	userRepo := &fakeUserRepo{users: make(map[string]*models.User)}
+	userRepo := &fakeUserRepo{users: make(map[string]*muser.User)}
 	favorites := testutil.NewFakeFavoriteRepo()
 	boards := testutil.NewFakeBoardRepo()
 	columns := testutil.NewFakeColumnRepo()
@@ -269,13 +271,13 @@ func (noopWorkspaceStore) PresignGet(context.Context, string, time.Duration) (st
 func (e *testEnv) seedWorkspace(owner, editor, member string) string {
 	env := e
 	wsID := uuid.New().String()
-	env.wsRepo.workspaces[wsID] = &models.Workspace{
+	env.wsRepo.workspaces[wsID] = &mworkspace.Workspace{
 		ID: wsID, Name: "Team Space", CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
-	env.wsRepo.members[wsID] = map[string]*models.WorkspaceMember{
-		owner:  {WorkspaceID: wsID, UserID: owner, Role: models.RoleOwner, CreatedAt: time.Now()},
-		editor: {WorkspaceID: wsID, UserID: editor, Role: models.RoleEditor, CreatedAt: time.Now()},
-		member: {WorkspaceID: wsID, UserID: member, Role: models.RoleMember, CreatedAt: time.Now()},
+	env.wsRepo.members[wsID] = map[string]*mworkspace.WorkspaceMember{
+		owner:  {WorkspaceID: wsID, UserID: owner, Role: mworkspace.RoleOwner, CreatedAt: time.Now()},
+		editor: {WorkspaceID: wsID, UserID: editor, Role: mworkspace.RoleEditor, CreatedAt: time.Now()},
+		member: {WorkspaceID: wsID, UserID: member, Role: mworkspace.RoleMember, CreatedAt: time.Now()},
 	}
 	return wsID
 }
@@ -284,13 +286,13 @@ func TestCreateWorkspaceOwnerAdded(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 
-	resp, err := e.svc.Create(context.Background(), owner.ID, dto.CreateWorkspaceRequest{Name: "  My Team  "})
+	resp, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: "  My Team  "})
 	require.NoError(t, err)
 	assert.Equal(t, "My Team", resp.Name)
-	assert.Equal(t, string(models.RoleOwner), resp.Role)
+	assert.Equal(t, string(mworkspace.RoleOwner), resp.Role)
 	member, err := e.wsRepo.FindMember(context.Background(), resp.ID, owner.ID)
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleOwner, member.Role)
+	assert.Equal(t, mworkspace.RoleOwner, member.Role)
 
 	boards, err := e.boards.ListBoards(context.Background(), resp.ID)
 	require.NoError(t, err)
@@ -299,14 +301,14 @@ func TestCreateWorkspaceOwnerAdded(t *testing.T) {
 	assert.True(t, boards[0].IsMain)
 	cols, err := e.columns.ListColumns(context.Background(), boards[0].ID)
 	require.NoError(t, err)
-	assert.Equal(t, len(models.DefaultColumnNames), len(cols))
+	assert.Equal(t, len(mcolumn.DefaultColumnNames), len(cols))
 }
 
 func TestCreateWorkspaceValidation(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 
-	_, err := e.svc.Create(context.Background(), owner.ID, dto.CreateWorkspaceRequest{Name: ""})
+	_, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: ""})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
@@ -358,7 +360,7 @@ func TestUpdateWorkspacePermissions(t *testing.T) {
 	member := e.userRepo.seedUser("member.one")
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
-	req := dto.UpdateWorkspaceRequest{Name: "Renamed", Description: "desc"}
+	req := dworkspace.UpdateWorkspaceRequest{Name: "Renamed", Description: "desc"}
 
 	_, err := e.svc.Update(ctx, editor.ID, wsID, req)
 	require.NoError(t, err)
@@ -397,10 +399,10 @@ func TestAddMember(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	created, err := e.svc.AddMember(ctx, owner.ID, wsID, dto.AddMemberRequest{Login: newbie.Login})
+	created, err := e.svc.AddMember(ctx, owner.ID, wsID, dworkspace.AddMemberRequest{Login: newbie.Login})
 	require.NoError(t, err)
-	assert.Equal(t, string(models.RoleMember), created.Role)
-	_, err = e.svc.AddMember(ctx, owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "editor"})
+	assert.Equal(t, string(mworkspace.RoleMember), created.Role)
+	_, err = e.svc.AddMember(ctx, owner.ID, wsID, dworkspace.AddMemberRequest{Login: "newbie.one", Role: "editor"})
 	require.ErrorIs(t, err, pkgerrors.ErrConflict)
 }
 
@@ -413,9 +415,9 @@ func TestAddMemberPermissions(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	_, err := e.svc.AddMember(ctx, editor.ID, wsID, dto.AddMemberRequest{Login: newbie.Login})
+	_, err := e.svc.AddMember(ctx, editor.ID, wsID, dworkspace.AddMemberRequest{Login: newbie.Login})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
-	_, err = e.svc.AddMember(ctx, member.ID, wsID, dto.AddMemberRequest{Login: newbie.Login})
+	_, err = e.svc.AddMember(ctx, member.ID, wsID, dworkspace.AddMemberRequest{Login: newbie.Login})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
@@ -426,9 +428,9 @@ func TestAddMemberRoleOwnerRejected(t *testing.T) {
 	member := e.userRepo.seedUser("member.one")
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
-	_, err := e.svc.AddMember(context.Background(), owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "owner"})
+	_, err := e.svc.AddMember(context.Background(), owner.ID, wsID, dworkspace.AddMemberRequest{Login: "newbie.one", Role: "owner"})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
-	_, err = e.svc.AddMember(context.Background(), owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "boss"})
+	_, err = e.svc.AddMember(context.Background(), owner.ID, wsID, dworkspace.AddMemberRequest{Login: "newbie.one", Role: "boss"})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
@@ -439,7 +441,7 @@ func TestAddMemberUnknownUser(t *testing.T) {
 	member := e.userRepo.seedUser("member.one")
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
-	_, err := e.svc.AddMember(context.Background(), owner.ID, wsID, dto.AddMemberRequest{Login: "ghost.user"})
+	_, err := e.svc.AddMember(context.Background(), owner.ID, wsID, dworkspace.AddMemberRequest{Login: "ghost.user"})
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
@@ -471,20 +473,20 @@ func TestTransferOwner(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	err := e.svc.TransferOwner(ctx, member.ID, wsID, dto.TransferOwnerRequest{UserID: owner.ID})
+	err := e.svc.TransferOwner(ctx, member.ID, wsID, dworkspace.TransferOwnerRequest{UserID: owner.ID})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
-	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: owner.ID})
+	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dworkspace.TransferOwnerRequest{UserID: owner.ID})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
-	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: uuid.NewString()})
+	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dworkspace.TransferOwnerRequest{UserID: uuid.NewString()})
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 
-	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: editor.ID})
+	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dworkspace.TransferOwnerRequest{UserID: editor.ID})
 	require.NoError(t, err)
 	newOwner, err := e.wsRepo.FindMember(ctx, wsID, editor.ID)
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleOwner, newOwner.Role)
+	assert.Equal(t, mworkspace.RoleOwner, newOwner.Role)
 	oldOwner, _ := e.wsRepo.FindMember(ctx, wsID, owner.ID)
-	assert.Equal(t, models.RoleEditor, oldOwner.Role)
+	assert.Equal(t, mworkspace.RoleEditor, oldOwner.Role)
 }
 
 func TestUpdateMemberRole(t *testing.T) {
@@ -496,22 +498,22 @@ func TestUpdateMemberRole(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	_, err := e.svc.UpdateRole(ctx, member.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	_, err := e.svc.UpdateRole(ctx, member.ID, wsID, editor.ID, dworkspace.UpdateMemberRoleRequest{Role: string(mworkspace.RoleMember)})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
-	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, other.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, other.ID, dworkspace.UpdateMemberRoleRequest{Role: string(mworkspace.RoleMember)})
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
-	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, owner.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, owner.ID, dworkspace.UpdateMemberRoleRequest{Role: string(mworkspace.RoleMember)})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
-	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: "superadmin"})
+	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dworkspace.UpdateMemberRoleRequest{Role: "superadmin"})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 
-	resp, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	resp, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dworkspace.UpdateMemberRoleRequest{Role: string(mworkspace.RoleMember)})
 	require.NoError(t, err)
-	assert.Equal(t, string(models.RoleMember), resp.Role)
+	assert.Equal(t, string(mworkspace.RoleMember), resp.Role)
 	assert.Equal(t, editor.ID, resp.ID)
 	stored, err := e.wsRepo.FindMember(ctx, wsID, editor.ID)
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleMember, stored.Role)
+	assert.Equal(t, mworkspace.RoleMember, stored.Role)
 }
 
 func TestSetThemePermissions(t *testing.T) {
@@ -592,7 +594,7 @@ func TestJoinByInvite(t *testing.T) {
 	assert.Equal(t, wsID, resp.ID)
 	stored, err := e.wsRepo.FindMember(ctx, wsID, newbie.ID)
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleMember, stored.Role)
+	assert.Equal(t, mworkspace.RoleMember, stored.Role)
 
 	_, err = e.svc.JoinByInvite(ctx, newbie.ID, token)
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)

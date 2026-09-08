@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
-	"github.com/tandem/tandem/internal/http/dto"
+	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
@@ -20,19 +20,19 @@ import (
 )
 
 type fakeRepo struct {
-	users map[string]*models.User
+	users map[string]*muser.User
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{users: make(map[string]*models.User)}
+	return &fakeRepo{users: make(map[string]*muser.User)}
 }
 
-func (f *fakeRepo) Create(_ context.Context, user *models.User) error {
+func (f *fakeRepo) Create(_ context.Context, user *muser.User) error {
 	f.users[user.Login] = user
 	return nil
 }
 
-func (f *fakeRepo) FindByID(_ context.Context, id string) (*models.User, error) {
+func (f *fakeRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
 	for _, u := range f.users {
 		if u.ID == id {
 			return u, nil
@@ -41,7 +41,7 @@ func (f *fakeRepo) FindByID(_ context.Context, id string) (*models.User, error) 
 	return nil, errors.New("not found")
 }
 
-func (f *fakeRepo) FindByLogin(_ context.Context, login string) (*models.User, error) {
+func (f *fakeRepo) FindByLogin(_ context.Context, login string) (*muser.User, error) {
 	u, ok := f.users[login]
 	if !ok {
 		return nil, errors.New("not found")
@@ -54,15 +54,15 @@ func (f *fakeRepo) ExistsByLogin(_ context.Context, login string) (bool, error) 
 	return ok, nil
 }
 
-func (f *fakeRepo) List(_ context.Context) ([]*models.User, error) {
-	users := make([]*models.User, 0, len(f.users))
+func (f *fakeRepo) List(_ context.Context) ([]*muser.User, error) {
+	users := make([]*muser.User, 0, len(f.users))
 	for _, u := range f.users {
 		users = append(users, u)
 	}
 	return users, nil
 }
 
-func (f *fakeRepo) ListPage(context.Context, string, int, int) ([]*models.User, error) {
+func (f *fakeRepo) ListPage(context.Context, string, int, int) ([]*muser.User, error) {
 	return f.List(context.Background())
 }
 
@@ -70,7 +70,7 @@ func (f *fakeRepo) Count(_ context.Context, _ string) (int, error) {
 	return len(f.users), nil
 }
 
-func (f *fakeRepo) Update(_ context.Context, user *models.User) error {
+func (f *fakeRepo) Update(_ context.Context, user *muser.User) error {
 	f.users[user.Login] = user
 	return nil
 }
@@ -129,7 +129,7 @@ func newTestService(repo *fakeRepo, store filestore.FileStore) (*Service, *testu
 
 func TestGetProfile(t *testing.T) {
 	repo := newFakeRepo()
-	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", Role: models.RoleUser, DisplayName: "Alice", Bio: "hello"}
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", Role: muser.RoleUser, DisplayName: "Alice", Bio: "hello"}
 	repo.users[user.Login] = user
 	svc, _ := newTestService(repo, newFakeStore())
 
@@ -142,11 +142,11 @@ func TestGetProfile(t *testing.T) {
 
 func TestUpdateProfile(t *testing.T) {
 	repo := newFakeRepo()
-	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", Role: models.RoleUser}
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", Role: muser.RoleUser}
 	repo.users[user.Login] = user
 	svc, _ := newTestService(repo, newFakeStore())
 
-	resp, err := svc.UpdateProfile(context.Background(), "u1", dto.UpdateProfileRequest{DisplayName: "Bob", Bio: "dev"})
+	resp, err := svc.UpdateProfile(context.Background(), "u1", dprofile.UpdateProfileRequest{DisplayName: "Bob", Bio: "dev"})
 	require.NoError(t, err)
 	assert.Equal(t, "Bob", resp.DisplayName)
 	assert.Equal(t, "dev", resp.Bio)
@@ -156,11 +156,11 @@ func TestChangePasswordWrongCurrent(t *testing.T) {
 	repo := newFakeRepo()
 	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("oldpass123")
-	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: models.RoleUser}
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser}
 	repo.users[user.Login] = user
 	svc, _ := newTestService(repo, newFakeStore())
 
-	_, err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "wrong"})
+	_, err := svc.ChangePassword(context.Background(), "u1", dprofile.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "wrong"})
 	require.Error(t, err)
 }
 
@@ -168,11 +168,11 @@ func TestChangePassword(t *testing.T) {
 	repo := newFakeRepo()
 	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("oldpass123")
-	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: models.RoleUser}
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser}
 	repo.users[user.Login] = user
 	svc, tokens := newTestService(repo, newFakeStore())
 
-	token, err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "oldpass123"})
+	token, err := svc.ChangePassword(context.Background(), "u1", dprofile.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "oldpass123"})
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 	require.Len(t, tokens.Revoked, 1)
@@ -184,10 +184,10 @@ func TestChangePasswordTooShort(t *testing.T) {
 	repo := newFakeRepo()
 	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("oldpass123")
-	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: models.RoleUser}
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser}
 	repo.users[user.Login] = user
 	svc, _ := newTestService(repo, newFakeStore())
 
-	_, err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "short", CurrentPassword: "oldpass123"})
+	_, err := svc.ChangePassword(context.Background(), "u1", dprofile.ChangePasswordRequest{NewPassword: "short", CurrentPassword: "oldpass123"})
 	require.Error(t, err)
 }

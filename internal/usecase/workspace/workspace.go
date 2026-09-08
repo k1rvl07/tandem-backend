@@ -9,11 +9,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	mboard "github.com/tandem/tandem/internal/domain/models/board"
+	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	"github.com/tandem/tandem/internal/http/dto"
+	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
@@ -30,19 +34,19 @@ const eventWorkspaceUpdated = "workspace.updated"
 const eventMemberKicked = "workspace.kicked"
 
 type UseCase interface {
-	Create(ctx context.Context, actorID string, req dto.CreateWorkspaceRequest) (*dto.WorkspaceResponse, error)
-	List(ctx context.Context, actorID string) ([]dto.WorkspaceResponse, error)
-	Get(ctx context.Context, actorID, workspaceID string) (*dto.WorkspaceDetailResponse, error)
-	Update(ctx context.Context, actorID, workspaceID string, req dto.UpdateWorkspaceRequest) (*dto.WorkspaceResponse, error)
+	Create(ctx context.Context, actorID string, req dworkspace.CreateWorkspaceRequest) (*dworkspace.WorkspaceResponse, error)
+	List(ctx context.Context, actorID string) ([]dworkspace.WorkspaceResponse, error)
+	Get(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceDetailResponse, error)
+	Update(ctx context.Context, actorID, workspaceID string, req dworkspace.UpdateWorkspaceRequest) (*dworkspace.WorkspaceResponse, error)
 	Delete(ctx context.Context, actorID, workspaceID string) error
-	SetTheme(ctx context.Context, actorID, workspaceID, theme string) (*dto.WorkspaceResponse, error)
-	AddMember(ctx context.Context, actorID, workspaceID string, req dto.AddMemberRequest) (*dto.WorkspaceMemberResponse, error)
-	UpdateRole(ctx context.Context, actorID, workspaceID, targetID string, req dto.UpdateMemberRoleRequest) (*dto.WorkspaceMemberResponse, error)
+	SetTheme(ctx context.Context, actorID, workspaceID, theme string) (*dworkspace.WorkspaceResponse, error)
+	AddMember(ctx context.Context, actorID, workspaceID string, req dworkspace.AddMemberRequest) (*dworkspace.WorkspaceMemberResponse, error)
+	UpdateRole(ctx context.Context, actorID, workspaceID, targetID string, req dworkspace.UpdateMemberRoleRequest) (*dworkspace.WorkspaceMemberResponse, error)
 	RemoveMember(ctx context.Context, actorID, workspaceID, targetID string) error
-	TransferOwner(ctx context.Context, actorID, workspaceID string, req dto.TransferOwnerRequest) error
-	GetInvite(ctx context.Context, actorID, workspaceID string) (*dto.WorkspaceInviteResponse, error)
+	TransferOwner(ctx context.Context, actorID, workspaceID string, req dworkspace.TransferOwnerRequest) error
+	GetInvite(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceInviteResponse, error)
 	DisableInvite(ctx context.Context, actorID, workspaceID string) error
-	JoinByInvite(ctx context.Context, actorID, token string) (*dto.WorkspaceResponse, error)
+	JoinByInvite(ctx context.Context, actorID, token string) (*dworkspace.WorkspaceResponse, error)
 }
 
 type Service struct {
@@ -73,7 +77,7 @@ func NewService(
 	return &Service{workspaces: workspaces, users: users, favorites: favorites, boards: boards, columns: columns, tasks: tasks, files: files, hub: hub, cache: cache, logger: logger}
 }
 
-func (s *Service) Create(ctx context.Context, actorID string, req dto.CreateWorkspaceRequest) (*dto.WorkspaceResponse, error) {
+func (s *Service) Create(ctx context.Context, actorID string, req dworkspace.CreateWorkspaceRequest) (*dworkspace.WorkspaceResponse, error) {
 	if err := validateWorkspacePayload(req.Name, req.Description); err != nil {
 		return nil, err
 	}
@@ -82,17 +86,17 @@ func (s *Service) Create(ctx context.Context, actorID string, req dto.CreateWork
 		return nil, err
 	}
 
-	ws := &models.Workspace{
+	ws := &mworkspace.Workspace{
 		ID:          uuid.New().String(),
 		Name:        strings.TrimSpace(req.Name),
 		Description: strings.TrimSpace(req.Description),
 		Prefix:      prefix,
-		Theme:       models.DefaultWorkspaceColor,
+		Theme:       mworkspace.DefaultWorkspaceColor,
 	}
 	if err := s.workspaces.CreateWorkspace(ctx, ws); err != nil {
 		return nil, err
 	}
-	if err := s.workspaces.AddMember(ctx, ws.ID, actorID, models.RoleOwner); err != nil {
+	if err := s.workspaces.AddMember(ctx, ws.ID, actorID, mworkspace.RoleOwner); err != nil {
 		_ = s.workspaces.DeleteWorkspace(ctx, ws.ID)
 		return nil, err
 	}
@@ -108,14 +112,14 @@ func (s *Service) Create(ctx context.Context, actorID string, req dto.CreateWork
 	if err != nil {
 		return nil, err
 	}
-	resp := workspaceToResponse(ws, models.RoleOwner, false)
-	resp.Owner = memberToResponse(ownerUser, models.RoleOwner)
+	resp := workspaceToResponse(ws, mworkspace.RoleOwner, false)
+	resp.Owner = memberToResponse(ownerUser, mworkspace.RoleOwner)
 	cacheutil.Bump(ctx, s.cache, cacheutil.UVerKey+actorID)
 	return resp, nil
 }
 
-func (s *Service) createMainBoard(ctx context.Context, workspaceID string) (*models.Board, error) {
-	board := &models.Board{
+func (s *Service) createMainBoard(ctx context.Context, workspaceID string) (*mboard.Board, error) {
+	board := &mboard.Board{
 		ID:          uuid.New().String(),
 		WorkspaceID: workspaceID,
 		Name:        "Main",
@@ -125,8 +129,8 @@ func (s *Service) createMainBoard(ctx context.Context, workspaceID string) (*mod
 	if err := s.boards.CreateBoard(ctx, board); err != nil {
 		return nil, err
 	}
-	for i, name := range models.DefaultColumnNames {
-		column := &models.Column{
+	for i, name := range mcolumn.DefaultColumnNames {
+		column := &mcolumn.Column{
 			ID:       uuid.New().String(),
 			BoardID:  board.ID,
 			Name:     name,
@@ -139,10 +143,10 @@ func (s *Service) createMainBoard(ctx context.Context, workspaceID string) (*mod
 	return board, nil
 }
 
-func (s *Service) List(ctx context.Context, actorID string) ([]dto.WorkspaceResponse, error) {
+func (s *Service) List(ctx context.Context, actorID string) ([]dworkspace.WorkspaceResponse, error) {
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
 	listKey := fmt.Sprintf("u:%s:t:v1:wslist:%s", actorID, uver)
-	var cached []dto.WorkspaceResponse
+	var cached []dworkspace.WorkspaceResponse
 	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
 		return cached, nil
 	}
@@ -150,11 +154,11 @@ func (s *Service) List(ctx context.Context, actorID string) ([]dto.WorkspaceResp
 	if err != nil {
 		return nil, err
 	}
-	favorites, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteWorkspace)
+	favorites, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteWorkspace)
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]dto.WorkspaceResponse, 0, len(memberships))
+	responses := make([]dworkspace.WorkspaceResponse, 0, len(memberships))
 	for i := range memberships {
 		resp := workspaceToResponse(&memberships[i].Workspace, memberships[i].Role, favorites[memberships[i].Workspace.ID])
 		owner, err := s.resolveOwner(ctx, memberships[i].Workspace.ID)
@@ -168,14 +172,14 @@ func (s *Service) List(ctx context.Context, actorID string) ([]dto.WorkspaceResp
 	return responses, nil
 }
 
-func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.WorkspaceDetailResponse, error) {
+func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceDetailResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
 	detailKey := fmt.Sprintf("u:%s:t:v1:ws:%s:%s:%s", actorID, workspaceID, wsver, uver)
-	var cached dto.WorkspaceDetailResponse
+	var cached dworkspace.WorkspaceDetailResponse
 	if cacheutil.Load(ctx, s.cache, detailKey, &cached) {
 		return &cached, nil
 	}
@@ -187,7 +191,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.Wo
 	if err != nil {
 		return nil, err
 	}
-	isFavorite, err := s.favorites.IsFavorite(ctx, actorID, models.FavoriteWorkspace, workspaceID)
+	isFavorite, err := s.favorites.IsFavorite(ctx, actorID, mfavorite.FavoriteWorkspace, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +199,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.Wo
 	if err != nil {
 		return nil, err
 	}
-	memberResponses := make([]dto.WorkspaceMemberResponse, 0, len(members))
+	memberResponses := make([]dworkspace.WorkspaceMemberResponse, 0, len(members))
 	for i := range members {
 		user, err := s.users.FindByID(ctx, members[i].UserID)
 		if err != nil {
@@ -204,7 +208,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.Wo
 			}
 			return nil, err
 		}
-		memberResponses = append(memberResponses, dto.WorkspaceMemberResponse{
+		memberResponses = append(memberResponses, dworkspace.WorkspaceMemberResponse{
 			ID:          user.ID,
 			Login:       user.Login,
 			DisplayName: user.DisplayName,
@@ -213,7 +217,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.Wo
 			JoinedAt:    members[i].CreatedAt,
 		})
 	}
-	detail := &dto.WorkspaceDetailResponse{
+	detail := &dworkspace.WorkspaceDetailResponse{
 		ID:          ws.ID,
 		Name:        ws.Name,
 		Description: ws.Description,
@@ -229,7 +233,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.Wo
 	return detail, nil
 }
 
-func (s *Service) Update(ctx context.Context, actorID, workspaceID string, req dto.UpdateWorkspaceRequest) (*dto.WorkspaceResponse, error) {
+func (s *Service) Update(ctx context.Context, actorID, workspaceID string, req dworkspace.UpdateWorkspaceRequest) (*dworkspace.WorkspaceResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -237,7 +241,7 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID string, req d
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != models.RoleOwner && member.Role != models.RoleEditor {
+	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
 		return nil, pkgerrors.ErrForbidden
 	}
 	if err := validateWorkspacePayload(req.Name, req.Description); err != nil {
@@ -264,7 +268,7 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID string, req d
 	return response, nil
 }
 
-func (s *Service) SetTheme(ctx context.Context, actorID, workspaceID, theme string) (*dto.WorkspaceResponse, error) {
+func (s *Service) SetTheme(ctx context.Context, actorID, workspaceID, theme string) (*dworkspace.WorkspaceResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -276,7 +280,7 @@ func (s *Service) SetTheme(ctx context.Context, actorID, workspaceID, theme stri
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != models.RoleOwner && member.Role != models.RoleEditor {
+	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
 		return nil, pkgerrors.ErrForbidden
 	}
 	wsModel, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
@@ -302,7 +306,7 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID string) error
 	if err != nil {
 		return err
 	}
-	if member.Role != models.RoleOwner {
+	if member.Role != mworkspace.RoleOwner {
 		return pkgerrors.ErrForbidden
 	}
 	s.bumpMembers(ctx, workspaceID)
@@ -322,7 +326,7 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID string) error
 	return nil
 }
 
-func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, req dto.AddMemberRequest) (*dto.WorkspaceMemberResponse, error) {
+func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, req dworkspace.AddMemberRequest) (*dworkspace.WorkspaceMemberResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -330,18 +334,18 @@ func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, re
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != models.RoleOwner {
+	if member.Role != mworkspace.RoleOwner {
 		return nil, pkgerrors.ErrForbidden
 	}
 
-	role := models.RoleMember
-	switch models.WorkspaceRole(req.Role) {
+	role := mworkspace.RoleMember
+	switch mworkspace.WorkspaceRole(req.Role) {
 	case "":
-	case models.RoleEditor:
-		role = models.RoleEditor
-	case models.RoleMember:
-		role = models.RoleMember
-	case models.RoleOwner:
+	case mworkspace.RoleEditor:
+		role = mworkspace.RoleEditor
+	case mworkspace.RoleMember:
+		role = mworkspace.RoleMember
+	case mworkspace.RoleOwner:
 		return nil, pkgerrors.NewValidationError("owner must be assigned via ownership transfer")
 	default:
 		return nil, pkgerrors.NewValidationError("invalid role")
@@ -369,7 +373,7 @@ func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, re
 	return memberToResponse(target, role), nil
 }
 
-func (s *Service) UpdateRole(ctx context.Context, actorID, workspaceID, targetID string, req dto.UpdateMemberRoleRequest) (*dto.WorkspaceMemberResponse, error) {
+func (s *Service) UpdateRole(ctx context.Context, actorID, workspaceID, targetID string, req dworkspace.UpdateMemberRoleRequest) (*dworkspace.WorkspaceMemberResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -380,18 +384,18 @@ func (s *Service) UpdateRole(ctx context.Context, actorID, workspaceID, targetID
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != models.RoleOwner {
+	if member.Role != mworkspace.RoleOwner {
 		return nil, pkgerrors.ErrForbidden
 	}
-	role := models.WorkspaceRole(req.Role)
-	if role != models.RoleEditor && role != models.RoleMember {
+	role := mworkspace.WorkspaceRole(req.Role)
+	if role != mworkspace.RoleEditor && role != mworkspace.RoleMember {
 		return nil, pkgerrors.NewValidationError("role must be editor or member")
 	}
 	target, err := s.workspaces.FindMember(ctx, workspaceID, targetID)
 	if err != nil {
 		return nil, err
 	}
-	if target.Role == models.RoleOwner {
+	if target.Role == mworkspace.RoleOwner {
 		return nil, pkgerrors.NewValidationError("cannot change the owner's role; transfer ownership instead")
 	}
 	if err := s.workspaces.UpdateMemberRole(ctx, workspaceID, targetID, role); err != nil {
@@ -418,14 +422,14 @@ func (s *Service) RemoveMember(ctx context.Context, actorID, workspaceID, target
 	if err != nil {
 		return err
 	}
-	if member.Role != models.RoleOwner {
+	if member.Role != mworkspace.RoleOwner {
 		return pkgerrors.ErrForbidden
 	}
 	target, err := s.workspaces.FindMember(ctx, workspaceID, targetID)
 	if err != nil {
 		return err
 	}
-	if target.Role == models.RoleOwner {
+	if target.Role == mworkspace.RoleOwner {
 		return pkgerrors.NewValidationError("transfer ownership before removing the owner")
 	}
 	if err := s.workspaces.RemoveMember(ctx, workspaceID, targetID); err != nil {
@@ -441,7 +445,7 @@ func (s *Service) RemoveMember(ctx context.Context, actorID, workspaceID, target
 	return nil
 }
 
-func (s *Service) TransferOwner(ctx context.Context, actorID, workspaceID string, req dto.TransferOwnerRequest) error {
+func (s *Service) TransferOwner(ctx context.Context, actorID, workspaceID string, req dworkspace.TransferOwnerRequest) error {
 	if err := validate.UUID(workspaceID); err != nil {
 		return err
 	}
@@ -452,7 +456,7 @@ func (s *Service) TransferOwner(ctx context.Context, actorID, workspaceID string
 	if err != nil {
 		return err
 	}
-	if member.Role != models.RoleOwner {
+	if member.Role != mworkspace.RoleOwner {
 		return pkgerrors.ErrForbidden
 	}
 	if req.UserID == actorID {
@@ -468,11 +472,11 @@ func (s *Service) TransferOwner(ctx context.Context, actorID, workspaceID string
 	s.bumpWorkspace(ctx, workspaceID)
 	s.bumpUser(ctx, target.UserID)
 	s.bumpUser(ctx, actorID)
-	s.broadcastUpdated(ctx, workspaceID, models.RoleEditor)
+	s.broadcastUpdated(ctx, workspaceID, mworkspace.RoleEditor)
 	return nil
 }
 
-func (s *Service) GetInvite(ctx context.Context, actorID, workspaceID string) (*dto.WorkspaceInviteResponse, error) {
+func (s *Service) GetInvite(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceInviteResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -480,7 +484,7 @@ func (s *Service) GetInvite(ctx context.Context, actorID, workspaceID string) (*
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != models.RoleOwner && member.Role != models.RoleEditor {
+	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
 		return nil, pkgerrors.ErrForbidden
 	}
 	ws, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
@@ -495,7 +499,7 @@ func (s *Service) GetInvite(ctx context.Context, actorID, workspaceID string) (*
 			return nil, err
 		}
 	}
-	return &dto.WorkspaceInviteResponse{InviteToken: &ws.InviteToken, ExpiresAt: ws.InviteExpiresAt}, nil
+	return &dworkspace.WorkspaceInviteResponse{InviteToken: &ws.InviteToken, ExpiresAt: ws.InviteExpiresAt}, nil
 }
 
 func (s *Service) DisableInvite(ctx context.Context, actorID, workspaceID string) error {
@@ -506,7 +510,7 @@ func (s *Service) DisableInvite(ctx context.Context, actorID, workspaceID string
 	if err != nil {
 		return err
 	}
-	if member.Role != models.RoleOwner && member.Role != models.RoleEditor {
+	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
 		return pkgerrors.ErrForbidden
 	}
 	if err := s.workspaces.UpdateInvite(ctx, workspaceID, "", nil); err != nil {
@@ -515,7 +519,7 @@ func (s *Service) DisableInvite(ctx context.Context, actorID, workspaceID string
 	return nil
 }
 
-func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dto.WorkspaceResponse, error) {
+func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dworkspace.WorkspaceResponse, error) {
 	if token == "" {
 		return nil, pkgerrors.NewValidationError("invite token is required")
 	}
@@ -536,12 +540,12 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dto
 		}
 		member = nil
 	}
-	role := models.RoleMember
+	role := mworkspace.RoleMember
 	added := false
 	if member != nil {
 		role = member.Role
 	} else {
-		if err := s.workspaces.AddMember(ctx, ws.ID, actorID, models.RoleMember); err != nil {
+		if err := s.workspaces.AddMember(ctx, ws.ID, actorID, mworkspace.RoleMember); err != nil {
 			return nil, err
 		}
 		added = true
@@ -563,7 +567,7 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dto
 	return resp, nil
 }
 
-func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*models.WorkspaceMember, error) {
+func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
 	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
 	if err != nil {
 		if errorsIsNotFound(err) {
@@ -592,13 +596,13 @@ func (s *Service) bumpMembers(ctx context.Context, workspaceID string) {
 	}
 }
 
-func (s *Service) resolveOwner(ctx context.Context, workspaceID string) (*dto.WorkspaceMemberResponse, error) {
+func (s *Service) resolveOwner(ctx context.Context, workspaceID string) (*dworkspace.WorkspaceMemberResponse, error) {
 	members, err := s.workspaces.ListMembers(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	for i := range members {
-		if members[i].Role == models.RoleOwner {
+		if members[i].Role == mworkspace.RoleOwner {
 			user, err := s.users.FindByID(ctx, members[i].UserID)
 			if err != nil {
 				if errorsIsNotFound(err) {
@@ -645,8 +649,8 @@ func normalizePrefix(prefix, name string) (string, error) {
 	return prefix, nil
 }
 
-func workspaceToResponse(ws *models.Workspace, role models.WorkspaceRole, isFavorite bool) *dto.WorkspaceResponse {
-	return &dto.WorkspaceResponse{
+func workspaceToResponse(ws *mworkspace.Workspace, role mworkspace.WorkspaceRole, isFavorite bool) *dworkspace.WorkspaceResponse {
+	return &dworkspace.WorkspaceResponse{
 		ID:          ws.ID,
 		Name:        ws.Name,
 		Description: ws.Description,
@@ -659,7 +663,7 @@ func workspaceToResponse(ws *models.Workspace, role models.WorkspaceRole, isFavo
 	}
 }
 
-func (s *Service) broadcastUpdated(ctx context.Context, workspaceID string, role models.WorkspaceRole) {
+func (s *Service) broadcastUpdated(ctx context.Context, workspaceID string, role mworkspace.WorkspaceRole) {
 	wsModel, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
 		return
@@ -671,8 +675,8 @@ func workspaceRoom(workspaceID string) string {
 	return "workspace:" + workspaceID
 }
 
-func memberToResponse(user *models.User, role models.WorkspaceRole) *dto.WorkspaceMemberResponse {
-	return &dto.WorkspaceMemberResponse{
+func memberToResponse(user *muser.User, role mworkspace.WorkspaceRole) *dworkspace.WorkspaceMemberResponse {
+	return &dworkspace.WorkspaceMemberResponse{
 		ID:          user.ID,
 		Login:       user.Login,
 		DisplayName: user.DisplayName,

@@ -13,10 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/http/dto"
+	dadmin "github.com/tandem/tandem/internal/http/dto/admin"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file"
@@ -25,15 +25,15 @@ import (
 )
 
 type fakeRepo struct {
-	users map[string]*models.User
+	users map[string]*muser.User
 	seq   int
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{users: make(map[string]*models.User)}
+	return &fakeRepo{users: make(map[string]*muser.User)}
 }
 
-func (f *fakeRepo) Create(_ context.Context, user *models.User) error {
+func (f *fakeRepo) Create(_ context.Context, user *muser.User) error {
 	if _, ok := f.users[user.Login]; ok {
 		return errors.New("unique constraint")
 	}
@@ -41,7 +41,7 @@ func (f *fakeRepo) Create(_ context.Context, user *models.User) error {
 	return nil
 }
 
-func (f *fakeRepo) FindByID(_ context.Context, id string) (*models.User, error) {
+func (f *fakeRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
 	for _, u := range f.users {
 		if u.ID == id {
 			return u, nil
@@ -50,7 +50,7 @@ func (f *fakeRepo) FindByID(_ context.Context, id string) (*models.User, error) 
 	return nil, pkgerrors.ErrNotFound
 }
 
-func (f *fakeRepo) FindByLogin(_ context.Context, login string) (*models.User, error) {
+func (f *fakeRepo) FindByLogin(_ context.Context, login string) (*muser.User, error) {
 	u, ok := f.users[login]
 	if !ok {
 		return nil, pkgerrors.ErrNotFound
@@ -63,16 +63,16 @@ func (f *fakeRepo) ExistsByLogin(_ context.Context, login string) (bool, error) 
 	return ok, nil
 }
 
-func (f *fakeRepo) List(_ context.Context) ([]*models.User, error) {
-	users := make([]*models.User, 0, len(f.users))
+func (f *fakeRepo) List(_ context.Context) ([]*muser.User, error) {
+	users := make([]*muser.User, 0, len(f.users))
 	for _, u := range f.users {
 		users = append(users, u)
 	}
 	return users, nil
 }
 
-func (f *fakeRepo) ListPage(_ context.Context, query string, limit, offset int) ([]*models.User, error) {
-	users := make([]*models.User, 0, len(f.users))
+func (f *fakeRepo) ListPage(_ context.Context, query string, limit, offset int) ([]*muser.User, error) {
+	users := make([]*muser.User, 0, len(f.users))
 	for _, u := range f.users {
 		if query != "" && !strings.Contains(u.Login, query) {
 			continue
@@ -102,7 +102,7 @@ func (f *fakeRepo) Count(_ context.Context, query string) (int, error) {
 	return total, nil
 }
 
-func (f *fakeRepo) Update(_ context.Context, user *models.User) error {
+func (f *fakeRepo) Update(_ context.Context, user *muser.User) error {
 	f.users[user.Login] = user
 	return nil
 }
@@ -120,7 +120,7 @@ func (f *fakeRepo) Delete(_ context.Context, id string) error {
 func (f *fakeRepo) seed(login, role string) string {
 	id := uuid.New().String()
 	f.seq++
-	f.users[login] = &models.User{ID: id, Login: login, Role: role, DisplayName: login, CreatedAt: time.Unix(0, int64(f.seq))}
+	f.users[login] = &muser.User{ID: id, Login: login, Role: role, DisplayName: login, CreatedAt: time.Unix(0, int64(f.seq))}
 	return id
 }
 
@@ -168,16 +168,16 @@ func (fakeTokenService) Revoke(_ context.Context, _ string) error {
 func TestCreateUserSuccess(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
-	actor := Actor{ID: "admin-1", Role: models.RoleAdmin}
+	actor := Actor{ID: "admin-1", Role: muser.RoleAdmin}
 
-	resp, err := svc.CreateUser(context.Background(), actor, dto.CreateUserRequest{
+	resp, err := svc.CreateUser(context.Background(), actor, dadmin.CreateUserRequest{
 		Login:    " Ivanov.II ",
 		Password: "password123",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "ivanov.ii", resp.Login)
 	assert.Equal(t, "ivanov.ii", resp.DisplayName)
-	assert.Equal(t, models.RoleUser, resp.Role)
+	assert.Equal(t, muser.RoleUser, resp.Role)
 	stored, err := repo.FindByLogin(context.Background(), "ivanov.ii")
 	require.NoError(t, err)
 	assert.NotEqual(t, "password123", stored.PasswordHash)
@@ -188,38 +188,38 @@ func TestCreateUserAdminCreatesModerator(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
 
-	resp, err := svc.CreateUser(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, dto.CreateUserRequest{
+	resp, err := svc.CreateUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, dadmin.CreateUserRequest{
 		Login:       "mod.one",
 		Password:    "password123",
 		DisplayName: "Mod One",
-		Role:        models.RoleModerator,
+		Role:        muser.RoleModerator,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleModerator, resp.Role)
+	assert.Equal(t, muser.RoleModerator, resp.Role)
 }
 
 func TestCreateUserModeratorCreatesUser(t *testing.T) {
 	repo := newFakeRepo()
-	repo.seed("mod.one", models.RoleModerator)
+	repo.seed("mod.one", muser.RoleModerator)
 	svc := newTestService(repo)
 
-	resp, err := svc.CreateUser(context.Background(), Actor{ID: "mod-1", Role: models.RoleModerator}, dto.CreateUserRequest{
+	resp, err := svc.CreateUser(context.Background(), Actor{ID: "mod-1", Role: muser.RoleModerator}, dadmin.CreateUserRequest{
 		Login:    "user.one",
 		Password: "password123",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleUser, resp.Role)
+	assert.Equal(t, muser.RoleUser, resp.Role)
 }
 
 func TestCreateUserModeratorCannotCreateModerator(t *testing.T) {
 	repo := newFakeRepo()
-	repo.seed("mod.one", models.RoleModerator)
+	repo.seed("mod.one", muser.RoleModerator)
 	svc := newTestService(repo)
 
-	_, err := svc.CreateUser(context.Background(), Actor{ID: "mod-1", Role: models.RoleModerator}, dto.CreateUserRequest{
+	_, err := svc.CreateUser(context.Background(), Actor{ID: "mod-1", Role: muser.RoleModerator}, dadmin.CreateUserRequest{
 		Login:    "mod.two",
 		Password: "password123",
-		Role:     models.RoleModerator,
+		Role:     muser.RoleModerator,
 	})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
@@ -227,10 +227,10 @@ func TestCreateUserModeratorCannotCreateModerator(t *testing.T) {
 func TestCreateUserInvalidRole(t *testing.T) {
 	svc := newTestService(newFakeRepo())
 
-	_, err := svc.CreateUser(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, dto.CreateUserRequest{
+	_, err := svc.CreateUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, dadmin.CreateUserRequest{
 		Login:    "user.one",
 		Password: "password123",
-		Role:     models.RoleAdmin,
+		Role:     muser.RoleAdmin,
 	})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
@@ -238,9 +238,9 @@ func TestCreateUserInvalidRole(t *testing.T) {
 func TestCreateUserCustomDisplayName(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
-	actor := Actor{ID: "admin-1", Role: models.RoleAdmin}
+	actor := Actor{ID: "admin-1", Role: muser.RoleAdmin}
 
-	resp, err := svc.CreateUser(context.Background(), actor, dto.CreateUserRequest{
+	resp, err := svc.CreateUser(context.Background(), actor, dadmin.CreateUserRequest{
 		Login:       "ivanov.ii",
 		Password:    "password123",
 		DisplayName: "Ivan Ivanov",
@@ -252,9 +252,9 @@ func TestCreateUserCustomDisplayName(t *testing.T) {
 func TestCreateUserDuplicate(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
-	actor := Actor{ID: "admin-1", Role: models.RoleAdmin}
+	actor := Actor{ID: "admin-1", Role: muser.RoleAdmin}
 
-	req := dto.CreateUserRequest{Login: "ivanov.ii", Password: "password123"}
+	req := dadmin.CreateUserRequest{Login: "ivanov.ii", Password: "password123"}
 	_, err := svc.CreateUser(context.Background(), actor, req)
 	require.NoError(t, err)
 	_, err = svc.CreateUser(context.Background(), actor, req)
@@ -263,9 +263,9 @@ func TestCreateUserDuplicate(t *testing.T) {
 
 func TestCreateUserValidation(t *testing.T) {
 	svc := newTestService(newFakeRepo())
-	actor := Actor{ID: "admin-1", Role: models.RoleAdmin}
+	actor := Actor{ID: "admin-1", Role: muser.RoleAdmin}
 
-	cases := []dto.CreateUserRequest{
+	cases := []dadmin.CreateUserRequest{
 		{Login: "", Password: "password123"},
 		{Login: "ab", Password: "password123"},
 		{Login: "bad login!", Password: "password123"},
@@ -280,11 +280,11 @@ func TestCreateUserValidation(t *testing.T) {
 
 func TestListUsers(t *testing.T) {
 	repo := newFakeRepo()
-	repo.seed("ivanov.ii", models.RoleUser)
-	repo.seed("petrov.ii", models.RoleUser)
+	repo.seed("ivanov.ii", muser.RoleUser)
+	repo.seed("petrov.ii", muser.RoleUser)
 	svc := newTestService(repo)
 
-	page, err := svc.ListUsers(context.Background(), "actor-id", dto.AdminListQuery{})
+	page, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{})
 	require.NoError(t, err)
 	assert.Equal(t, 2, page.Total)
 	assert.Len(t, page.Items, 2)
@@ -295,35 +295,35 @@ func TestListUsers(t *testing.T) {
 func TestListUsersPagination(t *testing.T) {
 	repo := newFakeRepo()
 	for i := 1; i <= 5; i++ {
-		repo.seed(fmt.Sprintf("user.%02d", i), models.RoleUser)
+		repo.seed(fmt.Sprintf("user.%02d", i), muser.RoleUser)
 	}
 	svc := newTestService(repo)
 
-	page1, err := svc.ListUsers(context.Background(), "actor-id", dto.AdminListQuery{Page: 1, PageSize: 2})
+	page1, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 1, PageSize: 2})
 	require.NoError(t, err)
 	require.Equal(t, 5, page1.Total)
 	require.Len(t, page1.Items, 2)
 	assert.Equal(t, "user.01", page1.Items[0].Login)
 	assert.Equal(t, "user.02", page1.Items[1].Login)
 
-	page3, err := svc.ListUsers(context.Background(), "actor-id", dto.AdminListQuery{Page: 3, PageSize: 2})
+	page3, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 3, PageSize: 2})
 	require.NoError(t, err)
 	require.Len(t, page3.Items, 1)
 	assert.Equal(t, "user.05", page3.Items[0].Login)
 
-	offPage, err := svc.ListUsers(context.Background(), "actor-id", dto.AdminListQuery{Page: 99, PageSize: 2})
+	offPage, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 99, PageSize: 2})
 	require.NoError(t, err)
 	assert.Empty(t, offPage.Items)
 }
 
 func TestListUsersSearch(t *testing.T) {
 	repo := newFakeRepo()
-	repo.seed("ivanov.ii", models.RoleUser)
-	repo.seed("petrov.ii", models.RoleUser)
-	repo.seed("ivanova.p", models.RoleUser)
+	repo.seed("ivanov.ii", muser.RoleUser)
+	repo.seed("petrov.ii", muser.RoleUser)
+	repo.seed("ivanova.p", muser.RoleUser)
 	svc := newTestService(repo)
 
-	page, err := svc.ListUsers(context.Background(), "actor-id", dto.AdminListQuery{Query: "ivan"})
+	page, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Query: "ivan"})
 	require.NoError(t, err)
 	assert.Equal(t, 2, page.Total)
 	got := []string{page.Items[0].Login, page.Items[1].Login}
@@ -333,11 +333,11 @@ func TestListUsersSearch(t *testing.T) {
 func TestListUsersPageSizeCap(t *testing.T) {
 	repo := newFakeRepo()
 	for i := 1; i <= 150; i++ {
-		repo.seed(fmt.Sprintf("user.%03d", i), models.RoleUser)
+		repo.seed(fmt.Sprintf("user.%03d", i), muser.RoleUser)
 	}
 	svc := newTestService(repo)
 
-	page, err := svc.ListUsers(context.Background(), "actor-id", dto.AdminListQuery{Page: 1, PageSize: 5000})
+	page, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 1, PageSize: 5000})
 	require.NoError(t, err)
 	assert.Equal(t, 100, page.PageSize)
 	assert.Len(t, page.Items, 100)
@@ -345,121 +345,121 @@ func TestListUsersPageSizeCap(t *testing.T) {
 
 func TestUpdateUserRoleAdminPromotesToModerator(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("user.one", models.RoleUser)
+	targetID := repo.seed("user.one", muser.RoleUser)
 	svc := newTestService(repo)
 
-	resp, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, targetID, dto.UpdateUserRoleRequest{Role: models.RoleModerator})
+	resp, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, targetID, dadmin.UpdateUserRoleRequest{Role: muser.RoleModerator})
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleModerator, resp.Role)
+	assert.Equal(t, muser.RoleModerator, resp.Role)
 }
 
 func TestUpdateUserRoleAdminDemotesToUser(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("mod.one", models.RoleModerator)
+	targetID := repo.seed("mod.one", muser.RoleModerator)
 	svc := newTestService(repo)
 
-	resp, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, targetID, dto.UpdateUserRoleRequest{Role: models.RoleUser})
+	resp, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, targetID, dadmin.UpdateUserRoleRequest{Role: muser.RoleUser})
 	require.NoError(t, err)
-	assert.Equal(t, models.RoleUser, resp.Role)
+	assert.Equal(t, muser.RoleUser, resp.Role)
 }
 
 func TestUpdateUserRoleModeratorForbidden(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("user.one", models.RoleUser)
+	targetID := repo.seed("user.one", muser.RoleUser)
 	svc := newTestService(repo)
 
-	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "mod-1", Role: models.RoleModerator}, targetID, dto.UpdateUserRoleRequest{Role: models.RoleModerator})
+	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "mod-1", Role: muser.RoleModerator}, targetID, dadmin.UpdateUserRoleRequest{Role: muser.RoleModerator})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestUpdateUserRoleAdminProtected(t *testing.T) {
 	repo := newFakeRepo()
-	otherAdminID := repo.seed("admin.other", models.RoleAdmin)
+	otherAdminID := repo.seed("admin.other", muser.RoleAdmin)
 	svc := newTestService(repo)
 
-	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-2", Role: models.RoleAdmin}, otherAdminID, dto.UpdateUserRoleRequest{Role: models.RoleUser})
+	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-2", Role: muser.RoleAdmin}, otherAdminID, dadmin.UpdateUserRoleRequest{Role: muser.RoleUser})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestUpdateUserRoleSelf(t *testing.T) {
 	repo := newFakeRepo()
-	selfID := repo.seed("admin", models.RoleAdmin)
+	selfID := repo.seed("admin", muser.RoleAdmin)
 	svc := newTestService(repo)
 
-	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: selfID, Role: models.RoleAdmin}, selfID, dto.UpdateUserRoleRequest{Role: models.RoleUser})
+	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: selfID, Role: muser.RoleAdmin}, selfID, dadmin.UpdateUserRoleRequest{Role: muser.RoleUser})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestUpdateUserRoleInvalidRole(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("user.one", models.RoleUser)
+	targetID := repo.seed("user.one", muser.RoleUser)
 	svc := newTestService(repo)
 
-	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, targetID, dto.UpdateUserRoleRequest{Role: models.RoleAdmin})
+	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, targetID, dadmin.UpdateUserRoleRequest{Role: muser.RoleAdmin})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestUpdateUserRoleNotFound(t *testing.T) {
 	svc := newTestService(newFakeRepo())
 
-	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, "9dfc4d6c-1783-48bd-b8d0-a2dfb59d1f8e", dto.UpdateUserRoleRequest{Role: models.RoleUser})
+	_, err := svc.UpdateUserRole(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, "9dfc4d6c-1783-48bd-b8d0-a2dfb59d1f8e", dadmin.UpdateUserRoleRequest{Role: muser.RoleUser})
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestDeleteUserAdminDeletesUser(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("user.one", models.RoleUser)
+	targetID := repo.seed("user.one", muser.RoleUser)
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, targetID)
+	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, targetID)
 	require.NoError(t, err)
 	assert.NotContains(t, repo.users, "user.one")
 }
 
 func TestDeleteUserAdminDeletesModerator(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("mod.one", models.RoleModerator)
+	targetID := repo.seed("mod.one", muser.RoleModerator)
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, targetID)
+	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, targetID)
 	require.NoError(t, err)
 	assert.NotContains(t, repo.users, "mod.one")
 }
 
 func TestDeleteUserModeratorDeletesUser(t *testing.T) {
 	repo := newFakeRepo()
-	targetID := repo.seed("user.one", models.RoleUser)
+	targetID := repo.seed("user.one", muser.RoleUser)
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "mod-1", Role: models.RoleModerator}, targetID)
+	err := svc.DeleteUser(context.Background(), Actor{ID: "mod-1", Role: muser.RoleModerator}, targetID)
 	require.NoError(t, err)
 	assert.NotContains(t, repo.users, "user.one")
 }
 
 func TestDeleteUserModeratorCannotDeleteModerator(t *testing.T) {
 	repo := newFakeRepo()
-	modID := repo.seed("mod.two", models.RoleModerator)
+	modID := repo.seed("mod.two", muser.RoleModerator)
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "mod-1", Role: models.RoleModerator}, modID)
+	err := svc.DeleteUser(context.Background(), Actor{ID: "mod-1", Role: muser.RoleModerator}, modID)
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestDeleteUserSelf(t *testing.T) {
 	repo := newFakeRepo()
-	selfID := repo.seed("admin", models.RoleAdmin)
+	selfID := repo.seed("admin", muser.RoleAdmin)
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: selfID, Role: models.RoleAdmin}, selfID)
+	err := svc.DeleteUser(context.Background(), Actor{ID: selfID, Role: muser.RoleAdmin}, selfID)
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestDeleteUserAdminProtected(t *testing.T) {
 	repo := newFakeRepo()
-	otherAdminID := repo.seed("admin.other", models.RoleAdmin)
+	otherAdminID := repo.seed("admin.other", muser.RoleAdmin)
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-2", Role: models.RoleAdmin}, otherAdminID)
+	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-2", Role: muser.RoleAdmin}, otherAdminID)
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
@@ -467,13 +467,13 @@ func TestDeleteUserNotFound(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, "9dfc4d6c-1783-48bd-b8d0-a2dfb59d1f8e")
+	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, "9dfc4d6c-1783-48bd-b8d0-a2dfb59d1f8e")
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestDeleteUserInvalidID(t *testing.T) {
 	svc := newTestService(newFakeRepo())
 
-	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: models.RoleAdmin}, "not-a-uuid")
+	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, "not-a-uuid")
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }

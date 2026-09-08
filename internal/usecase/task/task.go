@@ -10,11 +10,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	mboard "github.com/tandem/tandem/internal/domain/models/board"
+	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
+	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	"github.com/tandem/tandem/internal/http/dto"
+	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
@@ -30,11 +33,11 @@ const (
 )
 
 type UseCase interface {
-	Create(ctx context.Context, actorID, workspaceID, boardID string, req dto.CreateTaskRequest) (*dto.TaskResponse, error)
-	Update(ctx context.Context, actorID, workspaceID, boardID, taskID string, req dto.UpdateTaskRequest) (*dto.TaskResponse, error)
+	Create(ctx context.Context, actorID, workspaceID, boardID string, req dtask.CreateTaskRequest) (*dtask.TaskResponse, error)
+	Update(ctx context.Context, actorID, workspaceID, boardID, taskID string, req dtask.UpdateTaskRequest) (*dtask.TaskResponse, error)
 	Delete(ctx context.Context, actorID, workspaceID, boardID, taskID string) error
-	Get(ctx context.Context, actorID, workspaceID, taskID string) (*dto.TaskDetailResponse, error)
-	List(ctx context.Context, actorID, workspaceID string, query dto.ListWorkspaceTasksQuery) ([]dto.TaskResponse, error)
+	Get(ctx context.Context, actorID, workspaceID, taskID string) (*dtask.TaskDetailResponse, error)
+	List(ctx context.Context, actorID, workspaceID string, query dtask.ListWorkspaceTasksQuery) ([]dtask.TaskResponse, error)
 }
 
 type Service struct {
@@ -74,7 +77,7 @@ func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
 	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 }
 
-func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID string, req dto.CreateTaskRequest) (*dto.TaskResponse, error) {
+func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID string, req dtask.CreateTaskRequest) (*dtask.TaskResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -128,7 +131,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 		return nil, err
 	}
 
-	task := &models.Task{
+	task := &mtask.Task{
 		ID:          uuid.New().String(),
 		ColumnID:    req.ColumnID,
 		Title:       strings.TrimSpace(req.Title),
@@ -155,7 +158,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 	return response, nil
 }
 
-func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, taskID string, req dto.UpdateTaskRequest) (*dto.TaskResponse, error) {
+func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, taskID string, req dtask.UpdateTaskRequest) (*dtask.TaskResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -292,7 +295,7 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 	return s.finishUpdate(ctx, workspaceID, task)
 }
 
-func (s *Service) finishUpdate(ctx context.Context, workspaceID string, task *models.Task) (*dto.TaskResponse, error) {
+func (s *Service) finishUpdate(ctx context.Context, workspaceID string, task *mtask.Task) (*dtask.TaskResponse, error) {
 	response, err := s.responseFor(ctx, workspaceID, task)
 	if err != nil {
 		return nil, err
@@ -338,7 +341,7 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID, tas
 	return nil
 }
 
-func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) (*dto.TaskDetailResponse, error) {
+func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) (*dtask.TaskDetailResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -354,7 +357,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
 	detailKey := fmt.Sprintf("u:%s:t:v1:task:%s:%s:%s", actorID, taskID, wsver, uver)
-	var cached dto.TaskDetailResponse
+	var cached dtask.TaskDetailResponse
 	if cacheutil.Load(ctx, s.cache, detailKey, &cached) {
 		return &cached, nil
 	}
@@ -366,7 +369,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	if err != nil {
 		return nil, err
 	}
-	detail := &dto.TaskDetailResponse{TaskResponse: *response}
+	detail := &dtask.TaskDetailResponse{TaskResponse: *response}
 	if task.ParentID != "" {
 		parent, err := s.tasks.FindTaskByID(ctx, task.ParentID)
 		if err != nil {
@@ -385,7 +388,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	if err != nil {
 		return nil, err
 	}
-	subtasks := make([]dto.TaskReference, 0, len(children))
+	subtasks := make([]dtask.TaskReference, 0, len(children))
 	for _, child := range children {
 		ref, err := s.taskReference(ctx, child)
 		if err != nil {
@@ -398,7 +401,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	return detail, nil
 }
 
-func (s *Service) List(ctx context.Context, actorID, workspaceID string, query dto.ListWorkspaceTasksQuery) ([]dto.TaskResponse, error) {
+func (s *Service) List(ctx context.Context, actorID, workspaceID string, query dtask.ListWorkspaceTasksQuery) ([]dtask.TaskResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -410,7 +413,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	limit, offset := normalizePagination(query.Limit, query.Offset)
 	queryHash := cacheutil.QueryHash(query.Q, query.BoardID, query.AssigneeID, query.Status, query.Only, strconv.FormatBool(query.ExcludeSubtasks), strconv.Itoa(limit), strconv.Itoa(offset))
 	listKey := fmt.Sprintf("u:%s:t:v1:tasks:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, queryHash)
-	var cached []dto.TaskResponse
+	var cached []dtask.TaskResponse
 	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
 		return cached, nil
 	}
@@ -426,7 +429,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	for i := range columns {
 		columnInfo[columns[i].ID] = workspaceColumn{name: columns[i].Name, boardID: columns[i].BoardID}
 	}
-	filtered := make([]*models.Task, 0, len(tasks))
+	filtered := make([]*mtask.Task, 0, len(tasks))
 	for _, task := range tasks {
 		info, ok := columnInfo[task.ColumnID]
 		if !ok {
@@ -475,7 +478,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	return responses, nil
 }
 
-func (s *Service) moveTask(ctx context.Context, task *models.Task, targetColumnID string, position int) error {
+func (s *Service) moveTask(ctx context.Context, task *mtask.Task, targetColumnID string, position int) error {
 	if task.ColumnID == targetColumnID {
 		order, err := s.tasks.ListTasksForColumn(ctx, targetColumnID)
 		if err != nil {
@@ -501,7 +504,7 @@ func (s *Service) moveTask(ctx context.Context, task *models.Task, targetColumnI
 	return nil
 }
 
-func (s *Service) leaveColumn(ctx context.Context, task *models.Task) error {
+func (s *Service) leaveColumn(ctx context.Context, task *mtask.Task) error {
 	source, err := s.tasks.ListTasksForColumn(ctx, task.ColumnID)
 	if err != nil {
 		return err
@@ -510,7 +513,7 @@ func (s *Service) leaveColumn(ctx context.Context, task *models.Task) error {
 	return s.rewritePositions(ctx, source)
 }
 
-func (s *Service) shiftPositions(ctx context.Context, order []*models.Task) error {
+func (s *Service) shiftPositions(ctx context.Context, order []*mtask.Task) error {
 	for _, t := range order {
 		t.Position++
 		if err := s.tasks.UpdateTask(ctx, t); err != nil {
@@ -520,7 +523,7 @@ func (s *Service) shiftPositions(ctx context.Context, order []*models.Task) erro
 	return nil
 }
 
-func (s *Service) rewritePositions(ctx context.Context, order []*models.Task) error {
+func (s *Service) rewritePositions(ctx context.Context, order []*mtask.Task) error {
 	for i, t := range order {
 		if t.Position == i {
 			continue
@@ -597,7 +600,7 @@ func (s *Service) validateParent(ctx context.Context, workspaceID, parentID, sel
 	return parentID, nil
 }
 
-func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*models.WorkspaceMember, error) {
+func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
 	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
 	if err != nil {
 		if errors.Is(err, pkgerrors.ErrNotFound) {
@@ -608,7 +611,7 @@ func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*m
 	return member, nil
 }
 
-func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*models.Board, error) {
+func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
 	board, err := s.boards.FindBoardByID(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -619,7 +622,7 @@ func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID str
 	return board, nil
 }
 
-func (s *Service) columnInBoard(ctx context.Context, boardID, columnID string) (*models.Column, error) {
+func (s *Service) columnInBoard(ctx context.Context, boardID, columnID string) (*mcolumn.Column, error) {
 	column, err := s.columns.FindColumnByID(ctx, columnID)
 	if err != nil {
 		return nil, err
@@ -630,7 +633,7 @@ func (s *Service) columnInBoard(ctx context.Context, boardID, columnID string) (
 	return column, nil
 }
 
-func (s *Service) taskInBoard(ctx context.Context, boardID, taskID string) (*models.Task, error) {
+func (s *Service) taskInBoard(ctx context.Context, boardID, taskID string) (*mtask.Task, error) {
 	task, err := s.tasks.FindTaskByID(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -645,7 +648,7 @@ func (s *Service) taskInBoard(ctx context.Context, boardID, taskID string) (*mod
 	return task, nil
 }
 
-func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*models.Task, error) {
+func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*mtask.Task, error) {
 	task, err := s.tasks.FindTaskByID(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -664,17 +667,17 @@ func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string)
 	return task, nil
 }
 
-func (s *Service) responseFor(ctx context.Context, workspaceID string, task *models.Task) (*dto.TaskResponse, error) {
-	responses, err := s.responsesFor(ctx, workspaceID, []*models.Task{task})
+func (s *Service) responseFor(ctx context.Context, workspaceID string, task *mtask.Task) (*dtask.TaskResponse, error) {
+	responses, err := s.responsesFor(ctx, workspaceID, []*mtask.Task{task})
 	if err != nil {
 		return nil, err
 	}
 	return &responses[0], nil
 }
 
-func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []*models.Task) ([]dto.TaskResponse, error) {
+func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []*mtask.Task) ([]dtask.TaskResponse, error) {
 	if len(tasks) == 0 {
-		return []dto.TaskResponse{}, nil
+		return []dtask.TaskResponse{}, nil
 	}
 	workspace, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
@@ -700,13 +703,13 @@ func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]dto.TaskResponse, 0, len(tasks))
+	responses := make([]dtask.TaskResponse, 0, len(tasks))
 	for _, task := range tasks {
 		info, ok := columnInfo[task.ColumnID]
 		if !ok {
 			info = workspaceColumn{boardID: ""}
 		}
-		responses = append(responses, dto.TaskResponse{
+		responses = append(responses, dtask.TaskResponse{
 			ID:          task.ID,
 			DisplayID:   displayID(workspace.Prefix, task.ID),
 			WorkspaceID: workspaceID,
@@ -732,7 +735,7 @@ func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []
 	return responses, nil
 }
 
-func (s *Service) taskReference(ctx context.Context, task *models.Task) (*dto.TaskReference, error) {
+func (s *Service) taskReference(ctx context.Context, task *mtask.Task) (*dtask.TaskReference, error) {
 	column, err := s.columns.FindColumnByID(ctx, task.ColumnID)
 	if err != nil {
 		return nil, err
@@ -745,7 +748,7 @@ func (s *Service) taskReference(ctx context.Context, task *models.Task) (*dto.Ta
 	if err != nil {
 		return nil, err
 	}
-	return &dto.TaskReference{
+	return &dtask.TaskReference{
 		ID:          task.ID,
 		DisplayID:   displayID(workspace.Prefix, task.ID),
 		Title:       task.Title,
@@ -759,7 +762,7 @@ func (s *Service) taskReference(ctx context.Context, task *models.Task) (*dto.Ta
 	}, nil
 }
 
-func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[string]*dto.TaskUserResponse, error) {
+func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
 	ids := make(map[string]bool)
 	for _, task := range tasks {
 		if task.AuthorID != "" {
@@ -772,7 +775,7 @@ func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[s
 			ids[task.CuratorID] = true
 		}
 	}
-	result := make(map[string]*dto.TaskUserResponse)
+	result := make(map[string]*dtask.TaskUserResponse)
 	for id := range ids {
 		user, err := s.users.FindByID(ctx, id)
 		if err != nil {
@@ -781,7 +784,7 @@ func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[s
 			}
 			return nil, err
 		}
-		result[id] = &dto.TaskUserResponse{
+		result[id] = &dtask.TaskUserResponse{
 			ID:          user.ID,
 			Login:       user.Login,
 			DisplayName: user.DisplayName,
@@ -808,8 +811,8 @@ func displayID(prefix, taskID string) string {
 	return prefix + "-" + short
 }
 
-func removeTask(tasks []*models.Task, id string) []*models.Task {
-	filtered := make([]*models.Task, 0, len(tasks))
+func removeTask(tasks []*mtask.Task, id string) []*mtask.Task {
+	filtered := make([]*mtask.Task, 0, len(tasks))
 	for _, t := range tasks {
 		if t.ID != id {
 			filtered = append(filtered, t)
@@ -818,7 +821,7 @@ func removeTask(tasks []*models.Task, id string) []*models.Task {
 	return filtered
 }
 
-func insertTask(tasks []*models.Task, position int, task *models.Task) []*models.Task {
+func insertTask(tasks []*mtask.Task, position int, task *mtask.Task) []*mtask.Task {
 	if position < 0 || position > len(tasks) {
 		position = len(tasks)
 	}

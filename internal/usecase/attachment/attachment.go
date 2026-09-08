@@ -7,11 +7,13 @@ import (
 	"io"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
+	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	"github.com/tandem/tandem/internal/http/dto"
+	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
@@ -24,9 +26,9 @@ const (
 )
 
 type UseCase interface {
-	Create(ctx context.Context, actorID, workspaceID, taskID, filename, contentType string, reader io.Reader, size int64) (*dto.AttachmentResponse, error)
-	List(ctx context.Context, actorID, workspaceID, taskID string) ([]dto.AttachmentResponse, error)
-	Download(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) (*dto.AttachmentResponse, io.ReadCloser, error)
+	Create(ctx context.Context, actorID, workspaceID, taskID, filename, contentType string, reader io.Reader, size int64) (*dattachment.AttachmentResponse, error)
+	List(ctx context.Context, actorID, workspaceID, taskID string) ([]dattachment.AttachmentResponse, error)
+	Download(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) (*dattachment.AttachmentResponse, io.ReadCloser, error)
 	Delete(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) error
 }
 
@@ -67,7 +69,7 @@ func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
 	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 }
 
-func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, filename, contentType string, reader io.Reader, size int64) (*dto.AttachmentResponse, error) {
+func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, filename, contentType string, reader io.Reader, size int64) (*dattachment.AttachmentResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -84,7 +86,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, file
 	if err != nil {
 		return nil, err
 	}
-	attachment := &models.TaskAttachment{
+	attachment := &mattachment.TaskAttachment{
 		ID:          uuid.New().String(),
 		TaskID:      taskID,
 		Filename:    filename,
@@ -106,7 +108,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, file
 	return response, nil
 }
 
-func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string) ([]dto.AttachmentResponse, error) {
+func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string) ([]dattachment.AttachmentResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -122,7 +124,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string)
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
 	listKey := fmt.Sprintf("u:%s:t:v1:attach:%s:%s:%s", actorID, taskID, wsver, uver)
-	var cached []dto.AttachmentResponse
+	var cached []dattachment.AttachmentResponse
 	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
 		return cached, nil
 	}
@@ -130,7 +132,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string)
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]dto.AttachmentResponse, 0, len(attachments))
+	responses := make([]dattachment.AttachmentResponse, 0, len(attachments))
 	for i := range attachments {
 		responses = append(responses, *attachmentToResponse(&attachments[i], workspaceID, taskID))
 	}
@@ -138,7 +140,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string)
 	return responses, nil
 }
 
-func (s *Service) Download(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) (*dto.AttachmentResponse, io.ReadCloser, error) {
+func (s *Service) Download(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) (*dattachment.AttachmentResponse, io.ReadCloser, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, nil, err
 	}
@@ -203,7 +205,7 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, taskID, atta
 	return nil
 }
 
-func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*models.WorkspaceMember, error) {
+func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
 	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
 	if err != nil {
 		if errors.Is(err, pkgerrors.ErrNotFound) {
@@ -214,7 +216,7 @@ func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*m
 	return member, nil
 }
 
-func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*models.Task, error) {
+func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*mtask.Task, error) {
 	task, err := s.tasks.FindTaskByID(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -233,8 +235,8 @@ func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string)
 	return task, nil
 }
 
-func attachmentToResponse(attachment *models.TaskAttachment, workspaceID, taskID string) *dto.AttachmentResponse {
-	return &dto.AttachmentResponse{
+func attachmentToResponse(attachment *mattachment.TaskAttachment, workspaceID, taskID string) *dattachment.AttachmentResponse {
+	return &dattachment.AttachmentResponse{
 		ID:          attachment.ID,
 		TaskID:      attachment.TaskID,
 		Filename:    attachment.Filename,

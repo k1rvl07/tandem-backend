@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
-	"github.com/tandem/tandem/internal/http/dto"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
+	dboard "github.com/tandem/tandem/internal/http/dto/board"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
@@ -46,9 +46,9 @@ func newEnv(t *testing.T) *env {
 	wsB := testutil.NewUUID()
 	ws.AddWorkspaceFixture(wsA, "Team A")
 	ws.AddWorkspaceFixture(wsB, "Team B")
-	ws.AddMemberFixture(wsA, actorA, models.RoleOwner)
-	ws.AddMemberFixture(wsB, actorA, models.RoleOwner)
-	ws.AddMemberFixture(wsA, actorB, models.RoleMember)
+	ws.AddMemberFixture(wsA, actorA, mworkspace.RoleOwner)
+	ws.AddMemberFixture(wsB, actorA, mworkspace.RoleOwner)
+	ws.AddMemberFixture(wsA, actorB, mworkspace.RoleMember)
 
 	return &env{
 		svc:    NewService(boards, cols, tasks, ws, users, favorites, file.NewService(noopBoardStore{}, zap.NewNop()), hub, testutil.NewFakeCache()),
@@ -88,7 +88,7 @@ func (noopBoardStore) PresignGet(context.Context, string, time.Duration) (string
 
 func TestCreateBoard(t *testing.T) {
 	e := newEnv(t)
-	board, err := e.svc.Create(context.Background(), e.actorA, e.wsA, dto.CreateBoardRequest{Name: "Sprint 1"})
+	board, err := e.svc.Create(context.Background(), e.actorA, e.wsA, dboard.CreateBoardRequest{Name: "Sprint 1"})
 	require.NoError(t, err)
 	assert.Equal(t, "Sprint 1", board.Name)
 	assert.Equal(t, e.wsA, board.WorkspaceID)
@@ -104,13 +104,13 @@ func TestCreateBoard(t *testing.T) {
 
 func TestCreateBoardMemberForbidden(t *testing.T) {
 	e := newEnv(t)
-	_, err := e.svc.Create(context.Background(), e.actorB, e.wsA, dto.CreateBoardRequest{Name: "Sprint 1"})
+	_, err := e.svc.Create(context.Background(), e.actorB, e.wsA, dboard.CreateBoardRequest{Name: "Sprint 1"})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestCreateBoardInvalidName(t *testing.T) {
 	e := newEnv(t)
-	_, err := e.svc.Create(context.Background(), e.actorA, e.wsA, dto.CreateBoardRequest{Name: "  "})
+	_, err := e.svc.Create(context.Background(), e.actorA, e.wsA, dboard.CreateBoardRequest{Name: "  "})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
@@ -171,7 +171,7 @@ func TestGetBoardNonMember(t *testing.T) {
 func TestUpdateBoard(t *testing.T) {
 	e := newEnv(t)
 	board := e.svc.boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
-	updated, err := e.svc.Update(context.Background(), e.actorA, e.wsA, board.ID, dto.UpdateBoardRequest{Name: "Release"})
+	updated, err := e.svc.Update(context.Background(), e.actorA, e.wsA, board.ID, dboard.UpdateBoardRequest{Name: "Release"})
 	require.NoError(t, err)
 	assert.Equal(t, "Release", updated.Name)
 	assert.Equal(t, eventBoardUpdated, e.hub.Messages[0].Type)
@@ -180,7 +180,7 @@ func TestUpdateBoard(t *testing.T) {
 func TestUpdateBoardMemberForbidden(t *testing.T) {
 	e := newEnv(t)
 	board := e.svc.boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
-	_, err := e.svc.Update(context.Background(), e.actorB, e.wsA, board.ID, dto.UpdateBoardRequest{Name: "Release"})
+	_, err := e.svc.Update(context.Background(), e.actorB, e.wsA, board.ID, dboard.UpdateBoardRequest{Name: "Release"})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
@@ -206,7 +206,7 @@ func TestReorderBoards(t *testing.T) {
 	b2 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 	b3 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Gamma")
 
-	ordered, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{b3.ID, b1.ID, b2.ID}})
+	ordered, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b3.ID, b1.ID, b2.ID}})
 	require.NoError(t, err)
 	require.Len(t, ordered, 3)
 	assert.Equal(t, b3.ID, ordered[0].ID)
@@ -229,11 +229,11 @@ func TestReorderBoardsValidation(t *testing.T) {
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 	boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 
-	_, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{}})
+	_, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{}})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
-	_, err = e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{testutil.NewUUID()}})
+	_, err = e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{testutil.NewUUID()}})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
-	_, err = e.svc.Reorder(context.Background(), e.actorA, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{b1.ID, b1.ID}})
+	_, err = e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID, b1.ID}})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
@@ -242,6 +242,6 @@ func TestReorderBoardsMemberForbidden(t *testing.T) {
 	boards := e.svc.boards.(*testutil.FakeBoardRepo)
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 
-	_, err := e.svc.Reorder(context.Background(), e.actorB, e.wsA, dto.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})
+	_, err := e.svc.Reorder(context.Background(), e.actorB, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }

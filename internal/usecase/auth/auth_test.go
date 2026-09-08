@@ -9,26 +9,26 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/http/dto"
+	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	"github.com/tandem/tandem/internal/infrastructure/token"
 )
 
 type fakeUserRepo struct {
-	users map[string]*models.User
-	byID  map[string]*models.User
+	users map[string]*muser.User
+	byID  map[string]*muser.User
 }
 
 func newFakeUserRepo() *fakeUserRepo {
 	return &fakeUserRepo{
-		users: make(map[string]*models.User),
-		byID:  make(map[string]*models.User),
+		users: make(map[string]*muser.User),
+		byID:  make(map[string]*muser.User),
 	}
 }
 
-func (f *fakeUserRepo) Create(_ context.Context, user *models.User) error {
+func (f *fakeUserRepo) Create(_ context.Context, user *muser.User) error {
 	if _, ok := f.users[user.Login]; ok {
 		return errors.New("unique constraint")
 	}
@@ -40,7 +40,7 @@ func (f *fakeUserRepo) Create(_ context.Context, user *models.User) error {
 	return nil
 }
 
-func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*models.User, error) {
+func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
 	u, ok := f.byID[id]
 	if !ok {
 		return nil, errors.New("not found")
@@ -48,7 +48,7 @@ func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*models.User, err
 	return u, nil
 }
 
-func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*models.User, error) {
+func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*muser.User, error) {
 	u, ok := f.users[login]
 	if !ok {
 		return nil, errors.New("not found")
@@ -61,15 +61,15 @@ func (f *fakeUserRepo) ExistsByLogin(_ context.Context, login string) (bool, err
 	return ok, nil
 }
 
-func (f *fakeUserRepo) List(_ context.Context) ([]*models.User, error) {
-	users := make([]*models.User, 0, len(f.users))
+func (f *fakeUserRepo) List(_ context.Context) ([]*muser.User, error) {
+	users := make([]*muser.User, 0, len(f.users))
 	for _, u := range f.users {
 		users = append(users, u)
 	}
 	return users, nil
 }
 
-func (f *fakeUserRepo) ListPage(context.Context, string, int, int) ([]*models.User, error) {
+func (f *fakeUserRepo) ListPage(context.Context, string, int, int) ([]*muser.User, error) {
 	return f.List(context.Background())
 }
 
@@ -77,7 +77,7 @@ func (f *fakeUserRepo) Count(_ context.Context, _ string) (int, error) {
 	return len(f.users), nil
 }
 
-func (f *fakeUserRepo) Update(_ context.Context, user *models.User) error {
+func (f *fakeUserRepo) Update(_ context.Context, user *muser.User) error {
 	if _, ok := f.users[user.Login]; !ok {
 		if _, exists := f.byID[user.ID]; !exists {
 			return errors.New("not found")
@@ -113,39 +113,39 @@ func TestLoginSuccess(t *testing.T) {
 	repo := newFakeUserRepo()
 	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("password123")
-	err := repo.Create(context.Background(), &models.User{
+	err := repo.Create(context.Background(), &muser.User{
 		ID:           uuid.New().String(),
 		Login:        "ivanov.ii",
 		PasswordHash: hash,
-		Role:         models.RoleUser,
+		Role:         muser.RoleUser,
 	})
 	require.NoError(t, err)
 	svc := newTestService(repo)
 
-	resp, err := svc.Login(context.Background(), dto.LoginRequest{
+	resp, err := svc.Login(context.Background(), dauth.LoginRequest{
 		Login:    " Ivanov.II ",
 		Password: "password123",
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Token)
 	assert.Equal(t, "ivanov.ii", resp.User.Login)
-	assert.Equal(t, models.RoleUser, resp.User.Role)
+	assert.Equal(t, muser.RoleUser, resp.User.Role)
 }
 
 func TestLoginWrongPassword(t *testing.T) {
 	repo := newFakeUserRepo()
 	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("password123")
-	err := repo.Create(context.Background(), &models.User{
+	err := repo.Create(context.Background(), &muser.User{
 		ID:           uuid.New().String(),
 		Login:        "ivanov.ii",
 		PasswordHash: hash,
-		Role:         models.RoleUser,
+		Role:         muser.RoleUser,
 	})
 	require.NoError(t, err)
 	svc := newTestService(repo)
 
-	_, err = svc.Login(context.Background(), dto.LoginRequest{
+	_, err = svc.Login(context.Background(), dauth.LoginRequest{
 		Login:    "ivanov.ii",
 		Password: "wrong-password",
 	})
@@ -155,7 +155,7 @@ func TestLoginWrongPassword(t *testing.T) {
 func TestLoginUnknownLogin(t *testing.T) {
 	svc := newTestService(newFakeUserRepo())
 
-	_, err := svc.Login(context.Background(), dto.LoginRequest{
+	_, err := svc.Login(context.Background(), dauth.LoginRequest{
 		Login:    "nobody",
 		Password: "password123",
 	})
@@ -165,7 +165,7 @@ func TestLoginUnknownLogin(t *testing.T) {
 func TestLoginValidation(t *testing.T) {
 	svc := newTestService(newFakeUserRepo())
 
-	cases := []dto.LoginRequest{
+	cases := []dauth.LoginRequest{
 		{Login: "", Password: "password123"},
 		{Login: "ivanov.ii", Password: ""},
 	}

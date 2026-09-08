@@ -7,11 +7,16 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	mboard "github.com/tandem/tandem/internal/domain/models/board"
+	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
+	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	"github.com/tandem/tandem/internal/http/dto"
+	dboard "github.com/tandem/tandem/internal/http/dto/board"
+	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
@@ -25,16 +30,16 @@ const (
 	eventBoardsReordered = "boards.reordered"
 )
 
-var defaultColumns = models.DefaultColumnNames
+var defaultColumns = mcolumn.DefaultColumnNames
 
 type UseCase interface {
-	Create(ctx context.Context, actorID, workspaceID string, req dto.CreateBoardRequest) (*dto.BoardResponse, error)
-	List(ctx context.Context, actorID, workspaceID string) ([]dto.BoardResponse, error)
-	Get(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardDetailResponse, error)
-	Update(ctx context.Context, actorID, workspaceID, boardID string, req dto.UpdateBoardRequest) (*dto.BoardResponse, error)
+	Create(ctx context.Context, actorID, workspaceID string, req dboard.CreateBoardRequest) (*dboard.BoardResponse, error)
+	List(ctx context.Context, actorID, workspaceID string) ([]dboard.BoardResponse, error)
+	Get(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardDetailResponse, error)
+	Update(ctx context.Context, actorID, workspaceID, boardID string, req dboard.UpdateBoardRequest) (*dboard.BoardResponse, error)
 	Delete(ctx context.Context, actorID, workspaceID, boardID string) error
-	SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardResponse, error)
-	Reorder(ctx context.Context, actorID, workspaceID string, req dto.ReorderBoardsRequest) ([]dto.BoardResponse, error)
+	SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardResponse, error)
+	Reorder(ctx context.Context, actorID, workspaceID string, req dboard.ReorderBoardsRequest) ([]dboard.BoardResponse, error)
 }
 
 type Service struct {
@@ -77,7 +82,7 @@ func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
 	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 }
 
-func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req dto.CreateBoardRequest) (*dto.BoardResponse, error) {
+func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req dboard.CreateBoardRequest) (*dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -96,7 +101,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req d
 		return nil, err
 	}
 
-	board := &models.Board{
+	board := &mboard.Board{
 		ID:          uuid.New().String(),
 		WorkspaceID: workspaceID,
 		Name:        strings.TrimSpace(req.Name),
@@ -106,7 +111,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req d
 		return nil, err
 	}
 	for i, name := range defaultColumns {
-		column := &models.Column{
+		column := &mcolumn.Column{
 			ID:       uuid.New().String(),
 			BoardID:  board.ID,
 			Name:     name,
@@ -122,7 +127,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req d
 	return response, nil
 }
 
-func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.BoardResponse, error) {
+func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -134,7 +139,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
 	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s", actorID, workspaceID, wsver, uver)
-	var cached []dto.BoardResponse
+	var cached []dboard.BoardResponse
 	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
 		return cached, nil
 	}
@@ -146,8 +151,8 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]dto.BoardResponse, 0, len(boards))
-	favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteBoard)
+	responses := make([]dboard.BoardResponse, 0, len(boards))
+	favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteBoard)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +166,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.
 	return responses, nil
 }
 
-func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardDetailResponse, error) {
+func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardDetailResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -178,7 +183,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
 	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s", actorID, boardID, wsver, uver)
-	var cached dto.BoardDetailResponse
+	var cached dboard.BoardDetailResponse
 	if cacheutil.Load(ctx, s.cache, detailKey, &cached) {
 		return &cached, nil
 	}
@@ -203,9 +208,9 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 		columnNames[columns[i].ID] = columns[i].Name
 	}
 
-	columnDetails := make([]dto.ColumnDetailResponse, 0, len(columns))
+	columnDetails := make([]dboard.ColumnDetailResponse, 0, len(columns))
 	for i := range columns {
-		columnTasks := make([]dto.TaskResponse, 0)
+		columnTasks := make([]dtask.TaskResponse, 0)
 		for _, task := range tasks {
 			if task.ColumnID != columns[i].ID {
 				continue
@@ -215,7 +220,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 			}
 			columnTasks = append(columnTasks, taskToResponse(task, users, workspace.Prefix, boardID, board.Name, columns[i].Name))
 		}
-		columnDetails = append(columnDetails, dto.ColumnDetailResponse{
+		columnDetails = append(columnDetails, dboard.ColumnDetailResponse{
 			ID:        columns[i].ID,
 			BoardID:   columns[i].BoardID,
 			Name:      columns[i].Name,
@@ -226,7 +231,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 			UpdatedAt: columns[i].UpdatedAt,
 		})
 	}
-	detail := &dto.BoardDetailResponse{
+	detail := &dboard.BoardDetailResponse{
 		ID:          board.ID,
 		WorkspaceID: board.WorkspaceID,
 		Name:        board.Name,
@@ -240,7 +245,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 	return detail, nil
 }
 
-func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID string, req dto.UpdateBoardRequest) (*dto.BoardResponse, error) {
+func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID string, req dboard.UpdateBoardRequest) (*dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -308,7 +313,7 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID stri
 	return nil
 }
 
-func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardResponse, error) {
+func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -319,7 +324,7 @@ func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID str
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != models.RoleOwner {
+	if member.Role != mworkspace.RoleOwner {
 		return nil, pkgerrors.ErrForbidden
 	}
 	board, err := s.boardInWorkspace(ctx, workspaceID, boardID)
@@ -339,7 +344,7 @@ func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID str
 	return response, nil
 }
 
-func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req dto.ReorderBoardsRequest) ([]dto.BoardResponse, error) {
+func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req dboard.ReorderBoardsRequest) ([]dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -378,7 +383,7 @@ func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req 
 	if err != nil {
 		return nil, err
 	}
-	ordered := make([]dto.BoardResponse, 0, len(req.BoardIDs))
+	ordered := make([]dboard.BoardResponse, 0, len(req.BoardIDs))
 	for _, id := range req.BoardIDs {
 		for _, b := range boards {
 			if b.ID == id {
@@ -395,7 +400,7 @@ func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req 
 	return ordered, nil
 }
 
-func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*models.WorkspaceMember, error) {
+func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
 	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
 	if err != nil {
 		if errors.Is(err, pkgerrors.ErrNotFound) {
@@ -406,14 +411,14 @@ func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*m
 	return member, nil
 }
 
-func (s *Service) requireEditor(role models.WorkspaceRole) error {
-	if role != models.RoleOwner && role != models.RoleEditor {
+func (s *Service) requireEditor(role mworkspace.WorkspaceRole) error {
+	if role != mworkspace.RoleOwner && role != mworkspace.RoleEditor {
 		return pkgerrors.ErrForbidden
 	}
 	return nil
 }
 
-func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*models.Board, error) {
+func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
 	board, err := s.boards.FindBoardByID(ctx, boardID)
 	if err != nil {
 		return nil, err
@@ -424,7 +429,7 @@ func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID str
 	return board, nil
 }
 
-func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[string]*dto.TaskUserResponse, error) {
+func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
 	ids := make(map[string]bool)
 	for _, task := range tasks {
 		if task.AuthorID != "" {
@@ -437,7 +442,7 @@ func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[s
 			ids[task.CuratorID] = true
 		}
 	}
-	result := make(map[string]*dto.TaskUserResponse)
+	result := make(map[string]*dtask.TaskUserResponse)
 	for id := range ids {
 		user, err := s.users.FindByID(ctx, id)
 		if err != nil {
@@ -446,7 +451,7 @@ func (s *Service) resolveUsers(ctx context.Context, tasks []*models.Task) (map[s
 			}
 			return nil, err
 		}
-		result[id] = &dto.TaskUserResponse{
+		result[id] = &dtask.TaskUserResponse{
 			ID:          user.ID,
 			Login:       user.Login,
 			DisplayName: user.DisplayName,
@@ -460,8 +465,8 @@ func boardRoom(workspaceID string) string {
 	return "workspace:" + workspaceID
 }
 
-func boardToResponse(board *models.Board) *dto.BoardResponse {
-	return &dto.BoardResponse{
+func boardToResponse(board *mboard.Board) *dboard.BoardResponse {
+	return &dboard.BoardResponse{
 		ID:          board.ID,
 		WorkspaceID: board.WorkspaceID,
 		Name:        board.Name,
@@ -472,7 +477,7 @@ func boardToResponse(board *models.Board) *dto.BoardResponse {
 	}
 }
 
-func taskToResponse(task *models.Task, users map[string]*dto.TaskUserResponse, prefix, boardID, boardName, columnName string) dto.TaskResponse {
+func taskToResponse(task *mtask.Task, users map[string]*dtask.TaskUserResponse, prefix, boardID, boardName, columnName string) dtask.TaskResponse {
 	short := task.ID
 	if len(short) > 8 {
 		short = short[:8]
@@ -480,7 +485,7 @@ func taskToResponse(task *models.Task, users map[string]*dto.TaskUserResponse, p
 	if prefix == "" {
 		prefix = "T"
 	}
-	return dto.TaskResponse{
+	return dtask.TaskResponse{
 		ID:          task.ID,
 		DisplayID:   prefix + "-" + short,
 		BoardID:     boardID,

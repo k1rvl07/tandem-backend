@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
-	"github.com/tandem/tandem/internal/http/dto"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
+	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 
@@ -21,7 +21,7 @@ func TestTreeAllTasks(t *testing.T) {
 	user := testutil.NewUUID()
 	wsID := testutil.NewUUID()
 	ws.AddWorkspaceFixture(wsID, "Team")
-	ws.AddMemberFixture(wsID, user, models.RoleOwner)
+	ws.AddMemberFixture(wsID, user, mworkspace.RoleOwner)
 	board := boards.AddBoardFixture(testutil.NewUUID(), wsID, "Board")
 	col := cols.AddColumnFixture(testutil.NewUUID(), board.ID, "Backlog", 0)
 	tasks.RegisterColumn(col.ID, board.ID)
@@ -30,7 +30,7 @@ func TestTreeAllTasks(t *testing.T) {
 	tasks.AddTaskFixture(testutil.NewUUID(), col.ID, "Alpha", 0)
 
 	svc := NewService(ws, boards, cols, tasks, users, favorites, testutil.NewFakeCache())
-	resp, err := svc.List(context.Background(), user, dto.TreeQuery{Tasks: "all"})
+	resp, err := svc.List(context.Background(), user, dtree.TreeQuery{Tasks: "all"})
 	require.NoError(t, err)
 	require.Len(t, resp, 1)
 	require.Len(t, resp[0].Boards, 1)
@@ -50,7 +50,7 @@ func TestTreeMineExcludesOtherTasks(t *testing.T) {
 	other := testutil.NewUUID()
 	wsID := testutil.NewUUID()
 	ws.AddWorkspaceFixture(wsID, "Team")
-	ws.AddMemberFixture(wsID, me, models.RoleOwner)
+	ws.AddMemberFixture(wsID, me, mworkspace.RoleOwner)
 	board := boards.AddBoardFixture(testutil.NewUUID(), wsID, "Board")
 	col := cols.AddColumnFixture(testutil.NewUUID(), board.ID, "Backlog", 0)
 	tasks.RegisterColumn(col.ID, board.ID)
@@ -61,7 +61,7 @@ func TestTreeMineExcludesOtherTasks(t *testing.T) {
 	tasks.AddTaskFixture(testutil.NewUUID(), col.ID, "Other", 1).AssigneeID = other
 
 	svc := NewService(ws, boards, cols, tasks, users, favorites, testutil.NewFakeCache())
-	resp, err := svc.List(context.Background(), me, dto.TreeQuery{Tasks: "for_me"})
+	resp, err := svc.List(context.Background(), me, dtree.TreeQuery{Tasks: "for_me"})
 	require.NoError(t, err)
 	got := resp[0].Boards[0].Tasks
 	require.Len(t, got, 1)

@@ -6,11 +6,12 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
-	"github.com/tandem/tandem/internal/http/dto"
+	dadmin "github.com/tandem/tandem/internal/http/dto/admin"
+	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
@@ -23,9 +24,9 @@ type Actor struct {
 }
 
 type UseCase interface {
-	CreateUser(ctx context.Context, actor Actor, req dto.CreateUserRequest) (*dto.UserResponse, error)
-	ListUsers(ctx context.Context, actorID string, query dto.AdminListQuery) (dto.AdminPage, error)
-	UpdateUserRole(ctx context.Context, actor Actor, targetID string, req dto.UpdateUserRoleRequest) (*dto.UserResponse, error)
+	CreateUser(ctx context.Context, actor Actor, req dadmin.CreateUserRequest) (*dauth.UserResponse, error)
+	ListUsers(ctx context.Context, actorID string, query dadmin.AdminListQuery) (dadmin.AdminPage, error)
+	UpdateUserRole(ctx context.Context, actor Actor, targetID string, req dadmin.UpdateUserRoleRequest) (*dauth.UserResponse, error)
 	DeleteUser(ctx context.Context, actor Actor, targetID string) error
 }
 
@@ -55,7 +56,7 @@ func (s *Service) bumpUsers(ctx context.Context) {
 	cacheutil.Bump(ctx, s.cache, cacheutil.UsersVerKey)
 }
 
-func (s *Service) CreateUser(ctx context.Context, actor Actor, req dto.CreateUserRequest) (*dto.UserResponse, error) {
+func (s *Service) CreateUser(ctx context.Context, actor Actor, req dadmin.CreateUserRequest) (*dauth.UserResponse, error) {
 	login := validate.NormalizeLogin(req.Login)
 	if err := validate.Login(login); err != nil {
 		return nil, err
@@ -64,15 +65,15 @@ func (s *Service) CreateUser(ctx context.Context, actor Actor, req dto.CreateUse
 		return nil, err
 	}
 
-	role := models.RoleUser
+	role := muser.RoleUser
 	switch req.Role {
 	case "":
-	case models.RoleUser:
-	case models.RoleModerator:
-		if actor.Role != models.RoleAdmin {
+	case muser.RoleUser:
+	case muser.RoleModerator:
+		if actor.Role != muser.RoleAdmin {
 			return nil, pkgerrors.ErrForbidden
 		}
-		role = models.RoleModerator
+		role = muser.RoleModerator
 	default:
 		return nil, pkgerrors.NewValidationError("invalid role")
 	}
@@ -95,7 +96,7 @@ func (s *Service) CreateUser(ctx context.Context, actor Actor, req dto.CreateUse
 		displayName = login
 	}
 
-	user := &models.User{
+	user := &muser.User{
 		ID:           uuid.New().String(),
 		Login:        login,
 		PasswordHash: passwordHash,
@@ -106,7 +107,7 @@ func (s *Service) CreateUser(ctx context.Context, actor Actor, req dto.CreateUse
 		return nil, err
 	}
 	s.bumpUsers(ctx)
-	return &dto.UserResponse{
+	return &dauth.UserResponse{
 		ID:          user.ID,
 		Login:       user.Login,
 		Role:        user.Role,
@@ -118,7 +119,7 @@ func (s *Service) CreateUser(ctx context.Context, actor Actor, req dto.CreateUse
 	}, nil
 }
 
-func (s *Service) ListUsers(ctx context.Context, actorID string, query dto.AdminListQuery) (dto.AdminPage, error) {
+func (s *Service) ListUsers(ctx context.Context, actorID string, query dadmin.AdminListQuery) (dadmin.AdminPage, error) {
 	page := query.Page
 	if page < 1 {
 		page = 1
@@ -140,22 +141,22 @@ func (s *Service) ListUsers(ctx context.Context, actorID string, query dto.Admin
 	if !cacheutil.Load(ctx, s.cache, totalKey, &total) {
 		count, err := s.users.Count(ctx, search)
 		if err != nil {
-			return dto.AdminPage{}, err
+			return dadmin.AdminPage{}, err
 		}
 		total = count
 		cacheutil.Store(ctx, s.cache, totalKey, total, cacheutil.TTL)
 	}
 
 	listKey := fmt.Sprintf("adminusers:list:v2:%s:%s:%d:%d", usersver, searchKey, page, pageSize)
-	var items []dto.UserResponse
+	var items []dauth.UserResponse
 	if !cacheutil.Load(ctx, s.cache, listKey, &items) {
 		users, err := s.users.ListPage(ctx, search, pageSize, (page-1)*pageSize)
 		if err != nil {
-			return dto.AdminPage{}, err
+			return dadmin.AdminPage{}, err
 		}
-		items = make([]dto.UserResponse, 0, len(users))
+		items = make([]dauth.UserResponse, 0, len(users))
 		for _, u := range users {
-			items = append(items, dto.UserResponse{
+			items = append(items, dauth.UserResponse{
 				ID:          u.ID,
 				Login:       u.Login,
 				Role:        u.Role,
@@ -168,7 +169,7 @@ func (s *Service) ListUsers(ctx context.Context, actorID string, query dto.Admin
 		}
 		cacheutil.Store(ctx, s.cache, listKey, items, cacheutil.TTL)
 	}
-	return dto.AdminPage{
+	return dadmin.AdminPage{
 		Items:    items,
 		Total:    total,
 		Page:     page,
@@ -176,18 +177,18 @@ func (s *Service) ListUsers(ctx context.Context, actorID string, query dto.Admin
 	}, nil
 }
 
-func (s *Service) UpdateUserRole(ctx context.Context, actor Actor, targetID string, req dto.UpdateUserRoleRequest) (*dto.UserResponse, error) {
+func (s *Service) UpdateUserRole(ctx context.Context, actor Actor, targetID string, req dadmin.UpdateUserRoleRequest) (*dauth.UserResponse, error) {
 	if err := validate.UUID(targetID); err != nil {
 		return nil, err
 	}
-	if actor.Role != models.RoleAdmin {
+	if actor.Role != muser.RoleAdmin {
 		return nil, pkgerrors.ErrForbidden
 	}
-	role := models.RoleUser
+	role := muser.RoleUser
 	switch req.Role {
-	case models.RoleUser:
-	case models.RoleModerator:
-		role = models.RoleModerator
+	case muser.RoleUser:
+	case muser.RoleModerator:
+		role = muser.RoleModerator
 	default:
 		return nil, pkgerrors.NewValidationError("invalid role")
 	}
@@ -195,7 +196,7 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor Actor, targetID stri
 	if err != nil {
 		return nil, err
 	}
-	if target.Role == models.RoleAdmin {
+	if target.Role == muser.RoleAdmin {
 		return nil, pkgerrors.ErrForbidden
 	}
 	if target.ID == actor.ID {
@@ -206,7 +207,7 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor Actor, targetID stri
 		return nil, err
 	}
 	s.bumpUsers(ctx)
-	return &dto.UserResponse{
+	return &dauth.UserResponse{
 		ID:          target.ID,
 		Login:       target.Login,
 		Role:        target.Role,
@@ -229,10 +230,10 @@ func (s *Service) DeleteUser(ctx context.Context, actor Actor, targetID string) 
 	if target.ID == actor.ID {
 		return pkgerrors.ErrForbidden
 	}
-	if target.Role == models.RoleAdmin {
+	if target.Role == muser.RoleAdmin {
 		return pkgerrors.ErrForbidden
 	}
-	if actor.Role == models.RoleModerator && target.Role != models.RoleUser {
+	if actor.Role == muser.RoleModerator && target.Role != muser.RoleUser {
 		return pkgerrors.ErrForbidden
 	}
 	s.files.RemoveMany(ctx, []string{target.AvatarKey})

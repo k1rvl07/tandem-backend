@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 )
@@ -19,7 +19,7 @@ func TestAddAndRemoveFavorite(t *testing.T) {
 	user := testutil.NewUUID()
 	wsID := testutil.NewUUID()
 	ws.AddWorkspaceFixture(wsID, "Team")
-	ws.AddMemberFixture(wsID, user, models.RoleOwner)
+	ws.AddMemberFixture(wsID, user, mworkspace.RoleOwner)
 	boardID := testutil.NewUUID()
 	boards.AddBoardFixture(boardID, wsID, "Board")
 

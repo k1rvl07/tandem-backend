@@ -10,11 +10,21 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/tandem/tandem/docs"
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	repoport "github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
-	"github.com/tandem/tandem/internal/http/handler"
+	hadmin "github.com/tandem/tandem/internal/http/handler/admin"
+	hattachment "github.com/tandem/tandem/internal/http/handler/attachment"
+	hauth "github.com/tandem/tandem/internal/http/handler/auth"
+	hboard "github.com/tandem/tandem/internal/http/handler/board"
+	hfavorite "github.com/tandem/tandem/internal/http/handler/favorite"
+	hprofile "github.com/tandem/tandem/internal/http/handler/profile"
+	htask "github.com/tandem/tandem/internal/http/handler/task"
+	htree "github.com/tandem/tandem/internal/http/handler/tree"
+	hworkspace "github.com/tandem/tandem/internal/http/handler/workspace"
 	"github.com/tandem/tandem/internal/http/router"
+	"github.com/tandem/tandem/internal/infrastructure/ratelimit"
+
 	miniofs "github.com/tandem/tandem/internal/infrastructure/minio"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	rediscache "github.com/tandem/tandem/internal/infrastructure/redis"
@@ -22,8 +32,18 @@ import (
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
 	"github.com/tandem/tandem/internal/pkg/config"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/repository"
-	"github.com/tandem/tandem/internal/repository/entity"
+	rboard "github.com/tandem/tandem/internal/repository/board"
+	rcolumn "github.com/tandem/tandem/internal/repository/column"
+	eboard "github.com/tandem/tandem/internal/repository/entity/board"
+	efavorite "github.com/tandem/tandem/internal/repository/entity/favorite"
+	etask "github.com/tandem/tandem/internal/repository/entity/task"
+	euser "github.com/tandem/tandem/internal/repository/entity/user"
+	eworkspace "github.com/tandem/tandem/internal/repository/entity/workspace"
+	postgres "github.com/tandem/tandem/internal/repository/postgres"
+	rtask "github.com/tandem/tandem/internal/repository/task"
+	rtaskext "github.com/tandem/tandem/internal/repository/taskext"
+	ruser "github.com/tandem/tandem/internal/repository/user"
+	rworkspace "github.com/tandem/tandem/internal/repository/workspace"
 	"github.com/tandem/tandem/internal/usecase/admin"
 	"github.com/tandem/tandem/internal/usecase/attachment"
 	"github.com/tandem/tandem/internal/usecase/auth"
@@ -41,7 +61,7 @@ type App struct {
 	config *config.Config
 	logger *zap.Logger
 
-	postgres  *repository.Postgres
+	postgres  *postgres.Postgres
 	redis     *rediscache.Redis
 	fileStore *miniofs.MinIO
 	hub       *wshub.Hub
@@ -50,7 +70,7 @@ type App struct {
 }
 
 func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
-	postgres, err := repository.NewPostgres(cfg.Database, repository.WithConnectTimeout(10*time.Second))
+	postgres, err := postgres.NewPostgres(cfg.Database, postgres.WithConnectTimeout(10*time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +94,7 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	hub := wshub.New()
 	logger.Info("websocket hub initialized")
 
-	if err := postgres.AutoMigrate(&entity.User{}, &entity.Workspace{}, &entity.WorkspaceMember{}, &entity.Board{}, &entity.Column{}, &entity.Task{}, &entity.TaskAttachment{}, &entity.Favorite{}); err != nil {
+	if err := postgres.AutoMigrate(&euser.User{}, &eworkspace.Workspace{}, &eworkspace.WorkspaceMember{}, &eboard.Board{}, &eboard.Column{}, &eboard.Task{}, &etask.TaskAttachment{}, &efavorite.Favorite{}); err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
@@ -105,40 +125,40 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	userRepo := repository.NewUserRepo(a.postgres.DB)
+	userRepo := ruser.NewUserRepo(a.postgres.DB)
 	tokenManager := token.NewJWTManager(a.config.JWT.Secret, a.redis)
 	hasher := password.NewBCryptHasher(a.config.App.PasswordCost)
 	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL)
-	authHandler := handler.NewAuthHandler(authService)
+	authHandler := hauth.NewAuthHandler(authService)
 	fileService := file.NewService(a.fileStore, a.logger)
 	profileService := profile.NewService(userRepo, hasher, fileService, a.redis, tokenManager, a.config.JWT.TokenTTL, a.logger)
-	profileHandler := handler.NewProfileHandler(profileService)
-	workspaceRepo := repository.NewWorkspaceRepo(a.postgres.DB)
-	favoriteRepo := repository.NewFavoriteRepo(a.postgres.DB)
+	profileHandler := hprofile.NewProfileHandler(profileService)
+	workspaceRepo := rworkspace.NewWorkspaceRepo(a.postgres.DB)
+	favoriteRepo := rtaskext.NewFavoriteRepo(a.postgres.DB)
 	adminService := admin.NewService(userRepo, hasher, a.redis, tokenManager, workspaceRepo, favoriteRepo, fileService)
-	adminHandler := handler.NewAdminHandler(adminService)
-	boardRepo := repository.NewBoardRepo(a.postgres.DB)
-	columnRepo := repository.NewColumnRepo(a.postgres.DB)
-	taskRepo := repository.NewTaskRepo(a.postgres.DB)
-	attachmentRepo := repository.NewAttachmentRepo(a.postgres.DB)
+	adminHandler := hadmin.NewAdminHandler(adminService)
+	boardRepo := rboard.NewBoardRepo(a.postgres.DB)
+	columnRepo := rcolumn.NewColumnRepo(a.postgres.DB)
+	taskRepo := rtask.NewTaskRepo(a.postgres.DB)
+	attachmentRepo := rtaskext.NewAttachmentRepo(a.postgres.DB)
 	workspaceService := workspace.NewService(workspaceRepo, userRepo, favoriteRepo, boardRepo, columnRepo, taskRepo, fileService, a.hub, a.redis, a.logger)
-	workspaceHandler := handler.NewWorkspaceHandler(workspaceService)
+	workspaceHandler := hworkspace.NewWorkspaceHandler(workspaceService)
 	boardService := board.NewService(boardRepo, columnRepo, taskRepo, workspaceRepo, userRepo, favoriteRepo, fileService, a.hub, a.redis)
-	boardHandler := handler.NewBoardHandler(boardService)
+	boardHandler := hboard.NewBoardHandler(boardService)
 	taskService := task.NewService(taskRepo, columnRepo, boardRepo, workspaceRepo, userRepo, fileService, a.hub, a.redis)
-	taskHandler := handler.NewTaskHandler(taskService)
+	taskHandler := htask.NewTaskHandler(taskService)
 	attachmentService := attachment.NewService(attachmentRepo, taskRepo, columnRepo, boardRepo, workspaceRepo, fileService, a.hub, a.redis)
-	attachmentHandler := handler.NewAttachmentHandler(attachmentService)
+	attachmentHandler := hattachment.NewAttachmentHandler(attachmentService)
 	favoriteService := favorite.NewService(favoriteRepo, workspaceRepo, boardRepo, a.hub, a.redis)
-	favoriteHandler := handler.NewFavoriteHandler(favoriteService)
+	favoriteHandler := hfavorite.NewFavoriteHandler(favoriteService)
 	treeService := tree.NewService(workspaceRepo, boardRepo, columnRepo, taskRepo, userRepo, favoriteRepo, a.redis)
-	treeHandler := handler.NewTreeHandler(treeService)
+	treeHandler := htree.NewTreeHandler(treeService)
 
-	authLimiter := rediscache.NewRateLimiter(a.redis, "auth", rediscache.AuthLimit, rediscache.AuthWindow, rediscache.ByIP())
-	readLimiter := rediscache.NewRateLimiter(a.redis, "read", rediscache.ReadLimit, rediscache.ReadWindow, rediscache.ByUser())
-	writeLimiter := rediscache.NewRateLimiter(a.redis, "write", rediscache.WriteLimit, rediscache.WriteWindow, rediscache.ByUser())
-	uploadLimiter := rediscache.NewRateLimiter(a.redis, "upload", rediscache.UploadLimit, rediscache.UploadWindow, rediscache.ByUser())
-	wsLimiter := rediscache.NewRateLimiter(a.redis, "ws", rediscache.WsLimit, rediscache.WsWindow, rediscache.ByUser())
+	authLimiter := ratelimit.New(a.redis.Raw(), "auth", ratelimit.AuthLimit, ratelimit.AuthWindow, ratelimit.ByIP())
+	readLimiter := ratelimit.New(a.redis.Raw(), "read", ratelimit.ReadLimit, ratelimit.ReadWindow, ratelimit.ByUser())
+	writeLimiter := ratelimit.New(a.redis.Raw(), "write", ratelimit.WriteLimit, ratelimit.WriteWindow, ratelimit.ByUser())
+	uploadLimiter := ratelimit.New(a.redis.Raw(), "upload", ratelimit.UploadLimit, ratelimit.UploadWindow, ratelimit.ByUser())
+	wsLimiter := ratelimit.New(a.redis.Raw(), "ws", ratelimit.WsLimit, ratelimit.WsWindow, ratelimit.ByUser())
 
 	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
 		return err
@@ -239,11 +259,11 @@ func (a *App) seedAdmin(ctx context.Context, repo repoport.UserRepository, hashe
 	if err != nil {
 		return err
 	}
-	user := &models.User{
+	user := &muser.User{
 		ID:           uuid.New().String(),
 		Login:        login,
 		PasswordHash: passwordHash,
-		Role:         models.RoleAdmin,
+		Role:         muser.RoleAdmin,
 		DisplayName:  login,
 	}
 	if err := repo.Create(ctx, user); err != nil {

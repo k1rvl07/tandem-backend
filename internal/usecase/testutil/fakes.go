@@ -9,7 +9,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
+	mboard "github.com/tandem/tandem/internal/domain/models/board"
+	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
+	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
@@ -18,37 +24,37 @@ import (
 )
 
 type FakeWorkspaceRepo struct {
-	Workspaces map[string]*models.Workspace
-	Members    map[string]map[string]*models.WorkspaceMember
+	Workspaces map[string]*mworkspace.Workspace
+	Members    map[string]map[string]*mworkspace.WorkspaceMember
 }
 
 func NewFakeWorkspaceRepo() *FakeWorkspaceRepo {
 	return &FakeWorkspaceRepo{
-		Workspaces: make(map[string]*models.Workspace),
-		Members:    make(map[string]map[string]*models.WorkspaceMember),
+		Workspaces: make(map[string]*mworkspace.Workspace),
+		Members:    make(map[string]map[string]*mworkspace.WorkspaceMember),
 	}
 }
 
-func (f *FakeWorkspaceRepo) AddMemberFixture(wsID, userID string, role models.WorkspaceRole) {
+func (f *FakeWorkspaceRepo) AddMemberFixture(wsID, userID string, role mworkspace.WorkspaceRole) {
 	if f.Members[wsID] == nil {
-		f.Members[wsID] = make(map[string]*models.WorkspaceMember)
+		f.Members[wsID] = make(map[string]*mworkspace.WorkspaceMember)
 	}
-	f.Members[wsID][userID] = &models.WorkspaceMember{WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now()}
+	f.Members[wsID][userID] = &mworkspace.WorkspaceMember{WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now()}
 }
 
 func (f *FakeWorkspaceRepo) AddWorkspaceFixture(id, name string) {
-	f.Workspaces[id] = &models.Workspace{ID: id, Name: name, Prefix: "WS", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	f.Workspaces[id] = &mworkspace.Workspace{ID: id, Name: name, Prefix: "WS", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 }
 
-func (f *FakeWorkspaceRepo) CreateWorkspace(_ context.Context, ws *models.Workspace) error {
-	f.Workspaces[ws.ID] = &models.Workspace{
+func (f *FakeWorkspaceRepo) CreateWorkspace(_ context.Context, ws *mworkspace.Workspace) error {
+	f.Workspaces[ws.ID] = &mworkspace.Workspace{
 		ID: ws.ID, Name: ws.Name, Description: ws.Description, Prefix: ws.Prefix, Theme: ws.Theme,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}
 	return nil
 }
 
-func (f *FakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*models.Workspace, error) {
+func (f *FakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mworkspace.Workspace, error) {
 	ws, ok := f.Workspaces[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -56,7 +62,7 @@ func (f *FakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mo
 	return ws, nil
 }
 
-func (f *FakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token string) (*models.Workspace, error) {
+func (f *FakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token string) (*mworkspace.Workspace, error) {
 	for _, ws := range f.Workspaces {
 		if ws.InviteToken != "" && ws.InviteToken == token {
 			return ws, nil
@@ -65,7 +71,7 @@ func (f *FakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token strin
 	return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 }
 
-func (f *FakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *models.Workspace) error {
+func (f *FakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *mworkspace.Workspace) error {
 	existing, ok := f.Workspaces[ws.ID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -97,11 +103,11 @@ func (f *FakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error 
 	return nil
 }
 
-func (f *FakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID string) ([]models.WorkspaceMembership, error) {
-	var out []models.WorkspaceMembership
+func (f *FakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID string) ([]mworkspace.WorkspaceMembership, error) {
+	var out []mworkspace.WorkspaceMembership
 	for wsID, mm := range f.Members {
 		if m, ok := mm[userID]; ok {
-			out = append(out, models.WorkspaceMembership{
+			out = append(out, mworkspace.WorkspaceMembership{
 				Workspace: *f.Workspaces[wsID],
 				Role:      m.Role,
 			})
@@ -110,18 +116,18 @@ func (f *FakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID stri
 	return out, nil
 }
 
-func (f *FakeWorkspaceRepo) AddMember(_ context.Context, wsID, userID string, role models.WorkspaceRole) error {
+func (f *FakeWorkspaceRepo) AddMember(_ context.Context, wsID, userID string, role mworkspace.WorkspaceRole) error {
 	if f.Members[wsID] == nil {
-		f.Members[wsID] = make(map[string]*models.WorkspaceMember)
+		f.Members[wsID] = make(map[string]*mworkspace.WorkspaceMember)
 	}
 	if _, ok := f.Members[wsID][userID]; ok {
 		return pkgerrors.Wrap(pkgerrors.ErrConflict, errors.New("unique constraint"))
 	}
-	f.Members[wsID][userID] = &models.WorkspaceMember{WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now()}
+	f.Members[wsID][userID] = &mworkspace.WorkspaceMember{WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now()}
 	return nil
 }
 
-func (f *FakeWorkspaceRepo) FindMember(_ context.Context, wsID, userID string) (*models.WorkspaceMember, error) {
+func (f *FakeWorkspaceRepo) FindMember(_ context.Context, wsID, userID string) (*mworkspace.WorkspaceMember, error) {
 	m, ok := f.Members[wsID][userID]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -137,7 +143,7 @@ func (f *FakeWorkspaceRepo) RemoveMember(_ context.Context, wsID, userID string)
 	return nil
 }
 
-func (f *FakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID string, role models.WorkspaceRole) error {
+func (f *FakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID string, role mworkspace.WorkspaceRole) error {
 	m, ok := f.Members[wsID][userID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -146,8 +152,8 @@ func (f *FakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID str
 	return nil
 }
 
-func (f *FakeWorkspaceRepo) ListMembers(_ context.Context, wsID string) ([]models.WorkspaceMember, error) {
-	var out []models.WorkspaceMember
+func (f *FakeWorkspaceRepo) ListMembers(_ context.Context, wsID string) ([]mworkspace.WorkspaceMember, error) {
+	var out []mworkspace.WorkspaceMember
 	for _, m := range f.Members[wsID] {
 		out = append(out, *m)
 	}
@@ -175,33 +181,33 @@ func (f *FakeWorkspaceRepo) TransferOwnership(_ context.Context, wsID, oldOwnerI
 	if !okOld || !okNew {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
-	oldMember.Role = models.RoleEditor
-	newMember.Role = models.RoleOwner
+	oldMember.Role = mworkspace.RoleEditor
+	newMember.Role = mworkspace.RoleOwner
 	return nil
 }
 
 var _ repository.WorkspaceRepository = (*FakeWorkspaceRepo)(nil)
 
 type FakeUserRepo struct {
-	Users map[string]*models.User
+	Users map[string]*muser.User
 }
 
 func NewFakeUserRepo() *FakeUserRepo {
-	return &FakeUserRepo{Users: make(map[string]*models.User)}
+	return &FakeUserRepo{Users: make(map[string]*muser.User)}
 }
 
-func (f *FakeUserRepo) AddUserFixture(id, login string) *models.User {
-	user := &models.User{ID: id, Login: login, DisplayName: login, Role: models.RoleUser, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+func (f *FakeUserRepo) AddUserFixture(id, login string) *muser.User {
+	user := &muser.User{ID: id, Login: login, DisplayName: login, Role: muser.RoleUser, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	f.Users[id] = user
 	return user
 }
 
-func (f *FakeUserRepo) Create(_ context.Context, user *models.User) error {
+func (f *FakeUserRepo) Create(_ context.Context, user *muser.User) error {
 	f.Users[user.ID] = user
 	return nil
 }
 
-func (f *FakeUserRepo) FindByID(_ context.Context, id string) (*models.User, error) {
+func (f *FakeUserRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
 	user, ok := f.Users[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -209,7 +215,7 @@ func (f *FakeUserRepo) FindByID(_ context.Context, id string) (*models.User, err
 	return user, nil
 }
 
-func (f *FakeUserRepo) FindByLogin(_ context.Context, login string) (*models.User, error) {
+func (f *FakeUserRepo) FindByLogin(_ context.Context, login string) (*muser.User, error) {
 	for _, user := range f.Users {
 		if user.Login == login {
 			return user, nil
@@ -229,15 +235,15 @@ func (f *FakeUserRepo) ExistsByLogin(_ context.Context, login string) (bool, err
 	return true, nil
 }
 
-func (f *FakeUserRepo) List(_ context.Context) ([]*models.User, error) {
-	var out []*models.User
+func (f *FakeUserRepo) List(_ context.Context) ([]*muser.User, error) {
+	var out []*muser.User
 	for _, user := range f.Users {
 		out = append(out, user)
 	}
 	return out, nil
 }
 
-func (f *FakeUserRepo) ListPage(_ context.Context, _ string, _ int, _ int) ([]*models.User, error) {
+func (f *FakeUserRepo) ListPage(_ context.Context, _ string, _ int, _ int) ([]*muser.User, error) {
 	return f.List(context.Background())
 }
 
@@ -245,7 +251,7 @@ func (f *FakeUserRepo) Count(_ context.Context, _ string) (int, error) {
 	return len(f.Users), nil
 }
 
-func (f *FakeUserRepo) Update(_ context.Context, user *models.User) error {
+func (f *FakeUserRepo) Update(_ context.Context, user *muser.User) error {
 	f.Users[user.ID] = user
 	return nil
 }
@@ -258,27 +264,27 @@ func (f *FakeUserRepo) Delete(_ context.Context, id string) error {
 var _ repository.UserRepository = (*FakeUserRepo)(nil)
 
 type FakeBoardRepo struct {
-	Boards map[string]*models.Board
+	Boards map[string]*mboard.Board
 }
 
 func NewFakeBoardRepo() *FakeBoardRepo {
-	return &FakeBoardRepo{Boards: make(map[string]*models.Board)}
+	return &FakeBoardRepo{Boards: make(map[string]*mboard.Board)}
 }
 
-func (f *FakeBoardRepo) AddBoardFixture(id, workspaceID, name string) *models.Board {
-	board := &models.Board{ID: id, WorkspaceID: workspaceID, Name: name, Position: len(f.Boards), CreatedAt: time.Now(), UpdatedAt: time.Now()}
+func (f *FakeBoardRepo) AddBoardFixture(id, workspaceID, name string) *mboard.Board {
+	board := &mboard.Board{ID: id, WorkspaceID: workspaceID, Name: name, Position: len(f.Boards), CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	f.Boards[id] = board
 	return board
 }
 
-func (f *FakeBoardRepo) CreateBoard(_ context.Context, board *models.Board) error {
+func (f *FakeBoardRepo) CreateBoard(_ context.Context, board *mboard.Board) error {
 	board.CreatedAt = time.Now()
 	board.UpdatedAt = time.Now()
 	f.Boards[board.ID] = board
 	return nil
 }
 
-func (f *FakeBoardRepo) FindBoardByID(_ context.Context, id string) (*models.Board, error) {
+func (f *FakeBoardRepo) FindBoardByID(_ context.Context, id string) (*mboard.Board, error) {
 	board, ok := f.Boards[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -286,7 +292,7 @@ func (f *FakeBoardRepo) FindBoardByID(_ context.Context, id string) (*models.Boa
 	return board, nil
 }
 
-func (f *FakeBoardRepo) UpdateBoard(_ context.Context, board *models.Board) error {
+func (f *FakeBoardRepo) UpdateBoard(_ context.Context, board *mboard.Board) error {
 	existing, ok := f.Boards[board.ID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -314,7 +320,7 @@ func (f *FakeBoardRepo) DeleteBoard(_ context.Context, id string) error {
 	return nil
 }
 
-func sortBoardsByPosition(boards []*models.Board) {
+func sortBoardsByPosition(boards []*mboard.Board) {
 	for i := 1; i < len(boards); i++ {
 		for j := i; j > 0 && boards[j-1].Position > boards[j].Position; j-- {
 			boards[j-1], boards[j] = boards[j], boards[j-1]
@@ -322,8 +328,8 @@ func sortBoardsByPosition(boards []*models.Board) {
 	}
 }
 
-func (f *FakeBoardRepo) ListBoards(_ context.Context, workspaceID string) ([]*models.Board, error) {
-	var out []*models.Board
+func (f *FakeBoardRepo) ListBoards(_ context.Context, workspaceID string) ([]*mboard.Board, error) {
+	var out []*mboard.Board
 	for _, board := range f.Boards {
 		if board.WorkspaceID == workspaceID {
 			out = append(out, board)
@@ -349,32 +355,32 @@ func (f *FakeBoardRepo) ReorderBoards(_ context.Context, workspaceID string, boa
 var _ repository.BoardRepository = (*FakeBoardRepo)(nil)
 
 type FakeColumnRepo struct {
-	Columns         map[string]*models.Column
+	Columns         map[string]*mcolumn.Column
 	BoardWorkspaces map[string]string
 }
 
 func NewFakeColumnRepo() *FakeColumnRepo {
-	return &FakeColumnRepo{Columns: make(map[string]*models.Column), BoardWorkspaces: make(map[string]string)}
+	return &FakeColumnRepo{Columns: make(map[string]*mcolumn.Column), BoardWorkspaces: make(map[string]string)}
 }
 
 func (f *FakeColumnRepo) RegisterBoard(workspaceID, boardID string) {
 	f.BoardWorkspaces[boardID] = workspaceID
 }
 
-func (f *FakeColumnRepo) AddColumnFixture(id, boardID, name string, position int) *models.Column {
-	column := &models.Column{ID: id, BoardID: boardID, Name: name, Position: position, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+func (f *FakeColumnRepo) AddColumnFixture(id, boardID, name string, position int) *mcolumn.Column {
+	column := &mcolumn.Column{ID: id, BoardID: boardID, Name: name, Position: position, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	f.Columns[id] = column
 	return column
 }
 
-func (f *FakeColumnRepo) CreateColumn(_ context.Context, column *models.Column) error {
+func (f *FakeColumnRepo) CreateColumn(_ context.Context, column *mcolumn.Column) error {
 	column.CreatedAt = time.Now()
 	column.UpdatedAt = time.Now()
 	f.Columns[column.ID] = column
 	return nil
 }
 
-func (f *FakeColumnRepo) FindColumnByID(_ context.Context, id string) (*models.Column, error) {
+func (f *FakeColumnRepo) FindColumnByID(_ context.Context, id string) (*mcolumn.Column, error) {
 	column, ok := f.Columns[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -382,7 +388,7 @@ func (f *FakeColumnRepo) FindColumnByID(_ context.Context, id string) (*models.C
 	return column, nil
 }
 
-func sortColumnsByPosition(columns []*models.Column) {
+func sortColumnsByPosition(columns []*mcolumn.Column) {
 	for i := 1; i < len(columns); i++ {
 		for j := i; j > 0 && columns[j-1].Position > columns[j].Position; j-- {
 			columns[j-1], columns[j] = columns[j], columns[j-1]
@@ -390,8 +396,8 @@ func sortColumnsByPosition(columns []*models.Column) {
 	}
 }
 
-func (f *FakeColumnRepo) ListColumns(_ context.Context, boardID string) ([]*models.Column, error) {
-	var out []*models.Column
+func (f *FakeColumnRepo) ListColumns(_ context.Context, boardID string) ([]*mcolumn.Column, error) {
+	var out []*mcolumn.Column
 	for _, column := range f.Columns {
 		if column.BoardID == boardID {
 			out = append(out, column)
@@ -401,8 +407,8 @@ func (f *FakeColumnRepo) ListColumns(_ context.Context, boardID string) ([]*mode
 	return out, nil
 }
 
-func (f *FakeColumnRepo) ListColumnsForWorkspace(_ context.Context, workspaceID string) ([]*models.Column, error) {
-	var out []*models.Column
+func (f *FakeColumnRepo) ListColumnsForWorkspace(_ context.Context, workspaceID string) ([]*mcolumn.Column, error) {
+	var out []*mcolumn.Column
 	for _, column := range f.Columns {
 		if f.BoardWorkspaces[column.BoardID] == workspaceID {
 			out = append(out, column)
@@ -415,13 +421,13 @@ func (f *FakeColumnRepo) ListColumnsForWorkspace(_ context.Context, workspaceID 
 var _ repository.ColumnRepository = (*FakeColumnRepo)(nil)
 
 type FakeTaskRepo struct {
-	Tasks            map[string]*models.Task
+	Tasks            map[string]*mtask.Task
 	ColumnBoards     map[string]string
 	ColumnWorkspaces map[string]string
 }
 
 func NewFakeTaskRepo() *FakeTaskRepo {
-	return &FakeTaskRepo{Tasks: make(map[string]*models.Task), ColumnBoards: make(map[string]string), ColumnWorkspaces: make(map[string]string)}
+	return &FakeTaskRepo{Tasks: make(map[string]*mtask.Task), ColumnBoards: make(map[string]string), ColumnWorkspaces: make(map[string]string)}
 }
 
 func (f *FakeTaskRepo) RegisterColumn(columnID, boardID string) {
@@ -432,20 +438,20 @@ func (f *FakeTaskRepo) RegisterColumnWorkspace(columnID, workspaceID string) {
 	f.ColumnWorkspaces[columnID] = workspaceID
 }
 
-func (f *FakeTaskRepo) AddTaskFixture(id, columnID, title string, position int) *models.Task {
-	task := &models.Task{ID: id, ColumnID: columnID, Title: title, Position: position, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+func (f *FakeTaskRepo) AddTaskFixture(id, columnID, title string, position int) *mtask.Task {
+	task := &mtask.Task{ID: id, ColumnID: columnID, Title: title, Position: position, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	f.Tasks[id] = task
 	return task
 }
 
-func (f *FakeTaskRepo) CreateTask(_ context.Context, task *models.Task) error {
+func (f *FakeTaskRepo) CreateTask(_ context.Context, task *mtask.Task) error {
 	task.CreatedAt = time.Now()
 	task.UpdatedAt = time.Now()
 	f.Tasks[task.ID] = task
 	return nil
 }
 
-func (f *FakeTaskRepo) FindTaskByID(_ context.Context, id string) (*models.Task, error) {
+func (f *FakeTaskRepo) FindTaskByID(_ context.Context, id string) (*mtask.Task, error) {
 	task, ok := f.Tasks[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -453,12 +459,12 @@ func (f *FakeTaskRepo) FindTaskByID(_ context.Context, id string) (*models.Task,
 	return task, nil
 }
 
-func (f *FakeTaskRepo) UpdateTask(_ context.Context, task *models.Task) error {
+func (f *FakeTaskRepo) UpdateTask(_ context.Context, task *mtask.Task) error {
 	existing, ok := f.Tasks[task.ID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
-	f.Tasks[task.ID] = &models.Task{
+	f.Tasks[task.ID] = &mtask.Task{
 		ID: task.ID, ColumnID: task.ColumnID, Title: task.Title, Description: task.Description,
 		AuthorID: task.AuthorID, AssigneeID: task.AssigneeID, CuratorID: task.CuratorID, ParentID: task.ParentID,
 		DueDate: task.DueDate, Position: task.Position,
@@ -488,8 +494,8 @@ func (f *FakeTaskRepo) CollectWorkspaceKeys(_ context.Context, workspaceID strin
 	return nil, nil
 }
 
-func (f *FakeTaskRepo) ListTasksForBoard(_ context.Context, boardID string) ([]*models.Task, error) {
-	var out []*models.Task
+func (f *FakeTaskRepo) ListTasksForBoard(_ context.Context, boardID string) ([]*mtask.Task, error) {
+	var out []*mtask.Task
 	for _, task := range f.Tasks {
 		if f.ColumnBoards[task.ColumnID] == boardID {
 			out = append(out, task)
@@ -499,8 +505,8 @@ func (f *FakeTaskRepo) ListTasksForBoard(_ context.Context, boardID string) ([]*
 	return out, nil
 }
 
-func (f *FakeTaskRepo) ListTasksForColumn(_ context.Context, columnID string) ([]*models.Task, error) {
-	var out []*models.Task
+func (f *FakeTaskRepo) ListTasksForColumn(_ context.Context, columnID string) ([]*mtask.Task, error) {
+	var out []*mtask.Task
 	for _, task := range f.Tasks {
 		if task.ColumnID == columnID {
 			out = append(out, task)
@@ -510,8 +516,8 @@ func (f *FakeTaskRepo) ListTasksForColumn(_ context.Context, columnID string) ([
 	return out, nil
 }
 
-func (f *FakeTaskRepo) ListTasksForWorkspace(_ context.Context, workspaceID string) ([]*models.Task, error) {
-	var out []*models.Task
+func (f *FakeTaskRepo) ListTasksForWorkspace(_ context.Context, workspaceID string) ([]*mtask.Task, error) {
+	var out []*mtask.Task
 	for _, task := range f.Tasks {
 		if f.ColumnWorkspaces[task.ColumnID] == workspaceID {
 			out = append(out, task)
@@ -521,8 +527,8 @@ func (f *FakeTaskRepo) ListTasksForWorkspace(_ context.Context, workspaceID stri
 	return out, nil
 }
 
-func (f *FakeTaskRepo) FindTasksByIDs(_ context.Context, ids []string) (map[string]*models.Task, error) {
-	result := make(map[string]*models.Task)
+func (f *FakeTaskRepo) FindTasksByIDs(_ context.Context, ids []string) (map[string]*mtask.Task, error) {
+	result := make(map[string]*mtask.Task)
 	for _, id := range ids {
 		if task, ok := f.Tasks[id]; ok {
 			result[id] = task
@@ -531,8 +537,8 @@ func (f *FakeTaskRepo) FindTasksByIDs(_ context.Context, ids []string) (map[stri
 	return result, nil
 }
 
-func (f *FakeTaskRepo) ListChildTasks(_ context.Context, parentID string) ([]*models.Task, error) {
-	var out []*models.Task
+func (f *FakeTaskRepo) ListChildTasks(_ context.Context, parentID string) ([]*mtask.Task, error) {
+	var out []*mtask.Task
 	for _, task := range f.Tasks {
 		if task.ParentID == parentID {
 			out = append(out, task)
@@ -542,7 +548,7 @@ func (f *FakeTaskRepo) ListChildTasks(_ context.Context, parentID string) ([]*mo
 	return out, nil
 }
 
-func sortByPosition(tasks []*models.Task) {
+func sortByPosition(tasks []*mtask.Task) {
 	for i := 1; i < len(tasks); i++ {
 		for j := i; j > 0 && tasks[j-1].Position > tasks[j].Position; j-- {
 			tasks[j-1], tasks[j] = tasks[j], tasks[j-1]
@@ -583,20 +589,20 @@ func NewUUID() string {
 }
 
 type FakeAttachmentRepo struct {
-	Attachments map[string]models.TaskAttachment
+	Attachments map[string]mattachment.TaskAttachment
 }
 
 func NewFakeAttachmentRepo() *FakeAttachmentRepo {
-	return &FakeAttachmentRepo{Attachments: make(map[string]models.TaskAttachment)}
+	return &FakeAttachmentRepo{Attachments: make(map[string]mattachment.TaskAttachment)}
 }
 
-func (f *FakeAttachmentRepo) CreateAttachment(_ context.Context, attachment *models.TaskAttachment) error {
+func (f *FakeAttachmentRepo) CreateAttachment(_ context.Context, attachment *mattachment.TaskAttachment) error {
 	attachment.CreatedAt = time.Now()
 	f.Attachments[attachment.ID] = *attachment
 	return nil
 }
 
-func (f *FakeAttachmentRepo) FindAttachmentByID(_ context.Context, id string) (*models.TaskAttachment, error) {
+func (f *FakeAttachmentRepo) FindAttachmentByID(_ context.Context, id string) (*mattachment.TaskAttachment, error) {
 	a, ok := f.Attachments[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -604,8 +610,8 @@ func (f *FakeAttachmentRepo) FindAttachmentByID(_ context.Context, id string) (*
 	return &a, nil
 }
 
-func (f *FakeAttachmentRepo) ListAttachmentsByTask(_ context.Context, taskID string) ([]models.TaskAttachment, error) {
-	var out []models.TaskAttachment
+func (f *FakeAttachmentRepo) ListAttachmentsByTask(_ context.Context, taskID string) ([]mattachment.TaskAttachment, error) {
+	var out []mattachment.TaskAttachment
 	for _, a := range f.Attachments {
 		if a.TaskID == taskID {
 			out = append(out, a)
@@ -625,14 +631,14 @@ func (f *FakeAttachmentRepo) DeleteAttachment(_ context.Context, id string) erro
 var _ repository.AttachmentRepository = (*FakeAttachmentRepo)(nil)
 
 type FakeFavoriteRepo struct {
-	Favorites map[string]models.Favorite
+	Favorites map[string]mfavorite.Favorite
 }
 
 func NewFakeFavoriteRepo() *FakeFavoriteRepo {
-	return &FakeFavoriteRepo{Favorites: make(map[string]models.Favorite)}
+	return &FakeFavoriteRepo{Favorites: make(map[string]mfavorite.Favorite)}
 }
 
-func (f *FakeFavoriteRepo) AddFavorite(_ context.Context, favorite *models.Favorite) error {
+func (f *FakeFavoriteRepo) AddFavorite(_ context.Context, favorite *mfavorite.Favorite) error {
 	favorite.CreatedAt = time.Now()
 	f.Favorites[favorite.UserID+"|"+favorite.TargetType+"|"+favorite.TargetID] = *favorite
 	return nil

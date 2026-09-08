@@ -10,8 +10,22 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	"github.com/tandem/tandem/internal/http/handler"
-	"github.com/tandem/tandem/internal/http/middleware"
+	hadmin "github.com/tandem/tandem/internal/http/handler/admin"
+	hattachment "github.com/tandem/tandem/internal/http/handler/attachment"
+	hauth "github.com/tandem/tandem/internal/http/handler/auth"
+	hboard "github.com/tandem/tandem/internal/http/handler/board"
+	hfavorite "github.com/tandem/tandem/internal/http/handler/favorite"
+	hfile "github.com/tandem/tandem/internal/http/handler/file"
+	hprofile "github.com/tandem/tandem/internal/http/handler/profile"
+	htask "github.com/tandem/tandem/internal/http/handler/task"
+	htree "github.com/tandem/tandem/internal/http/handler/tree"
+	hworkspace "github.com/tandem/tandem/internal/http/handler/workspace"
+	hws "github.com/tandem/tandem/internal/http/handler/ws"
+	mwauth "github.com/tandem/tandem/internal/http/middleware/auth"
+	mwcors "github.com/tandem/tandem/internal/http/middleware/cors"
+	mwlog "github.com/tandem/tandem/internal/http/middleware/logger"
+	mwstaff "github.com/tandem/tandem/internal/http/middleware/require_staff"
+	mwws "github.com/tandem/tandem/internal/http/middleware/ws_identity"
 	"github.com/tandem/tandem/internal/http/openapi"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"go.uber.org/zap"
@@ -29,15 +43,15 @@ type Dependencies struct {
 	TokenService        service.TokenService
 	UserRepository      repository.UserRepository
 	WorkspaceRepository repository.WorkspaceRepository
-	AuthHandler         *handler.AuthHandler
-	ProfileHandler      *handler.ProfileHandler
-	AdminHandler        *handler.AdminHandler
-	WorkspaceHandler    *handler.WorkspaceHandler
-	BoardHandler        *handler.BoardHandler
-	TaskHandler         *handler.TaskHandler
-	AttachmentHandler   *handler.AttachmentHandler
-	FavoriteHandler     *handler.FavoriteHandler
-	TreeHandler         *handler.TreeHandler
+	AuthHandler         *hauth.AuthHandler
+	ProfileHandler      *hprofile.ProfileHandler
+	AdminHandler        *hadmin.AdminHandler
+	WorkspaceHandler    *hworkspace.WorkspaceHandler
+	BoardHandler        *hboard.BoardHandler
+	TaskHandler         *htask.TaskHandler
+	AttachmentHandler   *hattachment.AttachmentHandler
+	FavoriteHandler     *hfavorite.FavoriteHandler
+	TreeHandler         *htree.TreeHandler
 	Files               *file.Service
 	EnableSwagger       bool
 
@@ -58,8 +72,8 @@ func New(deps Dependencies) *gin.Engine {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(middleware.Logger(deps.Logger))
-	r.Use(middleware.CORS(deps.AllowedOrigin))
+	r.Use(mwlog.Logger(deps.Logger))
+	r.Use(mwcors.CORS(deps.AllowedOrigin))
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -75,8 +89,8 @@ func New(deps Dependencies) *gin.Engine {
 	}
 
 	if deps.TokenService != nil && deps.Hub != nil && deps.AuthHandler != nil {
-		wsHandler := handler.NewWSHandler(deps.Hub, deps.TokenService, deps.WorkspaceRepository, deps.AllowedOrigin)
-		wsHandlers := []gin.HandlerFunc{middleware.WSIdentity(deps.TokenService)}
+		wsHandler := hws.NewWSHandler(deps.Hub, deps.TokenService, deps.WorkspaceRepository, deps.AllowedOrigin)
+		wsHandlers := []gin.HandlerFunc{mwws.WSIdentity(deps.TokenService)}
 		if deps.WSLimiter != nil {
 			wsHandlers = append(wsHandlers, deps.WSLimiter.Middleware())
 		}
@@ -85,7 +99,7 @@ func New(deps Dependencies) *gin.Engine {
 	}
 
 	if deps.TokenService != nil {
-		authMw := middleware.Auth(deps.TokenService)
+		authMw := mwauth.Auth(deps.TokenService)
 		readHandlers := []gin.HandlerFunc{authMw}
 		if deps.ReadLimiter != nil {
 			readHandlers = append(readHandlers, deps.ReadLimiter.Middleware())
@@ -106,8 +120,8 @@ func New(deps Dependencies) *gin.Engine {
 			write.POST("/me/password", deps.ProfileHandler.ChangePassword)
 		}
 		if deps.AdminHandler != nil && deps.UserRepository != nil {
-			adminRead := read.Group("", middleware.RequireStaff(deps.UserRepository))
-			adminWrite := write.Group("", middleware.RequireStaff(deps.UserRepository))
+			adminRead := read.Group("", mwstaff.RequireStaff(deps.UserRepository))
+			adminWrite := write.Group("", mwstaff.RequireStaff(deps.UserRepository))
 			adminWrite.POST("/admin/users", deps.AdminHandler.CreateUser)
 			adminRead.GET("/admin/users", deps.AdminHandler.ListUsers)
 			adminWrite.PATCH("/admin/users/:id/role", deps.AdminHandler.UpdateUserRole)
@@ -164,7 +178,7 @@ func New(deps Dependencies) *gin.Engine {
 			read.GET("/tasks/tree", deps.TreeHandler.List)
 		}
 		if deps.Files != nil {
-			filesHandler := handler.NewFileHandler(deps.Files)
+			filesHandler := hfile.NewFileHandler(deps.Files)
 			uploadImage := write.Group("/files/images")
 			if deps.UploadLimiter != nil {
 				uploadImage.Use(deps.UploadLimiter.Middleware())

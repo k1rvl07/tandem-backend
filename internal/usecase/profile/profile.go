@@ -8,11 +8,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/tandem/tandem/internal/domain/models"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
-	"github.com/tandem/tandem/internal/http/dto"
+	dauth "github.com/tandem/tandem/internal/http/dto/auth"
+	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
@@ -28,10 +29,10 @@ const (
 const avatarNamespace = "avatars"
 
 type UserCase interface {
-	Get(ctx context.Context, userID string) (*dto.UserResponse, error)
-	UpdateProfile(ctx context.Context, userID string, req dto.UpdateProfileRequest) (*dto.UserResponse, error)
-	ChangePassword(ctx context.Context, userID string, req dto.ChangePasswordRequest) (string, error)
-	UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dto.UserResponse, error)
+	Get(ctx context.Context, userID string) (*dauth.UserResponse, error)
+	UpdateProfile(ctx context.Context, userID string, req dprofile.UpdateProfileRequest) (*dauth.UserResponse, error)
+	ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (string, error)
+	UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dauth.UserResponse, error)
 }
 
 type Service struct {
@@ -48,10 +49,10 @@ func NewService(users repository.UserRepository, hasher service.PasswordHasher, 
 	return &Service{users: users, hasher: hasher, files: files, cache: cache, tokens: tokens, tokenTTL: tokenTTL, logger: logger}
 }
 
-func (s *Service) Get(ctx context.Context, userID string) (*dto.UserResponse, error) {
+func (s *Service) Get(ctx context.Context, userID string) (*dauth.UserResponse, error) {
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+userID)
 	profileKey := fmt.Sprintf("u:%s:t:v1:profile:%s", userID, uver)
-	var cached dto.UserResponse
+	var cached dauth.UserResponse
 	if cacheutil.Load(ctx, s.cache, profileKey, &cached) {
 		return &cached, nil
 	}
@@ -68,7 +69,7 @@ func (s *Service) bumpUser(ctx context.Context, userID string) {
 	cacheutil.Bump(ctx, s.cache, cacheutil.UVerKey+userID)
 }
 
-func (s *Service) UpdateProfile(ctx context.Context, userID string, req dto.UpdateProfileRequest) (*dto.UserResponse, error) {
+func (s *Service) UpdateProfile(ctx context.Context, userID string, req dprofile.UpdateProfileRequest) (*dauth.UserResponse, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -90,7 +91,7 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req dto.Upda
 	return toUserResponse(user), nil
 }
 
-func (s *Service) ChangePassword(ctx context.Context, userID string, req dto.ChangePasswordRequest) (string, error) {
+func (s *Service) ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (string, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		return "", err
@@ -116,7 +117,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID string, req dto.Cha
 	return s.tokens.Generate(userID, s.tokenTTL)
 }
 
-func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dto.UserResponse, error) {
+func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dauth.UserResponse, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -137,8 +138,8 @@ func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentTyp
 	return toUserResponse(user), nil
 }
 
-func toUserResponse(u *models.User) *dto.UserResponse {
-	return &dto.UserResponse{
+func toUserResponse(u *muser.User) *dauth.UserResponse {
+	return &dauth.UserResponse{
 		ID:          u.ID,
 		Login:       u.Login,
 		Role:        u.Role,

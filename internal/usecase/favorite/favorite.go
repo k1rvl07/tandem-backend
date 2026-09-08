@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/tandem/tandem/internal/domain/models"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
@@ -54,14 +54,14 @@ func (s *Service) Add(ctx context.Context, actorID, targetType, targetID string)
 		return err
 	}
 	switch targetType {
-	case models.FavoriteWorkspace:
+	case mfavorite.FavoriteWorkspace:
 		if _, err := s.workspaces.FindMember(ctx, targetID, actorID); err != nil {
 			if errors.Is(err, pkgerrors.ErrNotFound) {
 				return pkgerrors.ErrForbidden
 			}
 			return err
 		}
-	case models.FavoriteBoard:
+	case mfavorite.FavoriteBoard:
 		board, err := s.boards.FindBoardByID(ctx, targetID)
 		if err != nil {
 			return err
@@ -75,7 +75,7 @@ func (s *Service) Add(ctx context.Context, actorID, targetType, targetID string)
 	default:
 		return pkgerrors.NewValidationError("invalid target type")
 	}
-	if err := s.favorites.AddFavorite(ctx, &models.Favorite{
+	if err := s.favorites.AddFavorite(ctx, &mfavorite.Favorite{
 		ID:         uuid.New().String(),
 		UserID:     actorID,
 		TargetType: targetType,
@@ -103,7 +103,7 @@ func (s *Service) Remove(ctx context.Context, actorID, targetType, targetID stri
 		return err
 	}
 	switch targetType {
-	case models.FavoriteWorkspace, models.FavoriteBoard:
+	case mfavorite.FavoriteWorkspace, mfavorite.FavoriteBoard:
 	default:
 		return pkgerrors.NewValidationError("invalid target type")
 	}

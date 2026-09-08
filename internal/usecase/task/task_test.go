@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tandem/tandem/internal/domain/models"
-	"github.com/tandem/tandem/internal/http/dto"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
+	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
@@ -59,9 +59,9 @@ func newEnv(t *testing.T) *env {
 	actorV := testutil.NewUUID()
 	wsA := testutil.NewUUID()
 	ws.AddWorkspaceFixture(wsA, "Team A")
-	ws.AddMemberFixture(wsA, actorO, models.RoleOwner)
-	ws.AddMemberFixture(wsA, actorE, models.RoleEditor)
-	ws.AddMemberFixture(wsA, actorV, models.RoleMember)
+	ws.AddMemberFixture(wsA, actorO, mworkspace.RoleOwner)
+	ws.AddMemberFixture(wsA, actorE, mworkspace.RoleEditor)
+	ws.AddMemberFixture(wsA, actorV, mworkspace.RoleMember)
 	boardA := testutil.NewUUID()
 	boardB := testutil.NewUUID()
 	boards.AddBoardFixture(boardA, wsA, "Sprint")
@@ -98,9 +98,9 @@ func newEnv(t *testing.T) *env {
 func TestCreateTask(t *testing.T) {
 	e := newEnv(t)
 	assignee := e.users.AddUserFixture(testutil.NewUUID(), "dev")
-	e.ws.AddMemberFixture(e.wsA, assignee.ID, models.RoleEditor)
+	e.ws.AddMemberFixture(e.wsA, assignee.ID, mworkspace.RoleEditor)
 
-	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID:    e.colA,
 		Title:       "Implement login",
 		Description: "Do it",
@@ -117,7 +117,7 @@ func TestCreateTask(t *testing.T) {
 func TestCreateTaskDefaultPosition(t *testing.T) {
 	e := newEnv(t)
 	first := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "First", 0)
-	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID: e.colA,
 		Title:    "Second",
 	})
@@ -129,7 +129,7 @@ func TestCreateTaskDefaultPosition(t *testing.T) {
 
 func TestCreateTaskDefaultFields(t *testing.T) {
 	e := newEnv(t)
-	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID: e.colA,
 		Title:    "Default fields",
 	})
@@ -140,7 +140,7 @@ func TestCreateTaskDefaultFields(t *testing.T) {
 
 func TestCreateTaskMemberAllowed(t *testing.T) {
 	e := newEnv(t)
-	task, err := e.svc.Create(context.Background(), e.actorV, e.wsA, e.boardA, dto.CreateTaskRequest{
+	task, err := e.svc.Create(context.Background(), e.actorV, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID: e.colA,
 		Title:    "Create by member",
 	})
@@ -151,7 +151,7 @@ func TestCreateTaskMemberAllowed(t *testing.T) {
 func TestCreateTaskAssigneeNotMember(t *testing.T) {
 	e := newEnv(t)
 	outsider := testutil.NewUUID()
-	_, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	_, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID:   e.colA,
 		Title:      "Assign",
 		AssigneeID: outsider,
@@ -161,7 +161,7 @@ func TestCreateTaskAssigneeNotMember(t *testing.T) {
 
 func TestCreateTaskColumnFromOtherBoard(t *testing.T) {
 	e := newEnv(t)
-	_, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	_, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID: e.cols.AddColumnFixture(testutil.NewUUID(), e.boardB, "Backlog", 0).ID,
 		Title:    "Wrong board",
 	})
@@ -171,13 +171,13 @@ func TestCreateTaskColumnFromOtherBoard(t *testing.T) {
 func TestUpdateTaskFields(t *testing.T) {
 	e := newEnv(t)
 	assignee := e.users.AddUserFixture(testutil.NewUUID(), "dev")
-	e.ws.AddMemberFixture(e.wsA, assignee.ID, models.RoleEditor)
+	e.ws.AddMemberFixture(e.wsA, assignee.ID, mworkspace.RoleEditor)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "Old", 0)
 
 	title := "New title"
 	description := "Longer"
 	dueDate := "2026-12-31"
-	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{
 		Title:       &title,
 		Description: &description,
 		DueDate:     &dueDate,
@@ -201,7 +201,7 @@ func TestUpdateTaskClearDueDateAndAssignee(t *testing.T) {
 	task.AssigneeID = e.actorO
 
 	clear := ""
-	_, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+	_, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{
 		DueDate:    &clear,
 		AssigneeID: &clear,
 	})
@@ -218,7 +218,7 @@ func TestUpdateTaskMoveToColumn(t *testing.T) {
 	tgt2 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B2", 1)
 
 	position := 1
-	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, src1.ID, dto.UpdateTaskRequest{
+	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, src1.ID, dtask.UpdateTaskRequest{
 		ColumnID: &e.colB,
 		Position: &position,
 	})
@@ -249,7 +249,7 @@ func TestUpdateTaskMoveWithinColumn(t *testing.T) {
 	t3 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T3", 2)
 
 	position := 2
-	_, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dto.UpdateTaskRequest{
+	_, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dtask.UpdateTaskRequest{
 		Position: &position,
 	})
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func TestUpdateTaskInsertToColumnTop(t *testing.T) {
 	tgt1 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B1", 0)
 	tgt2 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B2", 1)
 
-	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, src.ID, dto.UpdateTaskRequest{
+	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, src.ID, dtask.UpdateTaskRequest{
 		ColumnID: &e.colB,
 	})
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestUpdateTaskInPlaceKeepsPosition(t *testing.T) {
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 1)
 	e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T2", 0)
 	title := "Renamed in place"
-	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{
 		Title:    &title,
 		ColumnID: &e.colA,
 	})
@@ -304,7 +304,7 @@ func TestUpdateTaskMemberAllowed(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
 	title := "Edited by member"
-	updated, err := e.svc.Update(context.Background(), e.actorV, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+	updated, err := e.svc.Update(context.Background(), e.actorV, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{
 		Title:    &title,
 		ColumnID: &e.colB,
 	})
@@ -349,12 +349,12 @@ func mustDate(t *testing.T, value string) time.Time {
 
 func TestGetTaskDetailWithParentAndSubtasks(t *testing.T) {
 	e := newEnv(t)
-	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID: e.colA,
 		Title:    "Parent",
 	})
 	require.NoError(t, err)
-	child, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	child, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID: e.colB,
 		Title:    "Child",
 		ParentID: task.ID,
@@ -386,18 +386,18 @@ func TestListFilters(t *testing.T) {
 	child := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "Gamma child", 1)
 	child.ParentID = t1.ID
 
-	all, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{})
+	all, err := e.svc.List(context.Background(), e.actorO, e.wsA, dtask.ListWorkspaceTasksQuery{})
 	require.NoError(t, err)
 	require.Len(t, all, 3)
-	withQ, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{Q: "alpha"})
+	withQ, err := e.svc.List(context.Background(), e.actorO, e.wsA, dtask.ListWorkspaceTasksQuery{Q: "alpha"})
 	require.NoError(t, err)
 	require.Len(t, withQ, 1)
 	assert.Equal(t, "Alpha urgent", withQ[0].Title)
-	mine, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{Only: "for_me"})
+	mine, err := e.svc.List(context.Background(), e.actorO, e.wsA, dtask.ListWorkspaceTasksQuery{Only: "for_me"})
 	require.NoError(t, err)
 	require.Len(t, mine, 1)
 	assert.Equal(t, "Beta", mine[0].Title)
-	noSub, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{ExcludeSubtasks: true})
+	noSub, err := e.svc.List(context.Background(), e.actorO, e.wsA, dtask.ListWorkspaceTasksQuery{ExcludeSubtasks: true})
 	require.NoError(t, err)
 	require.Len(t, noSub, 2)
 }
@@ -406,7 +406,7 @@ func TestUpdateBoardMoveLandsFirstColumn(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colC, "Moved", 0)
 	e.tasks.RegisterColumn(e.colC, e.boardB)
-	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardB, task.ID, dto.UpdateTaskRequest{
+	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardB, task.ID, dtask.UpdateTaskRequest{
 		BoardID: &e.boardA,
 	})
 	require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestUpdateHidden(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
 	hidden := true
-	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{
 		IsHidden: &hidden,
 	})
 	require.NoError(t, err)
@@ -428,33 +428,33 @@ func TestUpdateImageKey(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
 	valid := "images/" + e.actorE + "/" + testutil.NewUUID() + ".png"
-	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{ImageKey: &valid})
+	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &valid})
 	require.NoError(t, err)
 	assert.Equal(t, valid, resp.ImageKey)
 
 	foreign := "images/" + e.actorO + "/" + testutil.NewUUID() + ".png"
-	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{ImageKey: &foreign})
+	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &foreign})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 
 	empty := ""
-	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{ImageKey: &empty})
+	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &empty})
 	require.NoError(t, err)
 }
 
 func TestParentCycleRejected(t *testing.T) {
 	e := newEnv(t)
-	t1, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{ColumnID: e.colA, Title: "One"})
+	t1, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{ColumnID: e.colA, Title: "One"})
 	require.NoError(t, err)
-	t2, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{ColumnID: e.colA, Title: "Two", ParentID: t1.ID})
+	t2, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{ColumnID: e.colA, Title: "Two", ParentID: t1.ID})
 	require.NoError(t, err)
-	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dto.UpdateTaskRequest{ParentID: &t2.ID})
+	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dtask.UpdateTaskRequest{ParentID: &t2.ID})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestCuratorMustBeMember(t *testing.T) {
 	e := newEnv(t)
 	outsider := testutil.NewUUID()
-	_, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
+	_, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{
 		ColumnID:  e.colA,
 		Title:     "No",
 		CuratorID: outsider,

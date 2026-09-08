@@ -6,10 +6,16 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/tandem/tandem/internal/domain/models"
+	mboard "github.com/tandem/tandem/internal/domain/models/board"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
+	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/http/dto"
+	dboard "github.com/tandem/tandem/internal/http/dto/board"
+	dtask "github.com/tandem/tandem/internal/http/dto/task"
+	dtree "github.com/tandem/tandem/internal/http/dto/tree"
+	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
 )
@@ -17,7 +23,7 @@ import (
 const taskFilterAll = "all"
 
 type UseCase interface {
-	List(ctx context.Context, actorID string, query dto.TreeQuery) ([]dto.TreeWorkspaceResponse, error)
+	List(ctx context.Context, actorID string, query dtree.TreeQuery) ([]dtree.TreeWorkspaceResponse, error)
 }
 
 type Service struct {
@@ -51,8 +57,8 @@ func NewService(
 }
 
 type treeBrick struct {
-	Workspace dto.WorkspaceResponse   `json:"workspace"`
-	Boards    []dto.TreeBoardResponse `json:"boards"`
+	Workspace dworkspace.WorkspaceResponse `json:"workspace"`
+	Boards    []dtree.TreeBoardResponse    `json:"boards"`
 }
 
 type favFragment struct {
@@ -60,7 +66,7 @@ type favFragment struct {
 	Boards     map[string]bool `json:"boards"`
 }
 
-func (s *Service) List(ctx context.Context, actorID string, query dto.TreeQuery) ([]dto.TreeWorkspaceResponse, error) {
+func (s *Service) List(ctx context.Context, actorID string, query dtree.TreeQuery) ([]dtree.TreeWorkspaceResponse, error) {
 	tasksFilter := query.Tasks
 	if tasksFilter == "" {
 		tasksFilter = taskFilterAll
@@ -82,11 +88,11 @@ func (s *Service) List(ctx context.Context, actorID string, query dto.TreeQuery)
 	favKey := fmt.Sprintf("u:%s:t:v1:fav:%s", actorID, uver)
 	var fav favFragment
 	if !cacheutil.Load(ctx, s.cache, favKey, &fav) {
-		favWorkspaces, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteWorkspace)
+		favWorkspaces, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteWorkspace)
 		if err != nil {
 			return nil, err
 		}
-		favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, models.FavoriteBoard)
+		favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteBoard)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +114,7 @@ func (s *Service) List(ctx context.Context, actorID string, query dto.TreeQuery)
 		values = make([]string, len(brickKeys))
 	}
 
-	result := make([]dto.TreeWorkspaceResponse, 0, len(memberships))
+	result := make([]dtree.TreeWorkspaceResponse, 0, len(memberships))
 	for i := range memberships {
 		workspace := &memberships[i].Workspace
 		if favWsOnly && !fav.Workspaces[workspace.ID] {
@@ -118,7 +124,7 @@ func (s *Service) List(ctx context.Context, actorID string, query dto.TreeQuery)
 		if err != nil {
 			return nil, err
 		}
-		treeBoards := make([]dto.TreeBoardResponse, 0, len(brick.Boards))
+		treeBoards := make([]dtree.TreeBoardResponse, 0, len(brick.Boards))
 		for j := range brick.Boards {
 			if favBoardOnly && !fav.Boards[brick.Boards[j].Board.ID] {
 				continue
@@ -132,12 +138,12 @@ func (s *Service) List(ctx context.Context, actorID string, query dto.TreeQuery)
 		}
 		wsResp := brick.Workspace
 		wsResp.IsFavorite = fav.Workspaces[workspace.ID]
-		result = append(result, dto.TreeWorkspaceResponse{Workspace: wsResp, Boards: treeBoards})
+		result = append(result, dtree.TreeWorkspaceResponse{Workspace: wsResp, Boards: treeBoards})
 	}
 	return result, nil
 }
 
-func (s *Service) loadBrick(ctx context.Context, values []string, index int, actorID string, workspace *models.Workspace, role models.WorkspaceRole, tasksFilter, key string) (treeBrick, error) {
+func (s *Service) loadBrick(ctx context.Context, values []string, index int, actorID string, workspace *mworkspace.Workspace, role mworkspace.WorkspaceRole, tasksFilter, key string) (treeBrick, error) {
 	var brick treeBrick
 	if index < len(values) && values[index] != "" && cacheutil.Unmarshal(values[index], &brick) {
 		return brick, nil
@@ -150,7 +156,7 @@ func (s *Service) loadBrick(ctx context.Context, values []string, index int, act
 	return brick, nil
 }
 
-func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *models.Workspace, role models.WorkspaceRole, tasksFilter string) (treeBrick, error) {
+func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mworkspace.Workspace, role mworkspace.WorkspaceRole, tasksFilter string) (treeBrick, error) {
 	boards, err := s.boards.ListBoards(ctx, workspace.ID)
 	if err != nil {
 		return treeBrick{}, err
@@ -169,9 +175,9 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mod
 		columnBoard[columns[j].ID] = columns[j].BoardID
 		columnOrder[columns[j].ID] = columns[j].Position
 	}
-	treeBoards := make([]dto.TreeBoardResponse, 0, len(boards))
+	treeBoards := make([]dtree.TreeBoardResponse, 0, len(boards))
 	for _, board := range boards {
-		matching := make([]*models.Task, 0, 4)
+		matching := make([]*mtask.Task, 0, 4)
 		for _, task := range tasks {
 			if task.IsHidden {
 				continue
@@ -200,8 +206,8 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mod
 		if err != nil {
 			return treeBrick{}, err
 		}
-		treeBoards = append(treeBoards, dto.TreeBoardResponse{
-			Board: dto.BoardResponse{
+		treeBoards = append(treeBoards, dtree.TreeBoardResponse{
+			Board: dboard.BoardResponse{
 				ID:          board.ID,
 				WorkspaceID: board.WorkspaceID,
 				Name:        board.Name,
@@ -215,7 +221,7 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mod
 		})
 	}
 	return treeBrick{
-		Workspace: dto.WorkspaceResponse{
+		Workspace: dworkspace.WorkspaceResponse{
 			ID:         workspace.ID,
 			Name:       workspace.Name,
 			Prefix:     workspace.Prefix,
@@ -229,7 +235,7 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mod
 	}, nil
 }
 
-func (s *Service) taskMatches(filter string, task *models.Task, actorID string) bool {
+func (s *Service) taskMatches(filter string, task *mtask.Task, actorID string) bool {
 	switch filter {
 	case "mine":
 		return task.AuthorID == actorID || task.CuratorID == actorID || task.AssigneeID == actorID
@@ -240,7 +246,7 @@ func (s *Service) taskMatches(filter string, task *models.Task, actorID string) 
 	}
 }
 
-func (s *Service) taskResponses(ctx context.Context, workspace *models.Workspace, board *models.Board, tasks []*models.Task) ([]dto.TaskResponse, error) {
+func (s *Service) taskResponses(ctx context.Context, workspace *mworkspace.Workspace, board *mboard.Board, tasks []*mtask.Task) ([]dtask.TaskResponse, error) {
 	columnNames := make(map[string]string)
 	ids := make(map[string]bool)
 	for _, task := range tasks {
@@ -258,7 +264,7 @@ func (s *Service) taskResponses(ctx context.Context, workspace *models.Workspace
 	for i := range columns {
 		columnNames[columns[i].ID] = columns[i].Name
 	}
-	users := make(map[string]*dto.TaskUserResponse)
+	users := make(map[string]*dtask.TaskUserResponse)
 	for id := range ids {
 		user, err := s.users.FindByID(ctx, id)
 		if err != nil {
@@ -267,16 +273,16 @@ func (s *Service) taskResponses(ctx context.Context, workspace *models.Workspace
 			}
 			return nil, err
 		}
-		users[id] = &dto.TaskUserResponse{
+		users[id] = &dtask.TaskUserResponse{
 			ID:          user.ID,
 			Login:       user.Login,
 			DisplayName: user.DisplayName,
 			AvatarKey:   user.AvatarKey,
 		}
 	}
-	responses := make([]dto.TaskResponse, 0, len(tasks))
+	responses := make([]dtask.TaskResponse, 0, len(tasks))
 	for _, task := range tasks {
-		responses = append(responses, dto.TaskResponse{
+		responses = append(responses, dtask.TaskResponse{
 			ID:          task.ID,
 			DisplayID:   displayID(workspace.Prefix, task.ID),
 			WorkspaceID: workspace.ID,
