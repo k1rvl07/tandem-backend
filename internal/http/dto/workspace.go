@@ -67,5 +67,6 @@ type WorkspaceDetailResponse struct {
 }
 
 type WorkspaceInviteResponse struct {
-	InviteToken *string `json:"invite_token"`
+	InviteToken *string    `json:"invite_token"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }

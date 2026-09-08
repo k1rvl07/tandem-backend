@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
@@ -72,10 +73,13 @@ func (r *WorkspaceRepo) UpdateWorkspace(ctx context.Context, ws *models.Workspac
 	return nil
 }
 
-func (r *WorkspaceRepo) UpdateInviteToken(ctx context.Context, workspaceID, token string) error {
+func (r *WorkspaceRepo) UpdateInvite(ctx context.Context, workspaceID, token string, expiresAt *time.Time) error {
 	res := r.db.WithContext(ctx).Model(&entity.Workspace{}).
 		Where("id = ?", workspaceID).
-		Update("invite_token", token)
+		Updates(map[string]interface{}{
+			"invite_token":      token,
+			"invite_expires_at": expiresAt,
+		})
 	if res.Error != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
 	}
@@ -88,6 +92,24 @@ func (r *WorkspaceRepo) UpdateInviteToken(ctx context.Context, workspaceID, toke
 func (r *WorkspaceRepo) DeleteWorkspace(ctx context.Context, id string) error {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("workspace_id = ?", id).Delete(&entity.WorkspaceMember{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("task_id IN (SELECT tasks.id FROM tasks JOIN board_columns ON board_columns.id = tasks.column_id JOIN boards ON boards.id = board_columns.board_id WHERE boards.workspace_id = ?)", id).Delete(&entity.TaskAttachment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("column_id IN (SELECT board_columns.id FROM board_columns JOIN boards ON boards.id = board_columns.board_id WHERE boards.workspace_id = ?)", id).Delete(&entity.Task{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("board_id IN (SELECT id FROM boards WHERE workspace_id = ?)", id).Delete(&entity.Column{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", id).Delete(&entity.Board{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("target_type = ? AND target_id = ?", models.FavoriteWorkspace, id).Delete(&entity.Favorite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("target_type = ? AND target_id IN (SELECT id FROM boards WHERE workspace_id = ?)", models.FavoriteBoard, id).Delete(&entity.Favorite{}).Error; err != nil {
 			return err
 		}
 		res := tx.Where("id = ?", id).Delete(&entity.Workspace{})
@@ -216,29 +238,70 @@ func (r *WorkspaceRepo) DeleteMembersByWorkspace(ctx context.Context, workspaceI
 	return nil
 }
 
+func (r *WorkspaceRepo) DeleteMembersByUser(ctx context.Context, userID string) error {
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&entity.WorkspaceMember{}).Error
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
+func (r *WorkspaceRepo) TransferOwnership(ctx context.Context, workspaceID, oldOwnerID, newOwnerID string) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		oldRes := tx.Model(&entity.WorkspaceMember{}).
+			Where("workspace_id = ? AND user_id = ?", workspaceID, oldOwnerID).
+			Update("role", string(models.RoleEditor))
+		if oldRes.Error != nil {
+			return oldRes.Error
+		}
+		if oldRes.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		newRes := tx.Model(&entity.WorkspaceMember{}).
+			Where("workspace_id = ? AND user_id = ?", workspaceID, newOwnerID).
+			Update("role", string(models.RoleOwner))
+		if newRes.Error != nil {
+			return newRes.Error
+		}
+		if newRes.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
+	}
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
 func workspaceToEntity(ws *models.Workspace) *entity.Workspace {
 	return &entity.Workspace{
-		ID:          ws.ID,
-		Name:        ws.Name,
-		Description: ws.Description,
-		Prefix:      ws.Prefix,
-		Theme:       ws.Theme,
-		InviteToken: ws.InviteToken,
-		CreatedAt:   ws.CreatedAt,
-		UpdatedAt:   ws.UpdatedAt,
+		ID:              ws.ID,
+		Name:            ws.Name,
+		Description:     ws.Description,
+		Prefix:          ws.Prefix,
+		Theme:           ws.Theme,
+		InviteToken:     ws.InviteToken,
+		InviteExpiresAt: ws.InviteExpiresAt,
+		CreatedAt:       ws.CreatedAt,
+		UpdatedAt:       ws.UpdatedAt,
 	}
 }
 
 func workspaceToDomain(e *entity.Workspace) *models.Workspace {
 	return &models.Workspace{
-		ID:          e.ID,
-		Name:        e.Name,
-		Description: e.Description,
-		Prefix:      e.Prefix,
-		Theme:       e.Theme,
-		InviteToken: e.InviteToken,
-		CreatedAt:   e.CreatedAt,
-		UpdatedAt:   e.UpdatedAt,
+		ID:              e.ID,
+		Name:            e.Name,
+		Description:     e.Description,
+		Prefix:          e.Prefix,
+		Theme:           e.Theme,
+		InviteToken:     e.InviteToken,
+		InviteExpiresAt: e.InviteExpiresAt,
+		CreatedAt:       e.CreatedAt,
+		UpdatedAt:       e.UpdatedAt,
 	}
 }
 

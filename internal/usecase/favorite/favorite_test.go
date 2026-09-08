@@ -2,9 +2,9 @@ package favorite
 
 import (
 	"context"
-	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tandem/tandem/internal/domain/models"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/testutil"
@@ -23,23 +23,16 @@ func TestAddAndRemoveFavorite(t *testing.T) {
 	boardID := testutil.NewUUID()
 	boards.AddBoardFixture(boardID, wsID, "Board")
 
-	if err := svc.Add(context.Background(), user, "workspace", wsID); err != nil {
-		t.Fatalf("add: %v", err)
-	}
+	err := svc.Add(context.Background(), user, "workspace", wsID)
+	require.NoError(t, err)
 	ok, _ := favorites.IsFavorite(context.Background(), user, "workspace", wsID)
-	if !ok {
-		t.Fatalf("expected favorite present")
-	}
-	if err := svc.Add(context.Background(), user, "board", boardID); err != nil {
-		t.Fatalf("add board: %v", err)
-	}
-	if err := svc.Remove(context.Background(), user, "workspace", wsID); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
+	require.True(t, ok)
+	err = svc.Add(context.Background(), user, "board", boardID)
+	require.NoError(t, err)
+	err = svc.Remove(context.Background(), user, "workspace", wsID)
+	require.NoError(t, err)
 	ok, _ = favorites.IsFavorite(context.Background(), user, "workspace", wsID)
-	if ok {
-		t.Fatalf("expected favorite removed")
-	}
+	require.False(t, ok)
 }
 
 func TestAddFavoriteNonMember(t *testing.T) {
@@ -52,16 +45,12 @@ func TestAddFavoriteNonMember(t *testing.T) {
 	wsID := testutil.NewUUID()
 	ws.AddWorkspaceFixture(wsID, "Team")
 	err := svc.Add(context.Background(), user, "workspace", wsID)
-	if !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestAddFavoriteInvalidTarget(t *testing.T) {
 	favorites := testutil.NewFakeFavoriteRepo()
 	svc := NewService(favorites, testutil.NewFakeWorkspaceRepo(), testutil.NewFakeBoardRepo(), testutil.NewFakeHub(), testutil.NewFakeCache())
 	err := svc.Add(context.Background(), testutil.NewUUID(), "unknown", testutil.NewUUID())
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }

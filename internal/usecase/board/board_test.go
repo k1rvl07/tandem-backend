@@ -48,7 +48,7 @@ func newEnv(t *testing.T) *env {
 	ws.AddWorkspaceFixture(wsB, "Team B")
 	ws.AddMemberFixture(wsA, actorA, models.RoleOwner)
 	ws.AddMemberFixture(wsB, actorA, models.RoleOwner)
-	ws.AddMemberFixture(wsA, actorB, models.RoleViewer)
+	ws.AddMemberFixture(wsA, actorB, models.RoleMember)
 
 	return &env{
 		svc:    NewService(boards, cols, tasks, ws, users, favorites, file.NewService(noopBoardStore{}, zap.NewNop()), hub, testutil.NewFakeCache()),

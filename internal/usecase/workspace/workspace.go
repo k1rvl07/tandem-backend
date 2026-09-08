@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -16,9 +17,14 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	file "github.com/tandem/tandem/internal/usecase/file"
+	"go.uber.org/zap"
 )
 
-const maxDescriptionLen = 400
+const (
+	maxDescriptionLen = 400
+	inviteTTL         = 7 * 24 * time.Hour
+)
 
 const eventWorkspaceUpdated = "workspace.updated"
 const eventMemberKicked = "workspace.kicked"
@@ -45,8 +51,11 @@ type Service struct {
 	favorites  repository.FavoriteRepository
 	boards     repository.BoardRepository
 	columns    repository.ColumnRepository
+	tasks      repository.TaskRepository
+	files      *file.Service
 	hub        ws.Hub
 	cache      cache.Cache
+	logger     *zap.Logger
 }
 
 func NewService(
@@ -55,10 +64,13 @@ func NewService(
 	favorites repository.FavoriteRepository,
 	boards repository.BoardRepository,
 	columns repository.ColumnRepository,
+	tasks repository.TaskRepository,
+	files *file.Service,
 	hub ws.Hub,
 	cache cache.Cache,
+	logger *zap.Logger,
 ) *Service {
-	return &Service{workspaces: workspaces, users: users, favorites: favorites, boards: boards, columns: columns, hub: hub, cache: cache}
+	return &Service{workspaces: workspaces, users: users, favorites: favorites, boards: boards, columns: columns, tasks: tasks, files: files, hub: hub, cache: cache, logger: logger}
 }
 
 func (s *Service) Create(ctx context.Context, actorID string, req dto.CreateWorkspaceRequest) (*dto.WorkspaceResponse, error) {
@@ -81,9 +93,15 @@ func (s *Service) Create(ctx context.Context, actorID string, req dto.CreateWork
 		return nil, err
 	}
 	if err := s.workspaces.AddMember(ctx, ws.ID, actorID, models.RoleOwner); err != nil {
+		_ = s.workspaces.DeleteWorkspace(ctx, ws.ID)
 		return nil, err
 	}
-	if err := s.createMainBoard(ctx, ws.ID); err != nil {
+	board, err := s.createMainBoard(ctx, ws.ID)
+	if err != nil {
+		if board != nil {
+			_ = s.boards.DeleteBoard(ctx, board.ID)
+		}
+		_ = s.workspaces.DeleteWorkspace(ctx, ws.ID)
 		return nil, err
 	}
 	ownerUser, err := s.users.FindByID(ctx, actorID)
@@ -96,7 +114,7 @@ func (s *Service) Create(ctx context.Context, actorID string, req dto.CreateWork
 	return resp, nil
 }
 
-func (s *Service) createMainBoard(ctx context.Context, workspaceID string) error {
+func (s *Service) createMainBoard(ctx context.Context, workspaceID string) (*models.Board, error) {
 	board := &models.Board{
 		ID:          uuid.New().String(),
 		WorkspaceID: workspaceID,
@@ -105,7 +123,7 @@ func (s *Service) createMainBoard(ctx context.Context, workspaceID string) error
 		IsMain:      true,
 	}
 	if err := s.boards.CreateBoard(ctx, board); err != nil {
-		return err
+		return nil, err
 	}
 	for i, name := range models.DefaultColumnNames {
 		column := &models.Column{
@@ -115,10 +133,10 @@ func (s *Service) createMainBoard(ctx context.Context, workspaceID string) error
 			Position: i,
 		}
 		if err := s.columns.CreateColumn(ctx, column); err != nil {
-			return err
+			return board, err
 		}
 	}
-	return nil
+	return board, nil
 }
 
 func (s *Service) List(ctx context.Context, actorID string) ([]dto.WorkspaceResponse, error) {
@@ -181,6 +199,9 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dto.Wo
 	for i := range members {
 		user, err := s.users.FindByID(ctx, members[i].UserID)
 		if err != nil {
+			if errorsIsNotFound(err) {
+				continue
+			}
 			return nil, err
 		}
 		memberResponses = append(memberResponses, dto.WorkspaceMemberResponse{
@@ -285,6 +306,11 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID string) error
 		return pkgerrors.ErrForbidden
 	}
 	s.bumpMembers(ctx, workspaceID)
+	keys, err := s.tasks.CollectWorkspaceKeys(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	s.files.RemoveMany(ctx, keys)
 	if err := s.workspaces.DeleteWorkspace(ctx, workspaceID); err != nil {
 		return err
 	}
@@ -308,13 +334,13 @@ func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, re
 		return nil, pkgerrors.ErrForbidden
 	}
 
-	role := models.RoleViewer
+	role := models.RoleMember
 	switch models.WorkspaceRole(req.Role) {
 	case "":
 	case models.RoleEditor:
 		role = models.RoleEditor
-	case models.RoleViewer:
-		role = models.RoleViewer
+	case models.RoleMember:
+		role = models.RoleMember
 	case models.RoleOwner:
 		return nil, pkgerrors.NewValidationError("owner must be assigned via ownership transfer")
 	default:
@@ -358,8 +384,8 @@ func (s *Service) UpdateRole(ctx context.Context, actorID, workspaceID, targetID
 		return nil, pkgerrors.ErrForbidden
 	}
 	role := models.WorkspaceRole(req.Role)
-	if role != models.RoleEditor && role != models.RoleViewer {
-		return nil, pkgerrors.NewValidationError("role must be editor or viewer")
+	if role != models.RoleEditor && role != models.RoleMember {
+		return nil, pkgerrors.NewValidationError("role must be editor or member")
 	}
 	target, err := s.workspaces.FindMember(ctx, workspaceID, targetID)
 	if err != nil {
@@ -436,10 +462,7 @@ func (s *Service) TransferOwner(ctx context.Context, actorID, workspaceID string
 	if err != nil {
 		return err
 	}
-	if err := s.workspaces.UpdateMemberRole(ctx, workspaceID, target.UserID, models.RoleOwner); err != nil {
-		return err
-	}
-	if err := s.workspaces.UpdateMemberRole(ctx, workspaceID, actorID, models.RoleEditor); err != nil {
+	if err := s.workspaces.TransferOwnership(ctx, workspaceID, actorID, target.UserID); err != nil {
 		return err
 	}
 	s.bumpWorkspace(ctx, workspaceID)
@@ -464,13 +487,15 @@ func (s *Service) GetInvite(ctx context.Context, actorID, workspaceID string) (*
 	if err != nil {
 		return nil, err
 	}
-	if ws.InviteToken == "" {
+	if ws.InviteToken == "" || ws.InviteExpiresAt == nil || ws.InviteExpiresAt.Before(time.Now()) {
 		ws.InviteToken = uuid.New().String()
-		if err := s.workspaces.UpdateInviteToken(ctx, ws.ID, ws.InviteToken); err != nil {
+		expiresAt := time.Now().Add(inviteTTL)
+		ws.InviteExpiresAt = &expiresAt
+		if err := s.workspaces.UpdateInvite(ctx, ws.ID, ws.InviteToken, ws.InviteExpiresAt); err != nil {
 			return nil, err
 		}
 	}
-	return &dto.WorkspaceInviteResponse{InviteToken: &ws.InviteToken}, nil
+	return &dto.WorkspaceInviteResponse{InviteToken: &ws.InviteToken, ExpiresAt: ws.InviteExpiresAt}, nil
 }
 
 func (s *Service) DisableInvite(ctx context.Context, actorID, workspaceID string) error {
@@ -484,7 +509,7 @@ func (s *Service) DisableInvite(ctx context.Context, actorID, workspaceID string
 	if member.Role != models.RoleOwner && member.Role != models.RoleEditor {
 		return pkgerrors.ErrForbidden
 	}
-	if err := s.workspaces.UpdateInviteToken(ctx, workspaceID, ""); err != nil {
+	if err := s.workspaces.UpdateInvite(ctx, workspaceID, "", nil); err != nil {
 		return err
 	}
 	return nil
@@ -498,6 +523,12 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dto
 	if err != nil {
 		return nil, err
 	}
+	if ws.InviteExpiresAt != nil && ws.InviteExpiresAt.Before(time.Now()) {
+		if err := s.workspaces.UpdateInvite(ctx, ws.ID, "", nil); err != nil {
+			s.logger.Warn("clear expired invite failed", zap.String("workspace_id", ws.ID), zap.Error(err))
+		}
+		return nil, pkgerrors.NewValidationError("invite link has expired")
+	}
 	member, findErr := s.workspaces.FindMember(ctx, ws.ID, actorID)
 	if findErr != nil {
 		if !errorsIsNotFound(findErr) {
@@ -505,12 +536,12 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dto
 		}
 		member = nil
 	}
-	role := models.RoleViewer
+	role := models.RoleMember
 	added := false
 	if member != nil {
 		role = member.Role
 	} else {
-		if err := s.workspaces.AddMember(ctx, ws.ID, actorID, models.RoleViewer); err != nil {
+		if err := s.workspaces.AddMember(ctx, ws.ID, actorID, models.RoleMember); err != nil {
 			return nil, err
 		}
 		added = true
@@ -525,6 +556,9 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dto
 		s.bumpWorkspace(ctx, ws.ID)
 		s.bumpUser(ctx, actorID)
 		s.broadcastUpdated(ctx, ws.ID, role)
+	}
+	if err := s.workspaces.UpdateInvite(ctx, ws.ID, "", nil); err != nil {
+		s.logger.Warn("invalidate invite failed", zap.String("workspace_id", ws.ID), zap.Error(err))
 	}
 	return resp, nil
 }
@@ -567,6 +601,9 @@ func (s *Service) resolveOwner(ctx context.Context, workspaceID string) (*dto.Wo
 		if members[i].Role == models.RoleOwner {
 			user, err := s.users.FindByID(ctx, members[i].UserID)
 			if err != nil {
+				if errorsIsNotFound(err) {
+					continue
+				}
 				return nil, err
 			}
 			return memberToResponse(user, members[i].Role), nil

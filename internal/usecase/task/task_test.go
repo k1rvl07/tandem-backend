@@ -61,7 +61,7 @@ func newEnv(t *testing.T) *env {
 	ws.AddWorkspaceFixture(wsA, "Team A")
 	ws.AddMemberFixture(wsA, actorO, models.RoleOwner)
 	ws.AddMemberFixture(wsA, actorE, models.RoleEditor)
-	ws.AddMemberFixture(wsA, actorV, models.RoleViewer)
+	ws.AddMemberFixture(wsA, actorV, models.RoleMember)
 	boardA := testutil.NewUUID()
 	boardB := testutil.NewUUID()
 	boards.AddBoardFixture(boardA, wsA, "Sprint")

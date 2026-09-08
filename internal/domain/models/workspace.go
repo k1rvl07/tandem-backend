@@ -7,20 +7,21 @@ type WorkspaceRole string
 const (
 	RoleOwner  WorkspaceRole = "owner"
 	RoleEditor WorkspaceRole = "editor"
-	RoleViewer WorkspaceRole = "viewer"
+	RoleMember WorkspaceRole = "member"
 )
 
 const DefaultWorkspaceColor = "1d4ed8"
 
 type Workspace struct {
-	ID          string
-	Name        string
-	Description string
-	Prefix      string
-	Theme       string
-	InviteToken string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID              string
+	Name            string
+	Description     string
+	Prefix          string
+	Theme           string
+	InviteToken     string
+	InviteExpiresAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type WorkspaceMember struct {

@@ -86,6 +86,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	}
 	logger.Info("database migrated")
 
+	if err := postgres.DB.Exec("UPDATE workspace_members SET role = 'member' WHERE role = 'viewer'").Error; err != nil {
+		_ = redis.Close()
+		_ = postgres.Close()
+		return nil, err
+	}
+
 	return &App{
 		config:    cfg,
 		logger:    logger,
@@ -116,7 +122,7 @@ func (a *App) Run() error {
 	columnRepo := repository.NewColumnRepo(a.postgres.DB)
 	taskRepo := repository.NewTaskRepo(a.postgres.DB)
 	attachmentRepo := repository.NewAttachmentRepo(a.postgres.DB)
-	workspaceService := workspace.NewService(workspaceRepo, userRepo, favoriteRepo, boardRepo, columnRepo, a.hub, a.redis)
+	workspaceService := workspace.NewService(workspaceRepo, userRepo, favoriteRepo, boardRepo, columnRepo, taskRepo, fileService, a.hub, a.redis, a.logger)
 	workspaceHandler := handler.NewWorkspaceHandler(workspaceService)
 	boardService := board.NewService(boardRepo, columnRepo, taskRepo, workspaceRepo, userRepo, favoriteRepo, fileService, a.hub, a.redis)
 	boardHandler := handler.NewBoardHandler(boardService)

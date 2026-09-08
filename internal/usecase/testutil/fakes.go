@@ -78,12 +78,13 @@ func (f *FakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *models.Worksp
 	return nil
 }
 
-func (f *FakeWorkspaceRepo) UpdateInviteToken(_ context.Context, workspaceID, token string) error {
+func (f *FakeWorkspaceRepo) UpdateInvite(_ context.Context, workspaceID, token string, expiresAt *time.Time) error {
 	ws, ok := f.Workspaces[workspaceID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
 	ws.InviteToken = token
+	ws.InviteExpiresAt = expiresAt
 	return nil
 }
 
@@ -155,6 +156,27 @@ func (f *FakeWorkspaceRepo) ListMembers(_ context.Context, wsID string) ([]model
 
 func (f *FakeWorkspaceRepo) DeleteMembersByWorkspace(_ context.Context, wsID string) error {
 	delete(f.Members, wsID)
+	return nil
+}
+
+func (f *FakeWorkspaceRepo) DeleteMembersByUser(_ context.Context, userID string) error {
+	for wsID, members := range f.Members {
+		delete(members, userID)
+		if len(members) == 0 {
+			delete(f.Members, wsID)
+		}
+	}
+	return nil
+}
+
+func (f *FakeWorkspaceRepo) TransferOwnership(_ context.Context, wsID, oldOwnerID, newOwnerID string) error {
+	oldMember, okOld := f.Members[wsID][oldOwnerID]
+	newMember, okNew := f.Members[wsID][newOwnerID]
+	if !okOld || !okNew {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	}
+	oldMember.Role = models.RoleEditor
+	newMember.Role = models.RoleOwner
 	return nil
 }
 

@@ -3,16 +3,21 @@ package workspace
 import (
 	"context"
 	"errors"
+	"io"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/http/dto"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
+	"github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -64,12 +69,13 @@ func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *models.Worksp
 	return nil
 }
 
-func (f *fakeWorkspaceRepo) UpdateInviteToken(_ context.Context, wsID, token string) error {
+func (f *fakeWorkspaceRepo) UpdateInvite(_ context.Context, wsID, token string, expiresAt *time.Time) error {
 	ws, ok := f.workspaces[wsID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
 	ws.InviteToken = token
+	ws.InviteExpiresAt = expiresAt
 	return nil
 }
 
@@ -152,6 +158,27 @@ func (f *fakeWorkspaceRepo) DeleteMembersByWorkspace(_ context.Context, wsID str
 	return nil
 }
 
+func (f *fakeWorkspaceRepo) DeleteMembersByUser(_ context.Context, userID string) error {
+	for wsID, members := range f.members {
+		delete(members, userID)
+		if len(members) == 0 {
+			delete(f.members, wsID)
+		}
+	}
+	return nil
+}
+
+func (f *fakeWorkspaceRepo) TransferOwnership(_ context.Context, wsID, oldOwnerID, newOwnerID string) error {
+	oldMember, okOld := f.members[wsID][oldOwnerID]
+	newMember, okNew := f.members[wsID][newOwnerID]
+	if !okOld || !okNew {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	}
+	oldMember.Role = models.RoleEditor
+	newMember.Role = models.RoleOwner
+	return nil
+}
+
 type fakeUserRepo struct {
 	users map[string]*models.User
 }
@@ -206,8 +233,10 @@ func newTestEnv() *testEnv {
 	favorites := testutil.NewFakeFavoriteRepo()
 	boards := testutil.NewFakeBoardRepo()
 	columns := testutil.NewFakeColumnRepo()
+	tasks := testutil.NewFakeTaskRepo()
+	files := file.NewService(noopWorkspaceStore{}, zap.NewNop())
 	return &testEnv{
-		svc:      NewService(wsRepo, userRepo, favorites, boards, columns, testutil.NewFakeHub(), testutil.NewFakeCache()),
+		svc:      NewService(wsRepo, userRepo, favorites, boards, columns, tasks, files, testutil.NewFakeHub(), testutil.NewFakeCache(), zap.NewNop()),
 		wsRepo:   wsRepo,
 		userRepo: userRepo,
 		boards:   boards,
@@ -215,7 +244,29 @@ func newTestEnv() *testEnv {
 	}
 }
 
-func (e *testEnv) seedWorkspace(owner, editor, viewer string) string {
+type noopWorkspaceStore struct{}
+
+func (noopWorkspaceStore) Put(context.Context, string, io.Reader, int64, string) error {
+	return nil
+}
+
+func (noopWorkspaceStore) Get(context.Context, string) (io.ReadCloser, error) {
+	return nil, nil
+}
+
+func (noopWorkspaceStore) Delete(context.Context, string) error {
+	return nil
+}
+
+func (noopWorkspaceStore) Exists(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (noopWorkspaceStore) PresignGet(context.Context, string, time.Duration) (string, error) {
+	return "", nil
+}
+
+func (e *testEnv) seedWorkspace(owner, editor, member string) string {
 	env := e
 	wsID := uuid.New().String()
 	env.wsRepo.workspaces[wsID] = &models.Workspace{
@@ -224,7 +275,7 @@ func (e *testEnv) seedWorkspace(owner, editor, viewer string) string {
 	env.wsRepo.members[wsID] = map[string]*models.WorkspaceMember{
 		owner:  {WorkspaceID: wsID, UserID: owner, Role: models.RoleOwner, CreatedAt: time.Now()},
 		editor: {WorkspaceID: wsID, UserID: editor, Role: models.RoleEditor, CreatedAt: time.Now()},
-		viewer: {WorkspaceID: wsID, UserID: viewer, Role: models.RoleViewer, CreatedAt: time.Now()},
+		member: {WorkspaceID: wsID, UserID: member, Role: models.RoleMember, CreatedAt: time.Now()},
 	}
 	return wsID
 }
@@ -234,43 +285,21 @@ func TestCreateWorkspaceOwnerAdded(t *testing.T) {
 	owner := e.userRepo.seedUser("owner.one")
 
 	resp, err := e.svc.Create(context.Background(), owner.ID, dto.CreateWorkspaceRequest{Name: "  My Team  "})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Name != "My Team" {
-		t.Errorf("expected trimmed name, got %q", resp.Name)
-	}
-	if resp.Role != string(models.RoleOwner) {
-		t.Errorf("expected owner role, got %q", resp.Role)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "My Team", resp.Name)
+	assert.Equal(t, string(models.RoleOwner), resp.Role)
 	member, err := e.wsRepo.FindMember(context.Background(), resp.ID, owner.ID)
-	if err != nil {
-		t.Fatalf("owner membership missing: %v", err)
-	}
-	if member.Role != models.RoleOwner {
-		t.Errorf("expected owner membership, got %q", member.Role)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, models.RoleOwner, member.Role)
 
 	boards, err := e.boards.ListBoards(context.Background(), resp.ID)
-	if err != nil {
-		t.Fatalf("list boards: %v", err)
-	}
-	if len(boards) != 1 {
-		t.Fatalf("expected 1 auto-created board, got %d", len(boards))
-	}
-	if boards[0].Name != "Main" {
-		t.Errorf("expected board named Main, got %q", boards[0].Name)
-	}
-	if !boards[0].IsMain {
-		t.Errorf("expected auto-created board to be main")
-	}
+	require.NoError(t, err)
+	require.Len(t, boards, 1)
+	assert.Equal(t, "Main", boards[0].Name)
+	assert.True(t, boards[0].IsMain)
 	cols, err := e.columns.ListColumns(context.Background(), boards[0].ID)
-	if err != nil {
-		t.Fatalf("list columns: %v", err)
-	}
-	if len(cols) != len(models.DefaultColumnNames) {
-		t.Errorf("expected %d default columns, got %d", len(models.DefaultColumnNames), len(cols))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, len(models.DefaultColumnNames), len(cols))
 }
 
 func TestCreateWorkspaceValidation(t *testing.T) {
@@ -278,9 +307,7 @@ func TestCreateWorkspaceValidation(t *testing.T) {
 	owner := e.userRepo.seedUser("owner.one")
 
 	_, err := e.svc.Create(context.Background(), owner.ID, dto.CreateWorkspaceRequest{Name: ""})
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestListWorkspacesForUser(t *testing.T) {
@@ -290,42 +317,27 @@ func TestListWorkspacesForUser(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, editor.ID, uuid.NewString())
 
 	resp, err := e.svc.List(context.Background(), owner.ID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 workspace, got %d", len(resp))
-	}
-	if resp[0].ID != wsID || resp[0].Role != "owner" {
-		t.Errorf("unexpected workspace response: %+v", resp[0])
-	}
+	require.NoError(t, err)
+	require.Len(t, resp, 1)
+	assert.Equal(t, wsID, resp[0].ID)
+	assert.Equal(t, "owner", resp[0].Role)
 
 	resp, err = e.svc.List(context.Background(), editor.ID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp[0].Role != "editor" {
-		t.Errorf("expected editor role, got %q", resp[0].Role)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "editor", resp[0].Role)
 }
 
 func TestGetWorkspaceIncludesMembers(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
-	resp, err := e.svc.Get(context.Background(), viewer.ID, wsID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Role != "viewer" {
-		t.Errorf("expected viewer role, got %q", resp.Role)
-	}
-	if len(resp.Members) != 3 {
-		t.Fatalf("expected 3 members, got %d", len(resp.Members))
-	}
+	resp, err := e.svc.Get(context.Background(), member.ID, wsID)
+	require.NoError(t, err)
+	assert.Equal(t, "member", resp.Role)
+	require.Len(t, resp.Members, 3)
 }
 
 func TestGetWorkspaceForbiddenForNonMember(t *testing.T) {
@@ -336,222 +348,170 @@ func TestGetWorkspaceForbiddenForNonMember(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, editor.ID, uuid.NewString())
 
 	_, err := e.svc.Get(context.Background(), stranger.ID, wsID)
-	if !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestUpdateWorkspacePermissions(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 	req := dto.UpdateWorkspaceRequest{Name: "Renamed", Description: "desc"}
 
-	if _, err := e.svc.Update(ctx, editor.ID, wsID, req); err != nil {
-		t.Fatalf("editor update failed: %v", err)
-	}
-	if _, err := e.svc.Update(ctx, viewer.ID, wsID, req); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for viewer, got %v", err)
-	}
-	if _, err := e.svc.Update(ctx, owner.ID, wsID, req); err != nil {
-		t.Fatalf("owner update failed: %v", err)
-	}
+	_, err := e.svc.Update(ctx, editor.ID, wsID, req)
+	require.NoError(t, err)
+	_, err = e.svc.Update(ctx, member.ID, wsID, req)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	_, err = e.svc.Update(ctx, owner.ID, wsID, req)
+	require.NoError(t, err)
 }
 
 func TestDeleteWorkspaceOwnerOnly(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	if err := e.svc.Delete(ctx, viewer.ID, wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for viewer, got %v", err)
-	}
-	if err := e.svc.Delete(ctx, editor.ID, wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for editor, got %v", err)
-	}
-	if err := e.svc.Delete(ctx, owner.ID, wsID); err != nil {
-		t.Fatalf("owner delete failed: %v", err)
-	}
-	if _, err := e.wsRepo.FindWorkspaceByID(ctx, wsID); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected workspace gone, got %v", err)
-	}
-	if _, err := e.wsRepo.FindMember(ctx, wsID, owner.ID); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected members gone, got %v", err)
-	}
+	err := e.svc.Delete(ctx, member.ID, wsID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	err = e.svc.Delete(ctx, editor.ID, wsID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	err = e.svc.Delete(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	_, err = e.wsRepo.FindWorkspaceByID(ctx, wsID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+	_, err = e.wsRepo.FindMember(ctx, wsID, owner.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestAddMember(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
+	member := e.userRepo.seedUser("member.one")
 	newbie := e.userRepo.seedUser("newbie.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
 	created, err := e.svc.AddMember(ctx, owner.ID, wsID, dto.AddMemberRequest{Login: newbie.Login})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if created.Role != string(models.RoleViewer) {
-		t.Errorf("expected default viewer role, got %q", created.Role)
-	}
-	if _, err := e.svc.AddMember(ctx, owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "editor"}); !errors.Is(err, pkgerrors.ErrConflict) {
-		t.Fatalf("expected conflict on duplicate, got %v", err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, string(models.RoleMember), created.Role)
+	_, err = e.svc.AddMember(ctx, owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "editor"})
+	require.ErrorIs(t, err, pkgerrors.ErrConflict)
 }
 
 func TestAddMemberPermissions(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
+	member := e.userRepo.seedUser("member.one")
 	newbie := e.userRepo.seedUser("newbie.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	if _, err := e.svc.AddMember(ctx, editor.ID, wsID, dto.AddMemberRequest{Login: newbie.Login}); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for editor, got %v", err)
-	}
-	if _, err := e.svc.AddMember(ctx, viewer.ID, wsID, dto.AddMemberRequest{Login: newbie.Login}); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for viewer, got %v", err)
-	}
+	_, err := e.svc.AddMember(ctx, editor.ID, wsID, dto.AddMemberRequest{Login: newbie.Login})
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	_, err = e.svc.AddMember(ctx, member.ID, wsID, dto.AddMemberRequest{Login: newbie.Login})
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestAddMemberRoleOwnerRejected(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
 	_, err := e.svc.AddMember(context.Background(), owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "owner"})
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 	_, err = e.svc.AddMember(context.Background(), owner.ID, wsID, dto.AddMemberRequest{Login: "newbie.one", Role: "boss"})
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error for invalid role, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestAddMemberUnknownUser(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
 	_, err := e.svc.AddMember(context.Background(), owner.ID, wsID, dto.AddMemberRequest{Login: "ghost.user"})
-	if !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestRemoveMember(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	if err := e.svc.RemoveMember(ctx, editor.ID, wsID, viewer.ID); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for editor, got %v", err)
-	}
-	if err := e.svc.RemoveMember(ctx, owner.ID, wsID, owner.ID); !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error removing owner, got %v", err)
-	}
-	if err := e.svc.RemoveMember(ctx, owner.ID, wsID, viewer.ID); err != nil {
-		t.Fatalf("owner remove failed: %v", err)
-	}
-	if _, err := e.wsRepo.FindMember(ctx, wsID, viewer.ID); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected member removed, got %v", err)
-	}
-	if err := e.svc.RemoveMember(ctx, owner.ID, wsID, viewer.ID); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found for removed member, got %v", err)
-	}
+	err := e.svc.RemoveMember(ctx, editor.ID, wsID, member.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	err = e.svc.RemoveMember(ctx, owner.ID, wsID, owner.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	err = e.svc.RemoveMember(ctx, owner.ID, wsID, member.ID)
+	require.NoError(t, err)
+	_, err = e.wsRepo.FindMember(ctx, wsID, member.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+	err = e.svc.RemoveMember(ctx, owner.ID, wsID, member.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestTransferOwner(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	if err := e.svc.TransferOwner(ctx, viewer.ID, wsID, dto.TransferOwnerRequest{UserID: owner.ID}); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for viewer, got %v", err)
-	}
-	if err := e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: owner.ID}); !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error transferring to self, got %v", err)
-	}
-	if err := e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: uuid.NewString()}); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found for non-member, got %v", err)
-	}
+	err := e.svc.TransferOwner(ctx, member.ID, wsID, dto.TransferOwnerRequest{UserID: owner.ID})
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: owner.ID})
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: uuid.NewString()})
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 
-	if err := e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: editor.ID}); err != nil {
-		t.Fatalf("transfer failed: %v", err)
-	}
+	err = e.svc.TransferOwner(ctx, owner.ID, wsID, dto.TransferOwnerRequest{UserID: editor.ID})
+	require.NoError(t, err)
 	newOwner, err := e.wsRepo.FindMember(ctx, wsID, editor.ID)
-	if err != nil {
-		t.Fatalf("new owner missing: %v", err)
-	}
-	if newOwner.Role != models.RoleOwner {
-		t.Errorf("expected new owner role, got %q", newOwner.Role)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, models.RoleOwner, newOwner.Role)
 	oldOwner, _ := e.wsRepo.FindMember(ctx, wsID, owner.ID)
-	if oldOwner.Role != models.RoleEditor {
-		t.Errorf("expected old owner demoted to editor, got %q", oldOwner.Role)
-	}
+	assert.Equal(t, models.RoleEditor, oldOwner.Role)
 }
 
 func TestUpdateMemberRole(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.one")
 	editor := e.userRepo.seedUser("editor.one")
-	viewer := e.userRepo.seedUser("viewer.one")
+	member := e.userRepo.seedUser("member.one")
 	other := e.userRepo.seedUser("other.one")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 	ctx := context.Background()
 
-	if _, err := e.svc.UpdateRole(ctx, viewer.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)}); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for non-owner, got %v", err)
-	}
-	if _, err := e.svc.UpdateRole(ctx, owner.ID, wsID, other.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)}); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found for non-member, got %v", err)
-	}
-	if _, err := e.svc.UpdateRole(ctx, owner.ID, wsID, owner.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)}); !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error changing owner role, got %v", err)
-	}
-	if _, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: "superadmin"}); !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error for bad role, got %v", err)
-	}
+	_, err := e.svc.UpdateRole(ctx, member.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, other.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, owner.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	_, err = e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: "superadmin"})
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 
-	resp, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleViewer)})
-	if err != nil {
-		t.Fatalf("update role failed: %v", err)
-	}
-	if resp.Role != string(models.RoleViewer) {
-		t.Errorf("expected viewer role in response, got %q", resp.Role)
-	}
-	if resp.ID != editor.ID {
-		t.Errorf("expected editor as responder, got %q", resp.ID)
-	}
-	member, err := e.wsRepo.FindMember(ctx, wsID, editor.ID)
-	if err != nil {
-		t.Fatalf("member missing: %v", err)
-	}
-	if member.Role != models.RoleViewer {
-		t.Errorf("expected stored viewer role, got %q", member.Role)
-	}
+	resp, err := e.svc.UpdateRole(ctx, owner.ID, wsID, editor.ID, dto.UpdateMemberRoleRequest{Role: string(models.RoleMember)})
+	require.NoError(t, err)
+	assert.Equal(t, string(models.RoleMember), resp.Role)
+	assert.Equal(t, editor.ID, resp.ID)
+	stored, err := e.wsRepo.FindMember(ctx, wsID, editor.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.RoleMember, stored.Role)
 }
 
 func TestSetThemePermissions(t *testing.T) {
@@ -559,22 +519,16 @@ func TestSetThemePermissions(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.theme")
 	editor := e.userRepo.seedUser("editor.theme")
-	viewer := e.userRepo.seedUser("viewer.theme")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.theme")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
-	if _, err := e.svc.SetTheme(ctx, owner.ID, wsID, "be123c"); err != nil {
-		t.Errorf("owner should be able to set theme: %v", err)
-	}
+	_, err := e.svc.SetTheme(ctx, owner.ID, wsID, "be123c")
+	assert.NoError(t, err)
 	resp, err := e.svc.SetTheme(ctx, editor.ID, wsID, "16a34a")
-	if err != nil {
-		t.Errorf("editor should be able to set theme: %v", err)
-	}
-	if resp.Theme != "16a34a" {
-		t.Errorf("expected theme 16a34a in response, got %q", resp.Theme)
-	}
-	if _, err := e.svc.SetTheme(ctx, viewer.ID, wsID, "db2777"); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Errorf("expected viewer to be forbidden, got %v", err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "16a34a", resp.Theme)
+	_, err = e.svc.SetTheme(ctx, member.ID, wsID, "db2777")
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestGetInviteGeneratesToken(t *testing.T) {
@@ -582,91 +536,68 @@ func TestGetInviteGeneratesToken(t *testing.T) {
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.invite")
 	editor := e.userRepo.seedUser("editor.invite")
-	viewer := e.userRepo.seedUser("viewer.invite")
-	wsID := e.seedWorkspace(owner.ID, editor.ID, viewer.ID)
+	member := e.userRepo.seedUser("member.invite")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
 	resp, err := e.svc.GetInvite(ctx, owner.ID, wsID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.InviteToken == nil || *resp.InviteToken == "" {
-		t.Fatal("expected a generated invite token")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, resp.InviteToken)
+	assert.NotEmpty(t, *resp.InviteToken)
 	second, err := e.svc.GetInvite(ctx, editor.ID, wsID)
-	if err != nil {
-		t.Fatalf("editor get invite failed: %v", err)
-	}
-	if second.InviteToken == nil || *second.InviteToken != *resp.InviteToken {
-		t.Fatal("expected the same token on re-fetch")
-	}
-	if _, err := e.svc.GetInvite(ctx, viewer.ID, wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for viewer, got %v", err)
-	}
-	if _, err := e.svc.GetInvite(ctx, uuid.NewString(), wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for non-member, got %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, second.InviteToken)
+	assert.Equal(t, *resp.InviteToken, *second.InviteToken)
+	_, err = e.svc.GetInvite(ctx, member.ID, wsID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	_, err = e.svc.GetInvite(ctx, uuid.NewString(), wsID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestDisableInvite(t *testing.T) {
 	ctx := context.Background()
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.invite")
-	viewer := e.userRepo.seedUser("viewer.invite")
-	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), viewer.ID)
+	member := e.userRepo.seedUser("member.invite")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), member.ID)
 
-	if _, err := e.svc.GetInvite(ctx, owner.ID, wsID); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if err := e.svc.DisableInvite(ctx, owner.ID, wsID); err != nil {
-		t.Fatalf("disable failed: %v", err)
-	}
+	_, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	err = e.svc.DisableInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
 	ws := e.wsRepo.workspaces[wsID]
-	if ws.InviteToken != "" {
-		t.Fatalf("expected empty token after disable, got %q", ws.InviteToken)
-	}
+	assert.Empty(t, ws.InviteToken)
 	regenerated, err := e.svc.GetInvite(ctx, owner.ID, wsID)
-	if err != nil || regenerated.InviteToken == nil || *regenerated.InviteToken == "" {
-		t.Fatalf("expected token regeneration after disable, got %v", err)
-	}
-	if err := e.svc.DisableInvite(ctx, viewer.ID, wsID); !errors.Is(err, pkgerrors.ErrForbidden) {
-		t.Fatalf("expected forbidden for viewer, got %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, regenerated.InviteToken)
+	assert.NotEmpty(t, *regenerated.InviteToken)
+	err = e.svc.DisableInvite(ctx, member.ID, wsID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestJoinByInvite(t *testing.T) {
 	ctx := context.Background()
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.invite")
-	viewer := e.userRepo.seedUser("viewer.invite")
+	member := e.userRepo.seedUser("member.invite")
 	newbie := e.userRepo.seedUser("newbie.invite")
-	wsID := e.seedWorkspace(owner.ID, owner.ID, viewer.ID)
+	wsID := e.seedWorkspace(owner.ID, owner.ID, member.ID)
 
 	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	token := *invite.InviteToken
+	require.NotEmpty(t, token)
 
-	resp, err := e.svc.JoinByInvite(ctx, newbie.ID, *invite.InviteToken)
-	if err != nil {
-		t.Fatalf("join failed: %v", err)
-	}
-	if resp.ID != wsID {
-		t.Fatalf("expected workspace %q, got %q", wsID, resp.ID)
-	}
-	member, err := e.wsRepo.FindMember(ctx, wsID, newbie.ID)
-	if err != nil {
-		t.Fatalf("member not added: %v", err)
-	}
-	if member.Role != models.RoleViewer {
-		t.Fatalf("expected viewer role after join, got %q", member.Role)
-	}
+	resp, err := e.svc.JoinByInvite(ctx, newbie.ID, token)
+	require.NoError(t, err)
+	assert.Equal(t, wsID, resp.ID)
+	stored, err := e.wsRepo.FindMember(ctx, wsID, newbie.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.RoleMember, stored.Role)
 
-	if _, err := e.svc.JoinByInvite(ctx, newbie.ID, *invite.InviteToken); err != nil {
-		t.Fatalf("re-join as existing member should succeed: %v", err)
-	}
-	if _, err := e.svc.JoinByInvite(ctx, newbie.ID, "bogus-token"); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found for bogus token, got %v", err)
-	}
+	_, err = e.svc.JoinByInvite(ctx, newbie.ID, token)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+	_, err = e.svc.JoinByInvite(ctx, newbie.ID, "bogus-token")
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestJoinByInviteDisabled(t *testing.T) {
@@ -677,17 +608,42 @@ func TestJoinByInviteDisabled(t *testing.T) {
 	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
 
 	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	token := *invite.InviteToken
-	if token == "" {
-		t.Fatal("expected a non-empty token")
-	}
-	if err := e.svc.DisableInvite(ctx, owner.ID, wsID); err != nil {
-		t.Fatalf("disable failed: %v", err)
-	}
-	if _, err := e.svc.JoinByInvite(ctx, newbie.ID, token); !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found for disabled invite, got %v", err)
-	}
+	require.NotEmpty(t, token)
+	err = e.svc.DisableInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	_, err = e.svc.JoinByInvite(ctx, newbie.ID, token)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+}
+
+func TestGetInviteSetsExpiry(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+
+	resp, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	require.NotNil(t, resp.ExpiresAt)
+	require.False(t, resp.ExpiresAt.Before(time.Now()))
+	require.False(t, resp.ExpiresAt.After(time.Now().Add(inviteTTL+time.Second)))
+}
+
+func TestJoinByInviteExpired(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	newbie := e.userRepo.seedUser("newbie.invite")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+
+	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	token := *invite.InviteToken
+	past := time.Now().Add(-time.Hour)
+	e.wsRepo.workspaces[wsID].InviteExpiresAt = &past
+
+	_, err = e.svc.JoinByInvite(ctx, newbie.ID, token)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	assert.Empty(t, e.wsRepo.workspaces[wsID].InviteToken)
 }
