@@ -1,12 +1,11 @@
 package handler
 
 import (
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/tandem/tandem/internal/http/middleware"
+	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	fileuc "github.com/tandem/tandem/internal/usecase/file"
 )
 
@@ -22,7 +21,6 @@ const maxImageSize = 5 << 20
 
 type uploadResponse struct {
 	Key string `json:"key"`
-	URL string `json:"url"`
 }
 
 // @Summary Upload an image
@@ -38,7 +36,7 @@ type uploadResponse struct {
 // @Failure 413 {object} map[string]string
 // @Router /api/v1/files/images [post]
 func (h *FileHandler) UploadImage(c *gin.Context) {
-	userID, _ := c.Get(middleware.CtxUserID)
+	userID, _ := c.Get(ctxkeys.CtxUserID)
 	uid, _ := userID.(string)
 	if uid == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -65,27 +63,23 @@ func (h *FileHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, uploadResponse{Key: key, URL: "/api/v1/files/" + key})
+	c.JSON(http.StatusCreated, uploadResponse{Key: key})
 }
 
-// @Summary Get an image
+// @Summary Sign an image URL
 // @Tags files
-// @Produce image/*
-// @Param key path string true "File key"
-// @Success 200 {file} binary
+// @Produce json
+// @Param key query string true "File key"
+// @Success 200 {object} map[string]string
 // @Failure 404 {object} map[string]string
-// @Router /api/v1/files/{key} [get]
-func (h *FileHandler) GetImage(c *gin.Context) {
-	key := strings.TrimPrefix(c.Param("key"), "/")
-	rc, contentType, err := h.files.Open(c.Request.Context(), key)
+// @Security BearerAuth
+// @Router /api/v1/files/sign [get]
+func (h *FileHandler) Sign(c *gin.Context) {
+	key := strings.TrimSpace(c.Query("key"))
+	url, err := h.files.SignImage(c.Request.Context(), key)
 	if err != nil {
 		respondError(c, err)
 		return
 	}
-	defer rc.Close()
-
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Status(http.StatusOK)
-	_, _ = io.Copy(c.Writer, rc)
+	c.JSON(http.StatusOK, gin.H{"url": url})
 }

@@ -76,6 +76,14 @@ func (m *MinIO) Exists(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
+func (m *MinIO) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	url, err := m.client.PresignedGetObject(ctx, m.bucket, key, ttl, nil)
+	if err != nil {
+		return "", err
+	}
+	return url.String(), nil
+}
+
 func (m *MinIO) Bucket() string {
 	return m.bucket
 }

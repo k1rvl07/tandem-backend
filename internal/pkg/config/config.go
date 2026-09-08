@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ type AppConfig struct {
 	AllowedOrigins []string
 	AdminLogin     string
 	AdminPassword  string
+	PasswordCost   int
 }
 
 type DatabaseConfig struct {
@@ -96,9 +98,26 @@ func Load(envFile string) (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET must be set to a non-default value")
 	}
 
+	if cfg.App.Env == "production" {
+		if cfg.MinIO.SecretKey == "" || cfg.MinIO.SecretKey == "change_me_minio" {
+			return nil, fmt.Errorf("MINIO_ROOT_PASSWORD must be set to a non-default value in production")
+		}
+	}
+
+	cfg.App.PasswordCost = passwordCost()
+
 	cfg.App.AllowedOrigins = allowedOrigins(cfg.App.Env)
 
 	return cfg, nil
+}
+
+func passwordCost() int {
+	v := getEnv("BCRYPT_COST", "12")
+	cost, err := strconv.Atoi(v)
+	if err != nil || cost < 10 || cost > 15 {
+		return 12
+	}
+	return cost
 }
 
 func allowedOrigins(env string) []string {

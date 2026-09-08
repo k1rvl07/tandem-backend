@@ -6,9 +6,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/domain/ports/service"
+	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 )
 
-const CtxUserID = "userID"
+const CtxUserID = ctxkeys.CtxUserID
 
 func Auth(tokens service.TokenService) gin.HandlerFunc {
 	return func(c *gin.Context) {

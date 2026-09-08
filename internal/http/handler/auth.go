@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto"
+	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/auth"
 )
@@ -40,6 +41,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// @Summary Log out current user
+// @Tags auth
+// @Produce json
+// @Success 204
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/v1/auth/logout [post]
+func (h *AuthHandler) Logout(c *gin.Context) {
+	userID := c.GetString(ctxkeys.CtxUserID)
+	if err := h.auth.Logout(c.Request.Context(), userID); err != nil {
+		respondError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func respondError(c *gin.Context, err error) {

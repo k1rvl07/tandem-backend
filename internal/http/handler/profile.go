@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto"
-	"github.com/tandem/tandem/internal/http/middleware"
+	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	"github.com/tandem/tandem/internal/usecase/profile"
 )
 
@@ -113,15 +113,16 @@ func (h *ProfileHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	userID := currentUserID(c)
-	if err := h.profiles.ChangePassword(c.Request.Context(), userID, req); err != nil {
+	token, err := h.profiles.ChangePassword(c.Request.Context(), userID, req)
+	if err != nil {
 		respondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "password updated"})
+	c.JSON(http.StatusOK, gin.H{"token": token, "message": "password updated"})
 }
 
 func currentUserID(c *gin.Context) string {
-	userID, _ := c.Get(middleware.CtxUserID)
+	userID, _ := c.Get(ctxkeys.CtxUserID)
 	uid, _ := userID.(string)
 	return uid
 }

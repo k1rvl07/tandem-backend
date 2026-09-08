@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/http/dto"
@@ -102,14 +104,14 @@ func (f *fakeUserRepo) Delete(_ context.Context, id string) error {
 }
 
 func newTestService(repo repository.UserRepository) *Service {
-	tokens := token.NewJWTManager("test-secret")
-	hasher := password.NewBCryptHasher()
+	tokens := token.NewJWTManager("test-secret", nil)
+	hasher := password.NewBCryptHasher(12)
 	return NewService(repo, tokens, hasher, 24*time.Hour)
 }
 
 func TestLoginSuccess(t *testing.T) {
 	repo := newFakeUserRepo()
-	hasher := password.NewBCryptHasher()
+	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("password123")
 	err := repo.Create(context.Background(), &models.User{
 		ID:           uuid.New().String(),
@@ -117,32 +119,22 @@ func TestLoginSuccess(t *testing.T) {
 		PasswordHash: hash,
 		Role:         models.RoleUser,
 	})
-	if err != nil {
-		t.Fatalf("create failed: %v", err)
-	}
+	require.NoError(t, err)
 	svc := newTestService(repo)
 
 	resp, err := svc.Login(context.Background(), dto.LoginRequest{
 		Login:    " Ivanov.II ",
 		Password: "password123",
 	})
-	if err != nil {
-		t.Fatalf("login failed: %v", err)
-	}
-	if resp.Token == "" {
-		t.Error("expected non-empty token")
-	}
-	if resp.User.Login != "ivanov.ii" {
-		t.Errorf("expected normalized login, got %q", resp.User.Login)
-	}
-	if resp.User.Role != models.RoleUser {
-		t.Errorf("expected role user, got %q", resp.User.Role)
-	}
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.Token)
+	assert.Equal(t, "ivanov.ii", resp.User.Login)
+	assert.Equal(t, models.RoleUser, resp.User.Role)
 }
 
 func TestLoginWrongPassword(t *testing.T) {
 	repo := newFakeUserRepo()
-	hasher := password.NewBCryptHasher()
+	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("password123")
 	err := repo.Create(context.Background(), &models.User{
 		ID:           uuid.New().String(),
@@ -150,28 +142,24 @@ func TestLoginWrongPassword(t *testing.T) {
 		PasswordHash: hash,
 		Role:         models.RoleUser,
 	})
-	if err != nil {
-		t.Fatalf("create failed: %v", err)
-	}
+	require.NoError(t, err)
 	svc := newTestService(repo)
 
-	if _, err := svc.Login(context.Background(), dto.LoginRequest{
+	_, err = svc.Login(context.Background(), dto.LoginRequest{
 		Login:    "ivanov.ii",
 		Password: "wrong-password",
-	}); err == nil {
-		t.Fatal("expected error on wrong password")
-	}
+	})
+	require.Error(t, err)
 }
 
 func TestLoginUnknownLogin(t *testing.T) {
 	svc := newTestService(newFakeUserRepo())
 
-	if _, err := svc.Login(context.Background(), dto.LoginRequest{
+	_, err := svc.Login(context.Background(), dto.LoginRequest{
 		Login:    "nobody",
 		Password: "password123",
-	}); err == nil {
-		t.Fatal("expected error on unknown login")
-	}
+	})
+	require.Error(t, err)
 }
 
 func TestLoginValidation(t *testing.T) {
@@ -182,8 +170,34 @@ func TestLoginValidation(t *testing.T) {
 		{Login: "ivanov.ii", Password: ""},
 	}
 	for _, req := range cases {
-		if _, err := svc.Login(context.Background(), req); err == nil {
-			t.Errorf("expected validation error for %+v", req)
-		}
+		_, err := svc.Login(context.Background(), req)
+		assert.Error(t, err)
 	}
+}
+
+type recordingTokens struct {
+	revoked []string
+}
+
+func (r *recordingTokens) Generate(string, time.Duration) (string, error) {
+	return "token", nil
+}
+
+func (r *recordingTokens) Parse(string) (string, error) {
+	return "u1", nil
+}
+
+func (r *recordingTokens) Revoke(_ context.Context, subject string) error {
+	r.revoked = append(r.revoked, subject)
+	return nil
+}
+
+func TestLogoutRevokesToken(t *testing.T) {
+	tokens := &recordingTokens{}
+	svc := NewService(newFakeUserRepo(), tokens, password.NewBCryptHasher(12), time.Hour)
+
+	err := svc.Logout(context.Background(), "u1")
+	require.NoError(t, err)
+	require.Len(t, tokens.revoked, 1)
+	require.Equal(t, "u1", tokens.revoked[0])
 }

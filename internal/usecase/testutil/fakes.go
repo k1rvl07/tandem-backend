@@ -729,3 +729,33 @@ func (f *FakeCache) Ping(context.Context) error { return nil }
 func (f *FakeCache) Close() error               { return nil }
 
 var _ cache.Cache = (*FakeCache)(nil)
+
+type FakeTokenService struct {
+	Current   string
+	GenErr    error
+	GenCalled int
+	RevokeErr error
+	Revoked   []string
+}
+
+func (f *FakeTokenService) Generate(subject string, _ time.Duration) (string, error) {
+	f.GenCalled++
+	if f.GenErr != nil {
+		return "", f.GenErr
+	}
+	next := "tok:" + subject
+	f.Current = next
+	return next, nil
+}
+
+func (f *FakeTokenService) Parse(string) (string, error) {
+	return "", nil
+}
+
+func (f *FakeTokenService) Revoke(_ context.Context, subject string) error {
+	if f.RevokeErr != nil {
+		return f.RevokeErr
+	}
+	f.Revoked = append(f.Revoked, subject)
+	return nil
+}

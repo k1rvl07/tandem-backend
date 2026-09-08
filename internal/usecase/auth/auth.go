@@ -14,6 +14,7 @@ import (
 
 type UseCase interface {
 	Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error)
+	Logout(ctx context.Context, userID string) error
 }
 
 type Service struct {
@@ -50,6 +51,10 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginRe
 	}
 
 	return &dto.LoginResponse{Token: token, User: toUserResponse(user)}, nil
+}
+
+func (s *Service) Logout(ctx context.Context, userID string) error {
+	return s.tokens.Revoke(ctx, userID)
 }
 
 func toUserResponse(u *models.User) dto.UserResponse {

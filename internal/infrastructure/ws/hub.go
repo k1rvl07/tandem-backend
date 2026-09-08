@@ -149,7 +149,7 @@ type Client struct {
 	done   chan struct{}
 
 	mu     sync.Mutex
-	room   string
+	rooms  map[string]struct{}
 	closed bool
 
 	once sync.Once
@@ -163,6 +163,7 @@ func NewClient(conn *websocket.Conn, id, userID string) *Client {
 		conn:   conn,
 		id:     id,
 		userID: userID,
+		rooms:  make(map[string]struct{}),
 		send:   make(chan *ws.Message, sendQueueSize),
 		done:   make(chan struct{}),
 	}
@@ -174,16 +175,29 @@ func (c *Client) ID() string { return c.id }
 
 func (c *Client) UserID() string { return c.userID }
 
-func (c *Client) SetRoom(room string) {
-	c.mu.Lock()
-	c.room = room
-	c.mu.Unlock()
-}
-
-func (c *Client) Room() string {
+func (c *Client) AddRoom(room string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.room
+	if c.rooms == nil {
+		c.rooms = make(map[string]struct{})
+	}
+	c.rooms[room] = struct{}{}
+}
+
+func (c *Client) RemoveRoom(room string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.rooms, room)
+}
+
+func (c *Client) Rooms() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rooms := make([]string, 0, len(c.rooms))
+	for room := range c.rooms {
+		rooms = append(rooms, room)
+	}
+	return rooms
 }
 
 func (c *Client) Send(msg *ws.Message) {

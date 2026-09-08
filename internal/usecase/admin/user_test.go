@@ -119,7 +119,7 @@ func (f *fakeRepo) seed(login, role string) string {
 }
 
 func newTestService(repo repository.UserRepository) *Service {
-	return NewService(repo, password.NewBCryptHasher(), testutil.NewFakeCache())
+	return NewService(repo, password.NewBCryptHasher(12), testutil.NewFakeCache())
 }
 
 func TestCreateUserSuccess(t *testing.T) {
@@ -150,7 +150,7 @@ func TestCreateUserSuccess(t *testing.T) {
 	if stored.PasswordHash == "password123" {
 		t.Error("password must be hashed")
 	}
-	if !password.NewBCryptHasher().Check(stored.PasswordHash, "password123") {
+	if !password.NewBCryptHasher(12).Check(stored.PasswordHash, "password123") {
 		t.Error("stored hash should verify against the plain password")
 	}
 }

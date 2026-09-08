@@ -80,7 +80,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, file
 	if _, err := s.workspaceTask(ctx, workspaceID, taskID); err != nil {
 		return nil, err
 	}
-	key, err := s.files.UploadAttachment(ctx, workspaceID, actorID, filename, contentType, reader, size)
+	key, err := s.files.PrepareAttachment(workspaceID, actorID, filename, size)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +94,10 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, file
 		UploadedBy:  actorID,
 	}
 	if err := s.attachments.CreateAttachment(ctx, attachment); err != nil {
+		return nil, err
+	}
+	if err := s.files.PutAttachment(ctx, key, reader, size, contentType); err != nil {
+		_ = s.attachments.DeleteAttachment(ctx, attachment.ID)
 		return nil, err
 	}
 	response := attachmentToResponse(attachment, workspaceID, taskID)
@@ -187,12 +191,10 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, taskID, atta
 	if attachment.TaskID != taskID {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("attachment not in task"))
 	}
-	if err := s.files.Remove(ctx, attachment.ObjectKey); err != nil {
-		return err
-	}
 	if err := s.attachments.DeleteAttachment(ctx, attachmentID); err != nil {
 		return err
 	}
+	s.files.RemoveMany(ctx, []string{attachment.ObjectKey})
 	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{
 		Type: eventAttachmentDeleted,

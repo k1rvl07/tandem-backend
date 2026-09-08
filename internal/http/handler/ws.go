@@ -17,21 +17,25 @@ import (
 )
 
 type WSHandler struct {
-	hub        ws.Hub
-	tokens     service.TokenService
-	workspaces repository.WorkspaceRepository
+	hub         ws.Hub
+	tokens      service.TokenService
+	workspaces  repository.WorkspaceRepository
+	checkOrigin func(*http.Request) bool
 }
 
-func NewWSHandler(hub ws.Hub, tokens service.TokenService, workspaces repository.WorkspaceRepository) *WSHandler {
-	return &WSHandler{hub: hub, tokens: tokens, workspaces: workspaces}
-}
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+func NewWSHandler(hub ws.Hub, tokens service.TokenService, workspaces repository.WorkspaceRepository, allowedOrigins []string) *WSHandler {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		allowed[origin] = true
+	}
+	checkOrigin := func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" || len(allowed) == 0 {
+			return true
+		}
+		return allowed[origin]
+	}
+	return &WSHandler{hub: hub, tokens: tokens, workspaces: workspaces, checkOrigin: checkOrigin}
 }
 
 type clientMessage struct {
@@ -47,12 +51,12 @@ type presenceMessage struct {
 
 // @Summary WebSocket endpoint
 // @Tags ws
-// @Param token query string true "JWT token"
+// @Param Sec-WebSocket-Protocol header string false "Subprotocol: 'tandem, <JWT>'"
 // @Success 101
 // @Failure 401 {object} map[string]string
 // @Router /ws [get]
 func (h *WSHandler) Connect(c *gin.Context) {
-	tokenString := c.Query("token")
+	tokenString := tokenFromSubprotocol(c.GetHeader("Sec-WebSocket-Protocol"))
 	if tokenString == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
@@ -63,7 +67,16 @@ func (h *WSHandler) Connect(c *gin.Context) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     h.checkOrigin,
+	}
+	responseHeader := http.Header{}
+	if offersTandem(c.GetHeader("Sec-WebSocket-Protocol")) {
+		responseHeader.Set("Sec-WebSocket-Protocol", "tandem")
+	}
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, responseHeader)
 	if err != nil {
 		return
 	}
@@ -71,11 +84,34 @@ func (h *WSHandler) Connect(c *gin.Context) {
 	client := wsclient.NewClient(conn, uuid.NewString(), userID)
 	client.OnMessage = h.handleMessage
 	client.OnDisconnect = func(cl *wsclient.Client) {
-		if room := cl.Room(); room != "" {
+		for _, room := range cl.Rooms() {
 			h.broadcastPresence(room)
 		}
 	}
 	h.hub.Register(client)
+}
+
+func tokenFromSubprotocol(header string) string {
+	if !offersTandem(header) {
+		return ""
+	}
+	entries := strings.Split(header, ",")
+	for _, entry := range entries {
+		if token := strings.TrimSpace(entry); token != "" && token != "tandem" {
+			return token
+		}
+	}
+	return ""
+}
+
+func offersTandem(header string) bool {
+	entries := strings.Split(header, ",")
+	for _, entry := range entries {
+		if strings.TrimSpace(entry) == "tandem" {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *WSHandler) handleMessage(cl *wsclient.Client, data []byte) {
@@ -92,15 +128,24 @@ func (h *WSHandler) handleMessage(cl *wsclient.Client, data []byte) {
 			return
 		}
 		h.hub.JoinRoom(msg.Room, cl)
-		cl.SetRoom(msg.Room)
+		cl.AddRoom(msg.Room)
 		h.broadcastPresence(msg.Room)
 	case "leave":
-		h.hub.LeaveRoom(msg.Room, cl)
-		if cl.Room() == msg.Room {
-			cl.SetRoom("")
+		if !validWorkspaceRoom(msg.Room) {
+			return
 		}
+		h.hub.LeaveRoom(msg.Room, cl)
+		cl.RemoveRoom(msg.Room)
 		h.broadcastPresence(msg.Room)
 	}
+}
+
+func validWorkspaceRoom(room string) bool {
+	if !strings.HasPrefix(room, "workspace:") {
+		return false
+	}
+	workspaceID := strings.TrimPrefix(room, "workspace:")
+	return validate.UUID(workspaceID) == nil
 }
 
 func (h *WSHandler) canJoin(userID, room string) bool {

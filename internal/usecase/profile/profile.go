@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/tandem/tandem/internal/domain/models"
@@ -16,6 +17,7 @@ import (
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"go.uber.org/zap"
 )
 
 const (
@@ -28,19 +30,22 @@ const avatarNamespace = "avatars"
 type UserCase interface {
 	Get(ctx context.Context, userID string) (*dto.UserResponse, error)
 	UpdateProfile(ctx context.Context, userID string, req dto.UpdateProfileRequest) (*dto.UserResponse, error)
-	ChangePassword(ctx context.Context, userID string, req dto.ChangePasswordRequest) error
+	ChangePassword(ctx context.Context, userID string, req dto.ChangePasswordRequest) (string, error)
 	UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dto.UserResponse, error)
 }
 
 type Service struct {
-	users  repository.UserRepository
-	hasher service.PasswordHasher
-	files  *file.Service
-	cache  cache.Cache
+	users    repository.UserRepository
+	hasher   service.PasswordHasher
+	files    *file.Service
+	cache    cache.Cache
+	tokens   service.TokenService
+	tokenTTL time.Duration
+	logger   *zap.Logger
 }
 
-func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache) *Service {
-	return &Service{users: users, hasher: hasher, files: files, cache: cache}
+func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache, tokens service.TokenService, tokenTTL time.Duration, logger *zap.Logger) *Service {
+	return &Service{users: users, hasher: hasher, files: files, cache: cache, tokens: tokens, tokenTTL: tokenTTL, logger: logger}
 }
 
 func (s *Service) Get(ctx context.Context, userID string) (*dto.UserResponse, error) {
@@ -85,26 +90,30 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req dto.Upda
 	return toUserResponse(user), nil
 }
 
-func (s *Service) ChangePassword(ctx context.Context, userID string, req dto.ChangePasswordRequest) error {
+func (s *Service) ChangePassword(ctx context.Context, userID string, req dto.ChangePasswordRequest) (string, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !s.hasher.Check(user.PasswordHash, req.CurrentPassword) {
-		return pkgerrors.NewValidationError("current password is incorrect")
+		return "", pkgerrors.NewValidationError("current password is incorrect")
 	}
 	if err := validate.Password(req.NewPassword); err != nil {
-		return err
+		return "", err
 	}
 	hash, err := s.hasher.Hash(req.NewPassword)
 	if err != nil {
-		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+		return "", pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 	user.PasswordHash = hash
 	if err := s.users.Update(ctx, user); err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	if err := s.tokens.Revoke(ctx, userID); err != nil {
+		return "", err
+	}
+	s.bumpUser(ctx, userID)
+	return s.tokens.Generate(userID, s.tokenTTL)
 }
 
 func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dto.UserResponse, error) {
@@ -116,12 +125,13 @@ func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentTyp
 	if err != nil {
 		return nil, err
 	}
-	if user.AvatarKey != "" {
-		_ = s.files.Remove(ctx, user.AvatarKey)
-	}
+	oldKey := user.AvatarKey
 	user.AvatarKey = key
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
+	}
+	if oldKey != "" {
+		s.files.RemoveMany(ctx, []string{oldKey})
 	}
 	s.bumpUser(ctx, userID)
 	return toUserResponse(user), nil

@@ -6,13 +6,17 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
 	"github.com/tandem/tandem/internal/http/dto"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
+	"go.uber.org/zap"
 )
 
 type fakeRepo struct {
@@ -113,82 +117,77 @@ func (s *fakeStore) Exists(_ context.Context, key string) (bool, error) {
 	return ok, nil
 }
 
-func newTestService(repo *fakeRepo, store filestore.FileStore) *Service {
-	hasher := password.NewBCryptHasher()
-	return NewService(repo, hasher, file.NewService(store), testutil.NewFakeCache())
+func (s *fakeStore) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
+	return key, nil
+}
+
+func newTestService(repo *fakeRepo, store filestore.FileStore) (*Service, *testutil.FakeTokenService) {
+	hasher := password.NewBCryptHasher(12)
+	tokens := &testutil.FakeTokenService{}
+	return NewService(repo, hasher, file.NewService(store, zap.NewNop()), testutil.NewFakeCache(), tokens, time.Hour, zap.NewNop()), tokens
 }
 
 func TestGetProfile(t *testing.T) {
 	repo := newFakeRepo()
 	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", Role: models.RoleUser, DisplayName: "Alice", Bio: "hello"}
 	repo.users[user.Login] = user
-	svc := newTestService(repo, newFakeStore())
+	svc, _ := newTestService(repo, newFakeStore())
 
 	resp, err := svc.Get(context.Background(), "u1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.DisplayName != "Alice" || resp.Bio != "hello" || resp.Login != "ivanov.ii" {
-		t.Errorf("unexpected profile: %+v", resp)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Alice", resp.DisplayName)
+	assert.Equal(t, "hello", resp.Bio)
+	assert.Equal(t, "ivanov.ii", resp.Login)
 }
 
 func TestUpdateProfile(t *testing.T) {
 	repo := newFakeRepo()
 	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", Role: models.RoleUser}
 	repo.users[user.Login] = user
-	svc := newTestService(repo, newFakeStore())
+	svc, _ := newTestService(repo, newFakeStore())
 
 	resp, err := svc.UpdateProfile(context.Background(), "u1", dto.UpdateProfileRequest{DisplayName: "Bob", Bio: "dev"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.DisplayName != "Bob" || resp.Bio != "dev" {
-		t.Errorf("unexpected profile: %+v", resp)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Bob", resp.DisplayName)
+	assert.Equal(t, "dev", resp.Bio)
 }
 
 func TestChangePasswordWrongCurrent(t *testing.T) {
 	repo := newFakeRepo()
-	hasher := password.NewBCryptHasher()
+	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("oldpass123")
 	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: models.RoleUser}
 	repo.users[user.Login] = user
-	svc := newTestService(repo, newFakeStore())
+	svc, _ := newTestService(repo, newFakeStore())
 
-	err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "wrong"})
-	if err == nil {
-		t.Fatal("expected error for wrong current password")
-	}
+	_, err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "wrong"})
+	require.Error(t, err)
 }
 
 func TestChangePassword(t *testing.T) {
 	repo := newFakeRepo()
-	hasher := password.NewBCryptHasher()
+	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("oldpass123")
 	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: models.RoleUser}
 	repo.users[user.Login] = user
-	svc := newTestService(repo, newFakeStore())
+	svc, tokens := newTestService(repo, newFakeStore())
 
-	err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "oldpass123"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !hasher.Check(repo.users["ivanov.ii"].PasswordHash, "newpass123") {
-		t.Error("password was not updated")
-	}
+	token, err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "oldpass123"})
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+	require.Len(t, tokens.Revoked, 1)
+	require.Equal(t, "u1", tokens.Revoked[0])
+	assert.True(t, hasher.Check(repo.users["ivanov.ii"].PasswordHash, "newpass123"))
 }
 
 func TestChangePasswordTooShort(t *testing.T) {
 	repo := newFakeRepo()
-	hasher := password.NewBCryptHasher()
+	hasher := password.NewBCryptHasher(12)
 	hash, _ := hasher.Hash("oldpass123")
 	user := &models.User{ID: "u1", Login: "ivanov.ii", PasswordHash: hash, Role: models.RoleUser}
 	repo.users[user.Login] = user
-	svc := newTestService(repo, newFakeStore())
+	svc, _ := newTestService(repo, newFakeStore())
 
-	err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "short", CurrentPassword: "oldpass123"})
-	if err == nil {
-		t.Fatal("expected error for short password")
-	}
+	_, err := svc.ChangePassword(context.Background(), "u1", dto.ChangePasswordRequest{NewPassword: "short", CurrentPassword: "oldpass123"})
+	require.Error(t, err)
 }

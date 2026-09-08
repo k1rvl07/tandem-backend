@@ -3,6 +3,7 @@ package filestore
 import (
 	"context"
 	"io"
+	"time"
 )
 
 type FileStore interface {
@@ -10,4 +11,5 @@ type FileStore interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
+	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
 }

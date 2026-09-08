@@ -109,9 +109,21 @@ func (h *AttachmentHandler) Download(c *gin.Context) {
 	} else {
 		c.Header("Content-Type", "application/octet-stream")
 	}
-	c.Header("Content-Disposition", "attachment; filename=\""+resp.Filename+"\"")
+	c.Header("Content-Disposition", "attachment; filename=\""+sanitizeFilename(resp.Filename)+"\"")
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, rc)
+}
+
+func sanitizeFilename(name string) string {
+	name = strings.ReplaceAll(name, "\\", "")
+	name = strings.ReplaceAll(name, "\"", "")
+	name = strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		return r
+	}, name)
+	return name
 }
 
 // @Summary Delete a task attachment
