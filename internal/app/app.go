@@ -84,13 +84,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 		_ = postgres.Close()
 		return nil, err
 	}
-	logger.Info("database migrated")
-
 	if err := postgres.DB.Exec("UPDATE workspace_members SET role = 'member' WHERE role = 'viewer'").Error; err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
 	}
+	logger.Info("database migrated")
 
 	return &App{
 		config:    cfg,
@@ -135,6 +134,12 @@ func (a *App) Run() error {
 	treeService := tree.NewService(workspaceRepo, boardRepo, columnRepo, taskRepo, userRepo, favoriteRepo, a.redis)
 	treeHandler := handler.NewTreeHandler(treeService)
 
+	authLimiter := rediscache.NewRateLimiter(a.redis, "auth", rediscache.AuthLimit, rediscache.AuthWindow, rediscache.ByIP())
+	readLimiter := rediscache.NewRateLimiter(a.redis, "read", rediscache.ReadLimit, rediscache.ReadWindow, rediscache.ByUser())
+	writeLimiter := rediscache.NewRateLimiter(a.redis, "write", rediscache.WriteLimit, rediscache.WriteWindow, rediscache.ByUser())
+	uploadLimiter := rediscache.NewRateLimiter(a.redis, "upload", rediscache.UploadLimit, rediscache.UploadWindow, rediscache.ByUser())
+	wsLimiter := rediscache.NewRateLimiter(a.redis, "ws", rediscache.WsLimit, rediscache.WsWindow, rediscache.ByUser())
+
 	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
 		return err
 	}
@@ -158,6 +163,11 @@ func (a *App) Run() error {
 		TreeHandler:         treeHandler,
 		Files:               fileService,
 		EnableSwagger:       true,
+		AuthLimiter:         authLimiter,
+		ReadLimiter:         readLimiter,
+		WriteLimiter:        writeLimiter,
+		UploadLimiter:       uploadLimiter,
+		WSLimiter:           wsLimiter,
 	})
 
 	a.server = &http.Server{

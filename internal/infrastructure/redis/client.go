@@ -76,6 +76,10 @@ func (r *Redis) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
 
+func (r *Redis) Raw() *redis.Client {
+	return r.client
+}
+
 func (r *Redis) Close() error {
 	return r.client.Close()
 }
