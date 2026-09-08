@@ -103,13 +103,13 @@ func (r *WorkspaceRepo) DeleteWorkspace(ctx context.Context, id string) error {
 		if err := tx.Where("board_id IN (SELECT id FROM boards WHERE workspace_id = ?)", id).Delete(&entity.Column{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("workspace_id = ?", id).Delete(&entity.Board{}).Error; err != nil {
-			return err
-		}
 		if err := tx.Where("target_type = ? AND target_id = ?", models.FavoriteWorkspace, id).Delete(&entity.Favorite{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("target_type = ? AND target_id IN (SELECT id FROM boards WHERE workspace_id = ?)", models.FavoriteBoard, id).Delete(&entity.Favorite{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("workspace_id = ?", id).Delete(&entity.Board{}).Error; err != nil {
 			return err
 		}
 		res := tx.Where("id = ?", id).Delete(&entity.Workspace{})
