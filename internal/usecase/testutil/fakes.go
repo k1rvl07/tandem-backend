@@ -643,6 +643,16 @@ func (f *FakeFavoriteRepo) RemoveFavorite(_ context.Context, userID, targetType,
 	return nil
 }
 
+func (f *FakeFavoriteRepo) DeleteUserFavorites(_ context.Context, userID string) error {
+	for k := range f.Favorites {
+		parts := strings.Split(k, "|")
+		if parts[0] == userID {
+			delete(f.Favorites, k)
+		}
+	}
+	return nil
+}
+
 func (f *FakeFavoriteRepo) IsFavorite(_ context.Context, userID, targetType, targetID string) (bool, error) {
 	_, ok := f.Favorites[userID+"|"+targetType+"|"+targetID]
 	return ok, nil

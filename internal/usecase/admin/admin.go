@@ -14,6 +14,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	file "github.com/tandem/tandem/internal/usecase/file"
 )
 
 type Actor struct {
@@ -29,13 +30,25 @@ type UseCase interface {
 }
 
 type Service struct {
-	users  repository.UserRepository
-	hasher service.PasswordHasher
-	cache  cache.Cache
+	users      repository.UserRepository
+	hasher     service.PasswordHasher
+	cache      cache.Cache
+	tokens     service.TokenService
+	workspaces repository.WorkspaceRepository
+	favorites  repository.FavoriteRepository
+	files      *file.Service
 }
 
-func NewService(users repository.UserRepository, hasher service.PasswordHasher, cache cache.Cache) *Service {
-	return &Service{users: users, hasher: hasher, cache: cache}
+func NewService(
+	users repository.UserRepository,
+	hasher service.PasswordHasher,
+	cache cache.Cache,
+	tokens service.TokenService,
+	workspaces repository.WorkspaceRepository,
+	favorites repository.FavoriteRepository,
+	files *file.Service,
+) *Service {
+	return &Service{users: users, hasher: hasher, cache: cache, tokens: tokens, workspaces: workspaces, favorites: favorites, files: files}
 }
 
 func (s *Service) bumpUsers(ctx context.Context) {
@@ -222,9 +235,17 @@ func (s *Service) DeleteUser(ctx context.Context, actor Actor, targetID string) 
 	if actor.Role == models.RoleModerator && target.Role != models.RoleUser {
 		return pkgerrors.ErrForbidden
 	}
+	s.files.RemoveMany(ctx, []string{target.AvatarKey})
+	if err := s.workspaces.DeleteMembersByUser(ctx, targetID); err != nil {
+		return err
+	}
+	if err := s.favorites.DeleteUserFavorites(ctx, targetID); err != nil {
+		return err
+	}
 	if err := s.users.Delete(ctx, targetID); err != nil {
 		return err
 	}
+	_ = s.tokens.Revoke(ctx, targetID)
 	s.bumpUsers(ctx)
 	return nil
 }

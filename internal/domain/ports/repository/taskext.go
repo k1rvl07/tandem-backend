@@ -18,4 +18,5 @@ type FavoriteRepository interface {
 	RemoveFavorite(ctx context.Context, userID, targetType, targetID string) error
 	IsFavorite(ctx context.Context, userID, targetType, targetID string) (bool, error)
 	ListFavoriteTargets(ctx context.Context, userID, targetType string) (map[string]bool, error)
+	DeleteUserFavorites(ctx context.Context, userID string) error
 }

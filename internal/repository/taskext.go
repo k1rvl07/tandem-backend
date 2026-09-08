@@ -154,4 +154,12 @@ func (r *FavoriteRepo) ListFavoriteTargets(ctx context.Context, userID, targetTy
 	return result, nil
 }
 
+func (r *FavoriteRepo) DeleteUserFavorites(ctx context.Context, userID string) error {
+	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&entity.Favorite{}).Error
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
 var _ repository.FavoriteRepository = (*FavoriteRepo)(nil)
