@@ -61,11 +61,6 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *models.Task) error {
 	} else {
 		updates["due_date"] = nil
 	}
-	if task.ArchivedAt != nil {
-		updates["archived_at"] = *task.ArchivedAt
-	} else {
-		updates["archived_at"] = nil
-	}
 	err := r.db.WithContext(ctx).Model(&entity.Task{}).Where("id = ?", task.ID).Updates(updates).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
@@ -74,12 +69,24 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *models.Task) error {
 }
 
 func (r *TaskRepo) DeleteTask(ctx context.Context, id string) error {
-	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&entity.Task{})
-	if res.Error != nil {
-		return pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("task_id IN (SELECT id FROM tasks WHERE id = ? OR parent_id = ?)", id, id).Delete(&entity.TaskAttachment{}).Error; err != nil {
+			return err
+		}
+		res := tx.Where("id = ? OR parent_id = ?", id, id).Delete(&entity.Task{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
 	}
-	if res.RowsAffected == 0 {
-		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 	return nil
 }
@@ -149,6 +156,76 @@ func (r *TaskRepo) ListChildTasks(ctx context.Context, parentID string) ([]*mode
 	return tasksToDomain(es), nil
 }
 
+func (r *TaskRepo) CollectTaskKeys(ctx context.Context, taskID string) ([]string, error) {
+	var imageKeys []string
+	err := r.db.WithContext(ctx).
+		Model(&entity.Task{}).
+		Where("(id = ? OR parent_id = ?) AND image_key <> ''", taskID, taskID).
+		Pluck("image_key", &imageKeys).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	keys, err := r.collectAttachmentKeys(ctx, "tasks.id = ? OR tasks.parent_id = ?", taskID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	keys = append(keys, imageKeys...)
+	return keys, nil
+}
+
+func (r *TaskRepo) CollectBoardKeys(ctx context.Context, boardID string) ([]string, error) {
+	var imageKeys []string
+	err := r.db.WithContext(ctx).
+		Table("tasks").
+		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
+		Where("board_columns.board_id = ? AND tasks.image_key <> ''", boardID).
+		Pluck("tasks.image_key", &imageKeys).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	keys, err := r.collectAttachmentKeys(ctx, "board_columns.board_id = ?", boardID)
+	if err != nil {
+		return nil, err
+	}
+	keys = append(keys, imageKeys...)
+	return keys, nil
+}
+
+func (r *TaskRepo) CollectWorkspaceKeys(ctx context.Context, workspaceID string) ([]string, error) {
+	var imageKeys []string
+	err := r.db.WithContext(ctx).
+		Table("tasks").
+		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
+		Joins("JOIN boards ON boards.id = board_columns.board_id").
+		Where("boards.workspace_id = ? AND tasks.image_key <> ''", workspaceID).
+		Pluck("tasks.image_key", &imageKeys).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	keys, err := r.collectAttachmentKeys(ctx, "boards.workspace_id = ?", workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	keys = append(keys, imageKeys...)
+	return keys, nil
+}
+
+func (r *TaskRepo) collectAttachmentKeys(ctx context.Context, scope string, args ...interface{}) ([]string, error) {
+	var keys []string
+	err := r.db.WithContext(ctx).
+		Table("task_attachments").
+		Select("task_attachments.object_key").
+		Joins("JOIN tasks ON tasks.id = task_attachments.task_id").
+		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
+		Joins("JOIN boards ON boards.id = board_columns.board_id").
+		Where(scope, args...).
+		Scan(&keys).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return keys, nil
+}
+
 func taskToEntity(t *models.Task) *entity.Task {
 	return &entity.Task{
 		ID:          t.ID,
@@ -164,7 +241,6 @@ func taskToEntity(t *models.Task) *entity.Task {
 		IsUrgent:    t.IsUrgent,
 		IsHidden:    t.IsHidden,
 		ImageKey:    t.ImageKey,
-		ArchivedAt:  t.ArchivedAt,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}
@@ -185,7 +261,6 @@ func taskToDomain(e *entity.Task) *models.Task {
 		IsUrgent:    e.IsUrgent,
 		IsHidden:    e.IsHidden,
 		ImageKey:    e.ImageKey,
-		ArchivedAt:  e.ArchivedAt,
 		CreatedAt:   e.CreatedAt,
 		UpdatedAt:   e.UpdatedAt,
 	}

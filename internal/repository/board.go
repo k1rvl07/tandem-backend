@@ -45,10 +45,9 @@ func (r *BoardRepo) FindBoardByID(ctx context.Context, id string) (*models.Board
 func (r *BoardRepo) UpdateBoard(ctx context.Context, board *models.Board) error {
 	e := boardToEntity(board)
 	err := r.db.WithContext(ctx).Model(&entity.Board{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
-		"name":        e.Name,
-		"position":    e.Position,
-		"is_main":     e.IsMain,
-		"archived_at": e.ArchivedAt,
+		"name":     e.Name,
+		"position": e.Position,
+		"is_main":  e.IsMain,
 	}).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
@@ -66,10 +65,16 @@ func (r *BoardRepo) ClearMainBoards(ctx context.Context, workspaceID string) err
 
 func (r *BoardRepo) DeleteBoard(ctx context.Context, id string) error {
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("task_id IN (SELECT tasks.id FROM tasks JOIN board_columns ON board_columns.id = tasks.column_id WHERE board_columns.board_id = ?)", id).Delete(&entity.TaskAttachment{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("column_id IN (SELECT id FROM board_columns WHERE board_id = ?)", id).Delete(&entity.Task{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("board_id = ?", id).Delete(&entity.Column{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("target_type = ? AND target_id = ?", models.FavoriteBoard, id).Delete(&entity.Favorite{}).Error; err != nil {
 			return err
 		}
 		res := tx.Where("id = ?", id).Delete(&entity.Board{})
@@ -114,7 +119,6 @@ func (r *BoardRepo) CountTasksByBoard(ctx context.Context, workspaceID string) (
 		Select("cols.board_id as board_id, count(tasks.id) as count").
 		Joins("JOIN board_columns cols ON cols.id = tasks.column_id").
 		Where("cols.board_id IN (SELECT id FROM boards WHERE workspace_id = ?)", workspaceID).
-		Where("tasks.archived_at IS NULL").
 		Group("cols.board_id").
 		Scan(&rows).Error
 	if err != nil {
@@ -148,7 +152,6 @@ func boardToEntity(b *models.Board) *entity.Board {
 		Name:        b.Name,
 		Position:    b.Position,
 		IsMain:      b.IsMain,
-		ArchivedAt:  b.ArchivedAt,
 		CreatedAt:   b.CreatedAt,
 		UpdatedAt:   b.UpdatedAt,
 	}
@@ -161,7 +164,6 @@ func boardToDomain(e *entity.Board) *models.Board {
 		Name:        e.Name,
 		Position:    e.Position,
 		IsMain:      e.IsMain,
-		ArchivedAt:  e.ArchivedAt,
 		CreatedAt:   e.CreatedAt,
 		UpdatedAt:   e.UpdatedAt,
 	}

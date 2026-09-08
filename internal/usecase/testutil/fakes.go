@@ -272,7 +272,6 @@ func (f *FakeBoardRepo) UpdateBoard(_ context.Context, board *models.Board) erro
 	existing.Name = board.Name
 	existing.Position = board.Position
 	existing.IsMain = board.IsMain
-	existing.ArchivedAt = board.ArchivedAt
 	return nil
 }
 
@@ -441,7 +440,7 @@ func (f *FakeTaskRepo) UpdateTask(_ context.Context, task *models.Task) error {
 		ID: task.ID, ColumnID: task.ColumnID, Title: task.Title, Description: task.Description,
 		AuthorID: task.AuthorID, AssigneeID: task.AssigneeID, CuratorID: task.CuratorID, ParentID: task.ParentID,
 		DueDate: task.DueDate, Position: task.Position,
-		IsUrgent: task.IsUrgent, IsHidden: task.IsHidden, ArchivedAt: task.ArchivedAt,
+		IsUrgent: task.IsUrgent, IsHidden: task.IsHidden,
 		CreatedAt: existing.CreatedAt, UpdatedAt: time.Now(),
 	}
 	return nil
@@ -453,6 +452,18 @@ func (f *FakeTaskRepo) DeleteTask(_ context.Context, id string) error {
 	}
 	delete(f.Tasks, id)
 	return nil
+}
+
+func (f *FakeTaskRepo) CollectTaskKeys(_ context.Context, taskID string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *FakeTaskRepo) CollectBoardKeys(_ context.Context, boardID string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *FakeTaskRepo) CollectWorkspaceKeys(_ context.Context, workspaceID string) ([]string, error) {
+	return nil, nil
 }
 
 func (f *FakeTaskRepo) ListTasksForBoard(_ context.Context, boardID string) ([]*models.Task, error) {

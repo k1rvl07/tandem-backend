@@ -3,14 +3,29 @@ package task
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/http/dto"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
+	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
+	"go.uber.org/zap"
 )
+
+type noopStore struct{}
+
+func (noopStore) Put(context.Context, string, io.Reader, int64, string) error { return nil }
+func (noopStore) Get(context.Context, string) (io.ReadCloser, error)          { return nil, errors.New("noop") }
+func (noopStore) Delete(context.Context, string) error                        { return nil }
+func (noopStore) Exists(context.Context, string) (bool, error)                { return false, nil }
+func (noopStore) PresignGet(context.Context, string, time.Duration) (string, error) {
+	return "", nil
+}
 
 type env struct {
 	svc    *Service
@@ -62,7 +77,7 @@ func newEnv(t *testing.T) *env {
 	tasks.RegisterColumn(colC, boardB)
 
 	return &env{
-		svc:    NewService(tasks, cols, boards, ws, users, hub, testutil.NewFakeCache()),
+		svc:    NewService(tasks, cols, boards, ws, users, file.NewService(noopStore{}, zap.NewNop()), hub, testutil.NewFakeCache()),
 		tasks:  tasks,
 		cols:   cols,
 		ws:     ws,
@@ -91,33 +106,25 @@ func TestCreateTask(t *testing.T) {
 		Description: "Do it",
 		AssigneeID:  assignee.ID,
 	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if task.Title != "Implement login" || task.Position != 0 {
-		t.Fatalf("unexpected task: %+v", task)
-	}
-	if task.Assignee == nil || task.Assignee.Login != "dev" {
-		t.Fatalf("assignee not resolved: %+v", task.Assignee)
-	}
-	if e.hub.Messages[0].Type != eventTaskCreated {
-		t.Fatalf("expected task.created, got %s", e.hub.Messages[0].Type)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Implement login", task.Title)
+	assert.Equal(t, 0, task.Position)
+	require.NotNil(t, task.Assignee)
+	assert.Equal(t, "dev", task.Assignee.Login)
+	assert.Equal(t, eventTaskCreated, e.hub.Messages[0].Type)
 }
 
 func TestCreateTaskDefaultPosition(t *testing.T) {
 	e := newEnv(t)
-	e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "First", 0)
+	first := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "First", 0)
 	task, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
 		ColumnID: e.colA,
 		Title:    "Second",
 	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if task.Position != 1 {
-		t.Fatalf("expected position 1, got %d", task.Position)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 0, task.Position)
+	stored, _ := e.tasks.FindTaskByID(context.Background(), first.ID)
+	assert.Equal(t, 1, stored.Position)
 }
 
 func TestCreateTaskDefaultFields(t *testing.T) {
@@ -126,26 +133,19 @@ func TestCreateTaskDefaultFields(t *testing.T) {
 		ColumnID: e.colA,
 		Title:    "Default fields",
 	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if task.DueDate != nil || task.Assignee != nil {
-		t.Fatalf("unexpected defaults: %+v", task)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, task.DueDate)
+	assert.Nil(t, task.Assignee)
 }
 
-func TestCreateTaskViewerAllowed(t *testing.T) {
+func TestCreateTaskMemberAllowed(t *testing.T) {
 	e := newEnv(t)
 	task, err := e.svc.Create(context.Background(), e.actorV, e.wsA, e.boardA, dto.CreateTaskRequest{
 		ColumnID: e.colA,
-		Title:    "Create by viewer",
+		Title:    "Create by member",
 	})
-	if err != nil {
-		t.Fatalf("create by viewer: %v", err)
-	}
-	if task.Title != "Create by viewer" {
-		t.Fatalf("unexpected task: %+v", task)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Create by member", task.Title)
 }
 
 func TestCreateTaskAssigneeNotMember(t *testing.T) {
@@ -156,9 +156,7 @@ func TestCreateTaskAssigneeNotMember(t *testing.T) {
 		Title:      "Assign",
 		AssigneeID: outsider,
 	})
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestCreateTaskColumnFromOtherBoard(t *testing.T) {
@@ -167,9 +165,7 @@ func TestCreateTaskColumnFromOtherBoard(t *testing.T) {
 		ColumnID: e.cols.AddColumnFixture(testutil.NewUUID(), e.boardB, "Backlog", 0).ID,
 		Title:    "Wrong board",
 	})
-	if !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestUpdateTaskFields(t *testing.T) {
@@ -187,21 +183,14 @@ func TestUpdateTaskFields(t *testing.T) {
 		DueDate:     &dueDate,
 		AssigneeID:  &assignee.ID,
 	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if updated.Title != "New title" || updated.Description != "Longer" {
-		t.Fatalf("fields not updated: %+v", updated)
-	}
-	if updated.DueDate == nil || updated.DueDate.Format("2006-01-02") != "2026-12-31" {
-		t.Fatalf("due date not updated: %+v", updated.DueDate)
-	}
-	if updated.Assignee == nil || updated.Assignee.ID != assignee.ID {
-		t.Fatalf("assignee not updated: %+v", updated.Assignee)
-	}
-	if e.hub.Messages[0].Type != eventTaskUpdated {
-		t.Fatalf("expected task.updated, got %s", e.hub.Messages[0].Type)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "New title", updated.Title)
+	assert.Equal(t, "Longer", updated.Description)
+	require.NotNil(t, updated.DueDate)
+	assert.Equal(t, "2026-12-31", updated.DueDate.Format("2006-01-02"))
+	require.NotNil(t, updated.Assignee)
+	assert.Equal(t, assignee.ID, updated.Assignee.ID)
+	assert.Equal(t, eventTaskUpdated, e.hub.Messages[0].Type)
 }
 
 func TestUpdateTaskClearDueDateAndAssignee(t *testing.T) {
@@ -212,15 +201,13 @@ func TestUpdateTaskClearDueDateAndAssignee(t *testing.T) {
 	task.AssigneeID = e.actorO
 
 	clear := ""
-	if _, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+	_, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
 		DueDate:    &clear,
 		AssigneeID: &clear,
-	}); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if task.DueDate != nil || task.AssigneeID != "" {
-		t.Fatalf("fields not cleared: %+v", task)
-	}
+	})
+	require.NoError(t, err)
+	assert.Nil(t, task.DueDate)
+	assert.Empty(t, task.AssigneeID)
 }
 
 func TestUpdateTaskMoveToColumn(t *testing.T) {
@@ -235,24 +222,24 @@ func TestUpdateTaskMoveToColumn(t *testing.T) {
 		ColumnID: &e.colB,
 		Position: &position,
 	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if updated.ColumnID != e.colB || updated.Position != 1 {
-		t.Fatalf("unexpected move result: %+v", updated)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), src1.ID); stored.ColumnID != e.colB || stored.Position != 1 {
-		t.Fatalf("stored task not moved: %+v", stored)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), tgt1.ID); stored.ColumnID != e.colB || stored.Position != 0 {
-		t.Fatalf("target first sibling position = %d, want 0", stored.Position)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), tgt2.ID); stored.Position != 2 {
-		t.Fatalf("target sibling not pushed: %+v", stored)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), src2.ID); stored.ColumnID != e.colA || stored.Position != 0 {
-		t.Fatalf("source sibling not renumbered: %+v", stored)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, e.colB, updated.ColumnID)
+	assert.Equal(t, 1, updated.Position)
+
+	stored, _ := e.tasks.FindTaskByID(context.Background(), src1.ID)
+	assert.Equal(t, e.colB, stored.ColumnID)
+	assert.Equal(t, 1, stored.Position)
+
+	stored, _ = e.tasks.FindTaskByID(context.Background(), tgt1.ID)
+	assert.Equal(t, e.colB, stored.ColumnID)
+	assert.Equal(t, 0, stored.Position)
+
+	stored, _ = e.tasks.FindTaskByID(context.Background(), tgt2.ID)
+	assert.Equal(t, 2, stored.Position)
+
+	stored, _ = e.tasks.FindTaskByID(context.Background(), src2.ID)
+	assert.Equal(t, e.colA, stored.ColumnID)
+	assert.Equal(t, 0, stored.Position)
 }
 
 func TestUpdateTaskMoveWithinColumn(t *testing.T) {
@@ -262,90 +249,93 @@ func TestUpdateTaskMoveWithinColumn(t *testing.T) {
 	t3 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T3", 2)
 
 	position := 2
-	if _, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dto.UpdateTaskRequest{
+	_, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dto.UpdateTaskRequest{
 		Position: &position,
-	}); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), t1.ID); stored.Position != 2 {
-		t.Fatalf("t1 position = %d, want 2", stored.Position)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), t2.ID); stored.Position != 0 {
-		t.Fatalf("t2 position = %d, want 0", stored.Position)
-	}
-	if stored, _ := e.tasks.FindTaskByID(context.Background(), t3.ID); stored.Position != 1 {
-		t.Fatalf("t3 position = %d, want 1", stored.Position)
-	}
+	})
+	require.NoError(t, err)
+
+	stored, _ := e.tasks.FindTaskByID(context.Background(), t1.ID)
+	assert.Equal(t, 2, stored.Position)
+
+	stored, _ = e.tasks.FindTaskByID(context.Background(), t2.ID)
+	assert.Equal(t, 0, stored.Position)
+
+	stored, _ = e.tasks.FindTaskByID(context.Background(), t3.ID)
+	assert.Equal(t, 1, stored.Position)
 }
 
-func TestUpdateTaskAppendToColumn(t *testing.T) {
+func TestUpdateTaskInsertToColumnTop(t *testing.T) {
 	e := newEnv(t)
 	src := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "A1", 0)
-	e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B1", 0)
-	e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B2", 1)
+	tgt1 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B1", 0)
+	tgt2 := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colB, "B2", 1)
 
 	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, src.ID, dto.UpdateTaskRequest{
 		ColumnID: &e.colB,
 	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if updated.Position != 2 {
-		t.Fatalf("expected append at position 2, got %d", updated.Position)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 0, updated.Position)
+
+	stored, _ := e.tasks.FindTaskByID(context.Background(), tgt1.ID)
+	assert.Equal(t, 1, stored.Position)
+
+	stored, _ = e.tasks.FindTaskByID(context.Background(), tgt2.ID)
+	assert.Equal(t, 2, stored.Position)
 }
 
-func TestUpdateTaskViewerAllowed(t *testing.T) {
+func TestUpdateTaskInPlaceKeepsPosition(t *testing.T) {
+	e := newEnv(t)
+	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 1)
+	e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T2", 0)
+	title := "Renamed in place"
+	updated, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
+		Title:    &title,
+		ColumnID: &e.colA,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, title, updated.Title)
+	assert.Equal(t, 1, updated.Position)
+
+	stored, _ := e.tasks.FindTaskByID(context.Background(), task.ID)
+	assert.Equal(t, 1, stored.Position)
+}
+
+func TestUpdateTaskMemberAllowed(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
-	title := "Edited by viewer"
+	title := "Edited by member"
 	updated, err := e.svc.Update(context.Background(), e.actorV, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
 		Title:    &title,
 		ColumnID: &e.colB,
 	})
-	if err != nil {
-		t.Fatalf("update by viewer: %v", err)
-	}
-	if updated.Title != title || updated.ColumnID != e.colB {
-		t.Fatalf("unexpected update: %+v", updated)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, title, updated.Title)
+	assert.Equal(t, e.colB, updated.ColumnID)
 }
 
-func TestDeleteTaskViewerAllowed(t *testing.T) {
+func TestDeleteTaskMemberAllowed(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
-	if err := e.svc.Delete(context.Background(), e.actorV, e.wsA, e.boardA, task.ID); err != nil {
-		t.Fatalf("delete by viewer: %v", err)
-	}
-	if _, ok := e.tasks.Tasks[task.ID]; ok {
-		t.Fatal("task still exists after delete by viewer")
-	}
-	if e.hub.Messages[0].Type != eventTaskDeleted {
-		t.Fatalf("expected task.deleted, got %s", e.hub.Messages[0].Type)
-	}
+	err := e.svc.Delete(context.Background(), e.actorV, e.wsA, e.boardA, task.ID)
+	require.NoError(t, err)
+	assert.NotContains(t, e.tasks.Tasks, task.ID)
+	assert.Equal(t, eventTaskDeleted, e.hub.Messages[0].Type)
 }
 
 func TestDeleteTask(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
-	if err := e.svc.Delete(context.Background(), e.actorE, e.wsA, e.boardA, task.ID); err != nil {
-		t.Fatalf("delete: %v", err)
-	}
-	if _, ok := e.tasks.Tasks[task.ID]; ok {
-		t.Fatal("task still exists after delete")
-	}
-	if e.hub.Messages[0].Type != eventTaskDeleted {
-		t.Fatalf("expected task.deleted, got %s", e.hub.Messages[0].Type)
-	}
+	err := e.svc.Delete(context.Background(), e.actorE, e.wsA, e.boardA, task.ID)
+	require.NoError(t, err)
+	assert.NotContains(t, e.tasks.Tasks, task.ID)
+	assert.Equal(t, eventTaskDeleted, e.hub.Messages[0].Type)
 }
 
 func TestDeleteTaskFromOtherBoard(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.cols.AddColumnFixture(testutil.NewUUID(), e.boardB, "Backlog", 0).ID, "T1", 0)
 	err := e.svc.Delete(context.Background(), e.actorE, e.wsA, e.boardA, task.ID)
-	if !errors.Is(err, pkgerrors.ErrNotFound) {
-		t.Fatalf("expected not found, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func mustDate(t *testing.T, value string) time.Time {
@@ -363,37 +353,23 @@ func TestGetTaskDetailWithParentAndSubtasks(t *testing.T) {
 		ColumnID: e.colA,
 		Title:    "Parent",
 	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
+	require.NoError(t, err)
 	child, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{
 		ColumnID: e.colB,
 		Title:    "Child",
 		ParentID: task.ID,
 	})
-	if err != nil {
-		t.Fatalf("create child: %v", err)
-	}
-	if child.DisplayID == "" {
-		t.Fatal("expected display id")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, child.DisplayID)
 	detail, err := e.svc.Get(context.Background(), e.actorO, e.wsA, task.ID)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if detail.Parent != nil {
-		t.Fatalf("parent must be nil for root task")
-	}
-	if len(detail.Subtasks) != 1 || detail.Subtasks[0].ID != child.ID {
-		t.Fatalf("unexpected subtasks: %+v", detail.Subtasks)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, detail.Parent)
+	require.Len(t, detail.Subtasks, 1)
+	assert.Equal(t, child.ID, detail.Subtasks[0].ID)
 	childDetail, err := e.svc.Get(context.Background(), e.actorO, e.wsA, child.ID)
-	if err != nil {
-		t.Fatalf("get child: %v", err)
-	}
-	if childDetail.Parent == nil || childDetail.Parent.ID != task.ID {
-		t.Fatalf("unexpected parent: %+v", childDetail.Parent)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, childDetail.Parent)
+	assert.Equal(t, task.ID, childDetail.Parent.ID)
 }
 
 func TestListFilters(t *testing.T) {
@@ -411,33 +387,19 @@ func TestListFilters(t *testing.T) {
 	child.ParentID = t1.ID
 
 	all, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{})
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(all) != 3 {
-		t.Fatalf("expected 3 tasks, got %d", len(all))
-	}
+	require.NoError(t, err)
+	require.Len(t, all, 3)
 	withQ, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{Q: "alpha"})
-	if err != nil {
-		t.Fatalf("list q: %v", err)
-	}
-	if len(withQ) != 1 || withQ[0].Title != "Alpha urgent" {
-		t.Fatalf("unexpected q results: %+v", withQ)
-	}
+	require.NoError(t, err)
+	require.Len(t, withQ, 1)
+	assert.Equal(t, "Alpha urgent", withQ[0].Title)
 	mine, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{Only: "for_me"})
-	if err != nil {
-		t.Fatalf("list for_me: %v", err)
-	}
-	if len(mine) != 1 || mine[0].Title != "Beta" {
-		t.Fatalf("unexpected mine results: %+v", mine)
-	}
+	require.NoError(t, err)
+	require.Len(t, mine, 1)
+	assert.Equal(t, "Beta", mine[0].Title)
 	noSub, err := e.svc.List(context.Background(), e.actorO, e.wsA, dto.ListWorkspaceTasksQuery{ExcludeSubtasks: true})
-	if err != nil {
-		t.Fatalf("list exclude_subtasks: %v", err)
-	}
-	if len(noSub) != 2 {
-		t.Fatalf("expected 2 without subtasks, got %d", len(noSub))
-	}
+	require.NoError(t, err)
+	require.Len(t, noSub, 2)
 }
 
 func TestUpdateBoardMoveLandsFirstColumn(t *testing.T) {
@@ -447,48 +409,46 @@ func TestUpdateBoardMoveLandsFirstColumn(t *testing.T) {
 	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardB, task.ID, dto.UpdateTaskRequest{
 		BoardID: &e.boardA,
 	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if resp.ColumnID != e.colA {
-		t.Fatalf("expected landing in first column %s, got %s", e.colA, resp.ColumnID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, e.colA, resp.ColumnID)
 }
 
-func TestUpdateArchiveAndHidden(t *testing.T) {
+func TestUpdateHidden(t *testing.T) {
 	e := newEnv(t)
 	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
-	archived := true
 	hidden := true
 	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{
-		Archived: &archived,
 		IsHidden: &hidden,
 	})
-	if err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	if resp.ArchivedAt == nil {
-		t.Fatal("expected archived_at set")
-	}
-	if !resp.IsHidden {
-		t.Fatal("expected is_hidden set")
-	}
+	require.NoError(t, err)
+	assert.True(t, resp.IsHidden)
+}
+
+func TestUpdateImageKey(t *testing.T) {
+	e := newEnv(t)
+	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
+	valid := "images/" + e.actorE + "/" + testutil.NewUUID() + ".png"
+	resp, err := e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{ImageKey: &valid})
+	require.NoError(t, err)
+	assert.Equal(t, valid, resp.ImageKey)
+
+	foreign := "images/" + e.actorO + "/" + testutil.NewUUID() + ".png"
+	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{ImageKey: &foreign})
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+
+	empty := ""
+	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dto.UpdateTaskRequest{ImageKey: &empty})
+	require.NoError(t, err)
 }
 
 func TestParentCycleRejected(t *testing.T) {
 	e := newEnv(t)
 	t1, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{ColumnID: e.colA, Title: "One"})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
+	require.NoError(t, err)
 	t2, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dto.CreateTaskRequest{ColumnID: e.colA, Title: "Two", ParentID: t1.ID})
-	if err != nil {
-		t.Fatalf("create 2: %v", err)
-	}
+	require.NoError(t, err)
 	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, t1.ID, dto.UpdateTaskRequest{ParentID: &t2.ID})
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error for cycle, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestCuratorMustBeMember(t *testing.T) {
@@ -499,7 +459,5 @@ func TestCuratorMustBeMember(t *testing.T) {
 		Title:     "No",
 		CuratorID: outsider,
 	})
-	if !errors.Is(err, pkgerrors.ErrValidation) {
-		t.Fatalf("expected validation error, got %v", err)
-	}
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }

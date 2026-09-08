@@ -173,7 +173,7 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mod
 	for _, board := range boards {
 		matching := make([]*models.Task, 0, 4)
 		for _, task := range tasks {
-			if task.ArchivedAt != nil || task.IsHidden {
+			if task.IsHidden {
 				continue
 			}
 			if columnBoard[task.ColumnID] != board.ID {
@@ -295,7 +295,6 @@ func (s *Service) taskResponses(ctx context.Context, workspace *models.Workspace
 			IsUrgent:    task.IsUrgent,
 			IsHidden:    task.IsHidden,
 			ImageKey:    task.ImageKey,
-			ArchivedAt:  task.ArchivedAt,
 			CreatedAt:   task.CreatedAt,
 			UpdatedAt:   task.UpdatedAt,
 		})

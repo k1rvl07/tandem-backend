@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tandem/tandem/internal/domain/models"
 	"github.com/tandem/tandem/internal/http/dto"
 	"github.com/tandem/tandem/internal/usecase/testutil"
@@ -30,18 +31,11 @@ func TestTreeAllTasks(t *testing.T) {
 
 	svc := NewService(ws, boards, cols, tasks, users, favorites, testutil.NewFakeCache())
 	resp, err := svc.List(context.Background(), user, dto.TreeQuery{Tasks: "all"})
-	if err != nil {
-		t.Fatalf("tree: %v", err)
-	}
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 workspace, got %d", len(resp))
-	}
-	if len(resp[0].Boards) != 1 || len(resp[0].Boards[0].Tasks) != 1 {
-		t.Fatalf("unexpected tree: %+v", resp)
-	}
-	if resp[0].Workspace.Prefix != "WS" {
-		t.Fatalf("unexpected prefix %q", resp[0].Workspace.Prefix)
-	}
+	require.NoError(t, err)
+	require.Len(t, resp, 1)
+	require.Len(t, resp[0].Boards, 1)
+	require.Len(t, resp[0].Boards[0].Tasks, 1)
+	require.Equal(t, "WS", resp[0].Workspace.Prefix)
 }
 
 func TestTreeMineExcludesOtherTasks(t *testing.T) {
@@ -68,11 +62,8 @@ func TestTreeMineExcludesOtherTasks(t *testing.T) {
 
 	svc := NewService(ws, boards, cols, tasks, users, favorites, testutil.NewFakeCache())
 	resp, err := svc.List(context.Background(), me, dto.TreeQuery{Tasks: "for_me"})
-	if err != nil {
-		t.Fatalf("tree: %v", err)
-	}
+	require.NoError(t, err)
 	got := resp[0].Boards[0].Tasks
-	if len(got) != 1 || got[0].Title != "Mine" {
-		t.Fatalf("unexpected filtered tasks: %+v", got)
-	}
+	require.Len(t, got, 1)
+	require.Equal(t, "Mine", got[0].Title)
 }

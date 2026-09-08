@@ -12,6 +12,7 @@ type CreateTaskRequest struct {
 	DueDate     string `json:"due_date"`
 	IsUrgent    bool   `json:"is_urgent"`
 	IsHidden    bool   `json:"is_hidden"`
+	ImageKey    string `json:"image_key"`
 }
 
 type UpdateTaskRequest struct {
@@ -27,7 +28,6 @@ type UpdateTaskRequest struct {
 	IsUrgent    *bool   `json:"is_urgent"`
 	IsHidden    *bool   `json:"is_hidden"`
 	ImageKey    *string `json:"image_key"`
-	Archived    *bool   `json:"archived"`
 }
 
 type TaskUserResponse struct {
@@ -56,7 +56,6 @@ type TaskResponse struct {
 	IsUrgent    bool              `json:"is_urgent"`
 	IsHidden    bool              `json:"is_hidden"`
 	ImageKey    string            `json:"image_key"`
-	ArchivedAt  *time.Time        `json:"archived_at"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 }
@@ -71,6 +70,7 @@ type TaskReference struct {
 	ColumnID    string `json:"column_id"`
 	ColumnName  string `json:"column_name"`
 	IsUrgent    bool   `json:"is_urgent"`
+	IsHidden    bool   `json:"is_hidden"`
 }
 
 type TaskDetailResponse struct {
@@ -86,4 +86,6 @@ type ListWorkspaceTasksQuery struct {
 	Status          string `form:"status"`
 	Only            string `form:"only"`
 	ExcludeSubtasks bool   `form:"exclude_subtasks"`
+	Limit           int    `form:"limit"`
+	Offset          int    `form:"offset"`
 }

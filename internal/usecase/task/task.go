@@ -18,6 +18,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	file "github.com/tandem/tandem/internal/usecase/file"
 )
 
 const (
@@ -42,6 +43,7 @@ type Service struct {
 	boards     repository.BoardRepository
 	workspaces repository.WorkspaceRepository
 	users      repository.UserRepository
+	files      *file.Service
 	hub        ws.Hub
 	cache      cache.Cache
 }
@@ -52,6 +54,7 @@ func NewService(
 	boards repository.BoardRepository,
 	workspaces repository.WorkspaceRepository,
 	users repository.UserRepository,
+	files *file.Service,
 	hub ws.Hub,
 	cache cache.Cache,
 ) *Service {
@@ -61,6 +64,7 @@ func NewService(
 		boards:     boards,
 		workspaces: workspaces,
 		users:      users,
+		files:      files,
 		hub:        hub,
 		cache:      cache,
 	}
@@ -115,6 +119,14 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 	if err != nil {
 		return nil, err
 	}
+	if err := s.shiftPositions(ctx, columnTasks); err != nil {
+		return nil, err
+	}
+
+	imageKey := strings.TrimSpace(req.ImageKey)
+	if err := s.files.ValidateImageKey(imageKey, actorID); err != nil {
+		return nil, err
+	}
 
 	task := &models.Task{
 		ID:          uuid.New().String(),
@@ -126,9 +138,10 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID stri
 		CuratorID:   curatorID,
 		ParentID:    parentID,
 		DueDate:     dueDate,
-		Position:    len(columnTasks),
+		Position:    0,
 		IsUrgent:    req.IsUrgent,
 		IsHidden:    req.IsHidden,
+		ImageKey:    imageKey,
 	}
 	if err := s.tasks.CreateTask(ctx, task); err != nil {
 		return nil, err
@@ -211,16 +224,13 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 	if req.IsHidden != nil {
 		task.IsHidden = *req.IsHidden
 	}
+	oldImageKey := task.ImageKey
 	if req.ImageKey != nil {
-		task.ImageKey = *req.ImageKey
-	}
-	if req.Archived != nil {
-		now := time.Now().UTC()
-		if *req.Archived && task.ArchivedAt == nil {
-			task.ArchivedAt = &now
-		} else if !*req.Archived && task.ArchivedAt != nil {
-			task.ArchivedAt = nil
+		key := strings.TrimSpace(*req.ImageKey)
+		if err := s.files.ValidateImageKey(key, actorID); err != nil {
+			return nil, err
 		}
+		task.ImageKey = key
 	}
 	if req.BoardID != nil && *req.BoardID != boardID {
 		target, err := s.boardInWorkspace(ctx, workspaceID, *req.BoardID)
@@ -243,7 +253,10 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 			return nil, err
 		}
 		task.ColumnID = first.ID
-		task.Position = len(targetTasks)
+		if err := s.shiftPositions(ctx, targetTasks); err != nil {
+			return nil, err
+		}
+		task.Position = 0
 	} else if req.ColumnID != nil || req.Position != nil {
 		targetColumnID := task.ColumnID
 		if req.ColumnID != nil {
@@ -259,14 +272,27 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 		if req.Position != nil {
 			position = *req.Position
 		}
-		if err := s.moveTask(ctx, task, targetColumnID, position); err != nil {
-			return nil, err
+		if position < 0 {
+			position = 0
+		}
+		shouldMove := targetColumnID != task.ColumnID || req.Position != nil
+		if shouldMove {
+			if err := s.moveTask(ctx, task, targetColumnID, position); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	if err := s.tasks.UpdateTask(ctx, task); err != nil {
 		return nil, err
 	}
+	if oldImageKey != "" && oldImageKey != task.ImageKey {
+		s.files.RemoveMany(ctx, []string{oldImageKey})
+	}
+	return s.finishUpdate(ctx, workspaceID, task)
+}
+
+func (s *Service) finishUpdate(ctx context.Context, workspaceID string, task *models.Task) (*dto.TaskResponse, error) {
 	response, err := s.responseFor(ctx, workspaceID, task)
 	if err != nil {
 		return nil, err
@@ -296,6 +322,11 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID, tas
 	if err != nil {
 		return err
 	}
+	keys, err := s.tasks.CollectTaskKeys(ctx, task.ID)
+	if err != nil {
+		return err
+	}
+	s.files.RemoveMany(ctx, keys)
 	if err := s.tasks.DeleteTask(ctx, task.ID); err != nil {
 		return err
 	}
@@ -356,9 +387,6 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	}
 	subtasks := make([]dto.TaskReference, 0, len(children))
 	for _, child := range children {
-		if child.ArchivedAt != nil {
-			continue
-		}
 		ref, err := s.taskReference(ctx, child)
 		if err != nil {
 			return nil, err
@@ -379,7 +407,8 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	}
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
-	queryHash := cacheutil.QueryHash(query.Q, query.BoardID, query.AssigneeID, query.Status, query.Only, strconv.FormatBool(query.ExcludeSubtasks))
+	limit, offset := normalizePagination(query.Limit, query.Offset)
+	queryHash := cacheutil.QueryHash(query.Q, query.BoardID, query.AssigneeID, query.Status, query.Only, strconv.FormatBool(query.ExcludeSubtasks), strconv.Itoa(limit), strconv.Itoa(offset))
 	listKey := fmt.Sprintf("u:%s:t:v1:tasks:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, queryHash)
 	var cached []dto.TaskResponse
 	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
@@ -399,9 +428,6 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	}
 	filtered := make([]*models.Task, 0, len(tasks))
 	for _, task := range tasks {
-		if task.ArchivedAt != nil {
-			continue
-		}
 		info, ok := columnInfo[task.ColumnID]
 		if !ok {
 			continue
@@ -433,6 +459,14 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 		}
 		filtered = append(filtered, task)
 	}
+	if offset > len(filtered) {
+		offset = len(filtered)
+	}
+	end := offset + limit
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	filtered = filtered[offset:end]
 	responses, err := s.responsesFor(ctx, workspaceID, filtered)
 	if err != nil {
 		return nil, err
@@ -474,6 +508,16 @@ func (s *Service) leaveColumn(ctx context.Context, task *models.Task) error {
 	}
 	source = removeTask(source, task.ID)
 	return s.rewritePositions(ctx, source)
+}
+
+func (s *Service) shiftPositions(ctx context.Context, order []*models.Task) error {
+	for _, t := range order {
+		t.Position++
+		if err := s.tasks.UpdateTask(ctx, t); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) rewritePositions(ctx context.Context, order []*models.Task) error {
@@ -681,7 +725,6 @@ func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []
 			IsUrgent:    task.IsUrgent,
 			IsHidden:    task.IsHidden,
 			ImageKey:    task.ImageKey,
-			ArchivedAt:  task.ArchivedAt,
 			CreatedAt:   task.CreatedAt,
 			UpdatedAt:   task.UpdatedAt,
 		})
@@ -712,6 +755,7 @@ func (s *Service) taskReference(ctx context.Context, task *models.Task) (*dto.Ta
 		ColumnID:    column.ID,
 		ColumnName:  column.Name,
 		IsUrgent:    task.IsUrgent,
+		IsHidden:    task.IsHidden,
 	}, nil
 }
 
@@ -782,6 +826,19 @@ func insertTask(tasks []*models.Task, position int, task *models.Task) []*models
 	copy(tasks[position+1:], tasks[position:])
 	tasks[position] = task
 	return tasks
+}
+
+func normalizePagination(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }
 
 func parseDueDate(value string) (*time.Time, error) {

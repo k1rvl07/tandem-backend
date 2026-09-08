@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/tandem/tandem/internal/domain/models"
@@ -16,6 +15,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	file "github.com/tandem/tandem/internal/usecase/file"
 )
 
 const (
@@ -29,12 +29,11 @@ var defaultColumns = models.DefaultColumnNames
 
 type UseCase interface {
 	Create(ctx context.Context, actorID, workspaceID string, req dto.CreateBoardRequest) (*dto.BoardResponse, error)
-	List(ctx context.Context, actorID, workspaceID string, includeArchived bool) ([]dto.BoardResponse, error)
-	Get(ctx context.Context, actorID, workspaceID, boardID string, includeArchived bool) (*dto.BoardDetailResponse, error)
+	List(ctx context.Context, actorID, workspaceID string) ([]dto.BoardResponse, error)
+	Get(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardDetailResponse, error)
 	Update(ctx context.Context, actorID, workspaceID, boardID string, req dto.UpdateBoardRequest) (*dto.BoardResponse, error)
 	Delete(ctx context.Context, actorID, workspaceID, boardID string) error
 	SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardResponse, error)
-	Archive(ctx context.Context, actorID, workspaceID, boardID string, archived bool) (*dto.BoardResponse, error)
 	Reorder(ctx context.Context, actorID, workspaceID string, req dto.ReorderBoardsRequest) ([]dto.BoardResponse, error)
 }
 
@@ -45,6 +44,7 @@ type Service struct {
 	workspaces repository.WorkspaceRepository
 	users      repository.UserRepository
 	favorites  repository.FavoriteRepository
+	files      *file.Service
 	hub        ws.Hub
 	cache      cache.Cache
 }
@@ -56,6 +56,7 @@ func NewService(
 	workspaces repository.WorkspaceRepository,
 	users repository.UserRepository,
 	favorites repository.FavoriteRepository,
+	files *file.Service,
 	hub ws.Hub,
 	cache cache.Cache,
 ) *Service {
@@ -66,6 +67,7 @@ func NewService(
 		workspaces: workspaces,
 		users:      users,
 		favorites:  favorites,
+		files:      files,
 		hub:        hub,
 		cache:      cache,
 	}
@@ -120,7 +122,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req d
 	return response, nil
 }
 
-func (s *Service) List(ctx context.Context, actorID, workspaceID string, includeArchived bool) ([]dto.BoardResponse, error) {
+func (s *Service) List(ctx context.Context, actorID, workspaceID string) ([]dto.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -131,11 +133,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, include
 	_ = member
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
-	archived := "0"
-	if includeArchived {
-		archived = "1"
-	}
-	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, archived)
+	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s", actorID, workspaceID, wsver, uver)
 	var cached []dto.BoardResponse
 	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
 		return cached, nil
@@ -154,9 +152,6 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, include
 		return nil, err
 	}
 	for i := range boards {
-		if boards[i].ArchivedAt != nil && !includeArchived {
-			continue
-		}
 		resp := boardToResponse(boards[i])
 		resp.TaskCount = counts[boards[i].ID]
 		resp.IsFavorite = favBoards[boards[i].ID]
@@ -166,7 +161,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, include
 	return responses, nil
 }
 
-func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string, includeArchived bool) (*dto.BoardDetailResponse, error) {
+func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string) (*dto.BoardDetailResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -182,11 +177,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string,
 	}
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
-	archived := "0"
-	if includeArchived {
-		archived = "1"
-	}
-	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s:%s", actorID, boardID, wsver, uver, archived)
+	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s", actorID, boardID, wsver, uver)
 	var cached dto.BoardDetailResponse
 	if cacheutil.Load(ctx, s.cache, detailKey, &cached) {
 		return &cached, nil
@@ -220,9 +211,6 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string,
 				continue
 			}
 			if task.IsHidden {
-				continue
-			}
-			if task.ArchivedAt != nil && !includeArchived {
 				continue
 			}
 			columnTasks = append(columnTasks, taskToResponse(task, users, workspace.Prefix, boardID, board.Name, columns[i].Name))
@@ -304,6 +292,11 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, boardID stri
 	if board.IsMain {
 		return pkgerrors.NewValidationError("cannot delete the main board")
 	}
+	keys, err := s.tasks.CollectBoardKeys(ctx, board.ID)
+	if err != nil {
+		return err
+	}
+	s.files.RemoveMany(ctx, keys)
 	if err := s.boards.DeleteBoard(ctx, board.ID); err != nil {
 		return err
 	}
@@ -337,42 +330,6 @@ func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID str
 		return nil, err
 	}
 	board.IsMain = true
-	if err := s.boards.UpdateBoard(ctx, board); err != nil {
-		return nil, err
-	}
-	response := boardToResponse(board)
-	s.bumpWorkspace(ctx, workspaceID)
-	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardUpdated, Data: response})
-	return response, nil
-}
-
-func (s *Service) Archive(ctx context.Context, actorID, workspaceID, boardID string, archived bool) (*dto.BoardResponse, error) {
-	if err := validate.UUID(workspaceID); err != nil {
-		return nil, err
-	}
-	if err := validate.UUID(boardID); err != nil {
-		return nil, err
-	}
-	member, err := s.memberOf(ctx, actorID, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.requireEditor(member.Role); err != nil {
-		return nil, err
-	}
-	board, err := s.boardInWorkspace(ctx, workspaceID, boardID)
-	if err != nil {
-		return nil, err
-	}
-	if archived && board.IsMain {
-		return nil, pkgerrors.NewValidationError("cannot archive the main board")
-	}
-	if archived {
-		t := time.Now()
-		board.ArchivedAt = &t
-	} else {
-		board.ArchivedAt = nil
-	}
 	if err := s.boards.UpdateBoard(ctx, board); err != nil {
 		return nil, err
 	}
@@ -504,18 +461,12 @@ func boardRoom(workspaceID string) string {
 }
 
 func boardToResponse(board *models.Board) *dto.BoardResponse {
-	var archived bool
-	if board.ArchivedAt != nil {
-		archived = true
-	}
 	return &dto.BoardResponse{
 		ID:          board.ID,
 		WorkspaceID: board.WorkspaceID,
 		Name:        board.Name,
 		Position:    board.Position,
 		IsMain:      board.IsMain,
-		Archived:    archived,
-		ArchivedAt:  board.ArchivedAt,
 		CreatedAt:   board.CreatedAt,
 		UpdatedAt:   board.UpdatedAt,
 	}
@@ -547,7 +498,6 @@ func taskToResponse(task *models.Task, users map[string]*dto.TaskUserResponse, p
 		IsUrgent:    task.IsUrgent,
 		IsHidden:    task.IsHidden,
 		ImageKey:    task.ImageKey,
-		ArchivedAt:  task.ArchivedAt,
 		CreatedAt:   task.CreatedAt,
 		UpdatedAt:   task.UpdatedAt,
 	}

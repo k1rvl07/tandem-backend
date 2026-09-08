@@ -3,14 +3,13 @@ package entity
 import "time"
 
 type Board struct {
-	ID          string     `gorm:"type:uuid;primaryKey" json:"id"`
-	WorkspaceID string     `gorm:"type:uuid;not null;index" json:"workspace_id"`
-	Name        string     `gorm:"size:80;not null" json:"name"`
-	Position    int        `gorm:"not null;default:0" json:"position"`
-	IsMain      bool       `gorm:"not null;default:false" json:"is_main"`
-	ArchivedAt  *time.Time `json:"archived_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID          string    `gorm:"type:uuid;primaryKey" json:"id"`
+	WorkspaceID string    `gorm:"type:uuid;not null;index" json:"workspace_id"`
+	Name        string    `gorm:"size:80;not null" json:"name"`
+	Position    int       `gorm:"not null;default:0" json:"position"`
+	IsMain      bool      `gorm:"not null;default:false" json:"is_main"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (Board) TableName() string {
@@ -44,7 +43,6 @@ type Task struct {
 	IsUrgent    bool       `gorm:"not null;default:false" json:"is_urgent"`
 	IsHidden    bool       `gorm:"not null;default:false" json:"is_hidden"`
 	ImageKey    string     `gorm:"size:255" json:"image_key"`
-	ArchivedAt  *time.Time `json:"archived_at"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 }

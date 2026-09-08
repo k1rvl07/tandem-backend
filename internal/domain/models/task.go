@@ -16,7 +16,6 @@ type Task struct {
 	IsUrgent    bool
 	IsHidden    bool
 	ImageKey    string
-	ArchivedAt  *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
