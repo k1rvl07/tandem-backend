@@ -33,6 +33,7 @@ type UserCase interface {
 	UpdateProfile(ctx context.Context, userID string, req dprofile.UpdateProfileRequest) (*dauth.UserResponse, error)
 	ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (string, error)
 	UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dauth.UserResponse, error)
+	RemoveAvatar(ctx context.Context, userID string) (*dauth.UserResponse, error)
 }
 
 type Service struct {
@@ -129,11 +130,30 @@ func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentTyp
 	oldKey := user.AvatarKey
 	user.AvatarKey = key
 	if err := s.users.Update(ctx, user); err != nil {
+		s.files.RemoveMany(ctx, []string{key})
 		return nil, err
 	}
 	if oldKey != "" {
 		s.files.RemoveMany(ctx, []string{oldKey})
 	}
+	s.bumpUser(ctx, userID)
+	return toUserResponse(user), nil
+}
+
+func (s *Service) RemoveAvatar(ctx context.Context, userID string) (*dauth.UserResponse, error) {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.AvatarKey == "" {
+		return toUserResponse(user), nil
+	}
+	oldKey := user.AvatarKey
+	user.AvatarKey = ""
+	if err := s.users.Update(ctx, user); err != nil {
+		return nil, err
+	}
+	s.files.RemoveMany(ctx, []string{oldKey})
 	s.bumpUser(ctx, userID)
 	return toUserResponse(user), nil
 }

@@ -117,6 +117,7 @@ func New(deps Dependencies) *gin.Engine {
 			read.GET("/me", deps.ProfileHandler.GetProfile)
 			write.PATCH("/me", deps.ProfileHandler.UpdateProfile)
 			write.POST("/me/avatar", deps.ProfileHandler.UploadAvatar)
+			write.DELETE("/me/avatar", deps.ProfileHandler.DeleteAvatar)
 			write.POST("/me/password", deps.ProfileHandler.ChangePassword)
 		}
 		if deps.AdminHandler != nil && deps.UserRepository != nil {

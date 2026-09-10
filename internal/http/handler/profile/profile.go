@@ -98,6 +98,23 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// @Summary Delete current user's avatar
+// @Tags profile
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} auth.UserResponse
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/me/avatar [delete]
+func (h *ProfileHandler) DeleteAvatar(c *gin.Context) {
+	resp, err := h.profiles.RemoveAvatar(c.Request.Context(), common.CurrentUserID(c))
+	if err != nil {
+		common.RespondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // @Summary Change current user's password
 // @Tags profile
 // @Accept json

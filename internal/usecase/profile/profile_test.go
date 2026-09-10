@@ -20,7 +20,8 @@ import (
 )
 
 type fakeRepo struct {
-	users map[string]*muser.User
+	users     map[string]*muser.User
+	updateErr error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -71,6 +72,9 @@ func (f *fakeRepo) Count(_ context.Context, _ string) (int, error) {
 }
 
 func (f *fakeRepo) Update(_ context.Context, user *muser.User) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
 	f.users[user.Login] = user
 	return nil
 }
@@ -190,4 +194,47 @@ func TestChangePasswordTooShort(t *testing.T) {
 
 	_, err := svc.ChangePassword(context.Background(), "u1", dprofile.ChangePasswordRequest{NewPassword: "short", CurrentPassword: "oldpass123"})
 	require.Error(t, err)
+}
+
+func TestRemoveAvatar(t *testing.T) {
+	repo := newFakeRepo()
+	store := newFakeStore()
+	key := "avatars/u1/8eb8c3b2-89f4-4b2a-a1bd-3e5d5e7f9b9a.jpg"
+	store.files[key] = []byte("avatar")
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h", AvatarKey: key}
+	repo.users[user.Login] = user
+	svc, _ := newTestService(repo, store)
+
+	resp, err := svc.RemoveAvatar(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Empty(t, resp.AvatarKey)
+	assert.Empty(t, repo.users["ivanov.ii"].AvatarKey)
+	_, ok := store.files[key]
+	assert.False(t, ok)
+}
+
+func TestRemoveAvatarNoAvatar(t *testing.T) {
+	repo := newFakeRepo()
+	store := newFakeStore()
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h"}
+	repo.users[user.Login] = user
+	svc, _ := newTestService(repo, store)
+
+	resp, err := svc.RemoveAvatar(context.Background(), "u1")
+	require.NoError(t, err)
+	assert.Empty(t, resp.AvatarKey)
+	assert.Empty(t, store.files)
+}
+
+func TestUploadAvatarRollbackOnUpdateError(t *testing.T) {
+	repo := newFakeRepo()
+	store := newFakeStore()
+	user := &muser.User{ID: "u1", Login: "ivanov.ii", PasswordHash: "h"}
+	repo.users[user.Login] = user
+	repo.updateErr = errors.New("boom")
+	svc, _ := newTestService(repo, store)
+
+	_, err := svc.UploadAvatar(context.Background(), "u1", "photo.jpg", "image/jpeg", bytes.NewReader([]byte("data")), 4)
+	require.Error(t, err)
+	assert.Empty(t, store.files)
 }
