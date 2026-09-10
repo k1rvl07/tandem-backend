@@ -42,11 +42,14 @@ type RedisConfig struct {
 }
 
 type MinIOConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	UseSSL    bool
-	Bucket    string
+	Endpoint       string
+	AccessKey      string
+	SecretKey      string
+	UseSSL         bool
+	Region         string
+	PublicEndpoint string
+	PublicUseSSL   bool
+	Bucket         string
 }
 
 type JWTConfig struct {
@@ -82,11 +85,14 @@ func Load(envFile string) (*Config, error) {
 			Password: getEnv("REDIS_PASSWORD", ""),
 		},
 		MinIO: MinIOConfig{
-			Endpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
-			AccessKey: getEnv("MINIO_ROOT_USER", "tandem"),
-			SecretKey: getEnv("MINIO_ROOT_PASSWORD", "change_me_minio"),
-			UseSSL:    getEnv("MINIO_USE_SSL", "false") == "true",
-			Bucket:    getEnv("MINIO_BUCKET", "tandem-files"),
+			Endpoint:       getEnv("MINIO_ENDPOINT", "localhost:9000"),
+			AccessKey:      getEnv("MINIO_ROOT_USER", "tandem"),
+			SecretKey:      getEnv("MINIO_ROOT_PASSWORD", "change_me_minio"),
+			UseSSL:         getEnv("MINIO_USE_SSL", "false") == "true",
+			Region:         getEnv("MINIO_REGION", "us-east-1"),
+			PublicEndpoint: getEnv("MINIO_PUBLIC_ENDPOINT", ""),
+			PublicUseSSL:   getEnv("MINIO_PUBLIC_USE_SSL", "false") == "true",
+			Bucket:         getEnv("MINIO_BUCKET", "tandem-files"),
 		},
 		JWT: JWTConfig{
 			Secret:   getEnv("JWT_SECRET", ""),

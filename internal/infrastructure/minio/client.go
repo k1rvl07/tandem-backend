@@ -14,6 +14,7 @@ import (
 
 type MinIO struct {
 	client *minio.Client
+	public *minio.Client
 	bucket string
 }
 
@@ -21,12 +22,25 @@ func New(cfg config.MinIOConfig) (*MinIO, error) {
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
+		Region: cfg.Region,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init minio client: %w", err)
 	}
 
-	fs := &MinIO{client: client, bucket: cfg.Bucket}
+	public := client
+	if cfg.PublicEndpoint != "" {
+		public, err = minio.New(cfg.PublicEndpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+			Secure: cfg.PublicUseSSL,
+			Region: cfg.Region,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("init minio public client: %w", err)
+		}
+	}
+
+	fs := &MinIO{client: client, public: public, bucket: cfg.Bucket}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -77,7 +91,7 @@ func (m *MinIO) Exists(ctx context.Context, key string) (bool, error) {
 }
 
 func (m *MinIO) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
-	url, err := m.client.PresignedGetObject(ctx, m.bucket, key, ttl, nil)
+	url, err := m.public.PresignedGetObject(ctx, m.bucket, key, ttl, nil)
 	if err != nil {
 		return "", err
 	}
