@@ -100,6 +100,7 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, file
 	}
 	if err := s.files.PutAttachment(ctx, key, reader, size, contentType); err != nil {
 		_ = s.attachments.DeleteAttachment(ctx, attachment.ID)
+		s.files.RemoveMany(ctx, []string{key})
 		return nil, err
 	}
 	response := attachmentToResponse(attachment, workspaceID, taskID)
