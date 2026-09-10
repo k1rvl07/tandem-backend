@@ -185,6 +185,7 @@ func New(deps Dependencies) *gin.Engine {
 				uploadImage.Use(deps.UploadLimiter.Middleware())
 			}
 			uploadImage.POST("", filesHandler.UploadImage)
+			uploadImage.DELETE("", filesHandler.DeleteImage)
 			read.GET("/files/sign", filesHandler.Sign)
 		}
 	}

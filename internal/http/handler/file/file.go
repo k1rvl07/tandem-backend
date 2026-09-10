@@ -67,6 +67,30 @@ func (h *FileHandler) UploadImage(c *gin.Context) {
 	c.JSON(http.StatusCreated, uploadResponse{Key: key})
 }
 
+// @Summary Delete an uploaded image
+// @Tags files
+// @Param key query string true "File key"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /api/v1/files/images [delete]
+func (h *FileHandler) DeleteImage(c *gin.Context) {
+	userID, _ := c.Get(ctxkeys.CtxUserID)
+	uid, _ := userID.(string)
+	if uid == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	key := strings.TrimSpace(c.Query("key"))
+	if err := h.files.DeleteImage(c.Request.Context(), uid, key); err != nil {
+		common.RespondError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // @Summary Sign an image URL
 // @Tags files
 // @Produce json

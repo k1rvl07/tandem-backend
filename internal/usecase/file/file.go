@@ -109,6 +109,13 @@ func (s *Service) RemoveMany(ctx context.Context, keys []string) {
 	}
 }
 
+func (s *Service) DeleteImage(ctx context.Context, ownerID, key string) error {
+	if err := s.ValidateImageKey(key, ownerID); err != nil {
+		return err
+	}
+	return s.Remove(ctx, key)
+}
+
 func (s *Service) SignImage(ctx context.Context, key string) (string, error) {
 	if key == "" {
 		return "", pkgerrors.NewValidationError("missing key")
