@@ -8,6 +8,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	eboard "github.com/tandem/tandem/internal/repository/entity/board"
+	"github.com/tandem/tandem/internal/repository/entity/nullstr"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
 	"gorm.io/gorm"
 )
@@ -48,10 +49,10 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *mtask.Task) error {
 		"column_id":   task.ColumnID,
 		"title":       task.Title,
 		"description": task.Description,
-		"author_id":   task.AuthorID,
-		"assignee_id": task.AssigneeID,
-		"curator_id":  task.CuratorID,
-		"parent_id":   task.ParentID,
+		"author_id":   nullstr.NilIfEmpty(task.AuthorID),
+		"assignee_id": nullstr.NilIfEmpty(task.AssigneeID),
+		"curator_id":  nullstr.NilIfEmpty(task.CuratorID),
+		"parent_id":   nullstr.NilIfEmpty(task.ParentID),
 		"position":    task.Position,
 		"is_urgent":   task.IsUrgent,
 		"is_hidden":   task.IsHidden,
@@ -233,10 +234,10 @@ func taskToEntity(t *mtask.Task) *eboard.Task {
 		ColumnID:    t.ColumnID,
 		Title:       t.Title,
 		Description: t.Description,
-		AuthorID:    t.AuthorID,
-		AssigneeID:  t.AssigneeID,
-		CuratorID:   t.CuratorID,
-		ParentID:    t.ParentID,
+		AuthorID:    nullstr.NilIfEmpty(t.AuthorID),
+		AssigneeID:  nullstr.NilIfEmpty(t.AssigneeID),
+		CuratorID:   nullstr.NilIfEmpty(t.CuratorID),
+		ParentID:    nullstr.NilIfEmpty(t.ParentID),
 		DueDate:     t.DueDate,
 		Position:    t.Position,
 		IsUrgent:    t.IsUrgent,
@@ -253,10 +254,10 @@ func taskToDomain(e *eboard.Task) *mtask.Task {
 		ColumnID:    e.ColumnID,
 		Title:       e.Title,
 		Description: e.Description,
-		AuthorID:    e.AuthorID,
-		AssigneeID:  e.AssigneeID,
-		CuratorID:   e.CuratorID,
-		ParentID:    e.ParentID,
+		AuthorID:    nullstr.OrEmpty(e.AuthorID),
+		AssigneeID:  nullstr.OrEmpty(e.AssigneeID),
+		CuratorID:   nullstr.OrEmpty(e.CuratorID),
+		ParentID:    nullstr.OrEmpty(e.ParentID),
 		DueDate:     e.DueDate,
 		Position:    e.Position,
 		IsUrgent:    e.IsUrgent,

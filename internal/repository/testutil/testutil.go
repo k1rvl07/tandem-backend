@@ -13,6 +13,7 @@ import (
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
+	fkprep "github.com/tandem/tandem/internal/pkg/fkprep"
 	eboard "github.com/tandem/tandem/internal/repository/entity/board"
 	efavorite "github.com/tandem/tandem/internal/repository/entity/favorite"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
@@ -27,7 +28,7 @@ const testTruncate = "TRUNCATE users, workspaces, workspace_members, boards, boa
 
 func NewTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	serializeTestPackages(t)
+	Serialize(t)
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping repository integration tests")
@@ -37,6 +38,9 @@ func NewTestDB(t *testing.T) *gorm.DB {
 	})
 	if err != nil {
 		t.Fatalf("connect postgres: %v", err)
+	}
+	if err := fkprep.Prepare(db); err != nil {
+		t.Fatalf("prepare fk constraints: %v", err)
 	}
 	if err := db.AutoMigrate(
 		&euser.User{}, &eworkspace.Workspace{}, &eworkspace.WorkspaceMember{},
@@ -118,7 +122,7 @@ var (
 	lockFile *os.File
 )
 
-func serializeTestPackages(t *testing.T) {
+func Serialize(t *testing.T) {
 	t.Helper()
 	lockMu.Lock()
 	defer lockMu.Unlock()

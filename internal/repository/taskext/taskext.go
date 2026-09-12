@@ -9,6 +9,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	efavorite "github.com/tandem/tandem/internal/repository/entity/favorite"
+	"github.com/tandem/tandem/internal/repository/entity/nullstr"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
 	"github.com/tandem/tandem/internal/repository/postgres"
 	"gorm.io/gorm"
@@ -30,7 +31,7 @@ func (r *AttachmentRepo) CreateAttachment(ctx context.Context, attachment *matta
 		ObjectKey:   attachment.ObjectKey,
 		Size:        attachment.Size,
 		ContentType: attachment.ContentType,
-		UploadedBy:  attachment.UploadedBy,
+		UploadedBy:  nullstr.NilIfEmpty(attachment.UploadedBy),
 	}
 	err := r.db.WithContext(ctx).Create(e).Error
 	if err != nil {
@@ -56,7 +57,7 @@ func (r *AttachmentRepo) FindAttachmentByID(ctx context.Context, id string) (*ma
 		ObjectKey:   e.ObjectKey,
 		Size:        e.Size,
 		ContentType: e.ContentType,
-		UploadedBy:  e.UploadedBy,
+		UploadedBy:  nullstr.OrEmpty(e.UploadedBy),
 		CreatedAt:   e.CreatedAt,
 	}, nil
 }
@@ -76,7 +77,7 @@ func (r *AttachmentRepo) ListAttachmentsByTask(ctx context.Context, taskID strin
 			ObjectKey:   es[i].ObjectKey,
 			Size:        es[i].Size,
 			ContentType: es[i].ContentType,
-			UploadedBy:  es[i].UploadedBy,
+			UploadedBy:  nullstr.OrEmpty(es[i].UploadedBy),
 			CreatedAt:   es[i].CreatedAt,
 		})
 	}

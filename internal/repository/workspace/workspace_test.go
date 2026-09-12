@@ -158,12 +158,13 @@ func TestWorkspaceRepoRemoveAndDeleteMembers(t *testing.T) {
 	testutil.Must(t, repo.CreateWorkspace(testutil.TestCtx, wsA))
 	testutil.Must(t, repo.CreateWorkspace(testutil.TestCtx, wsB))
 	u := testutil.NewUser(testutil.NewID(), "u")
-	other := testutil.NewID()
+	other := testutil.NewUser(testutil.NewID(), "other")
 	testutil.Must(t, userRepo.Create(testutil.TestCtx, u))
+	testutil.Must(t, userRepo.Create(testutil.TestCtx, other))
 
 	testutil.Must(t, repo.AddMember(testutil.TestCtx, wsA.ID, u.ID, mworkspace.RoleMember))
 	testutil.Must(t, repo.AddMember(testutil.TestCtx, wsB.ID, u.ID, mworkspace.RoleEditor))
-	testutil.Must(t, repo.AddMember(testutil.TestCtx, wsB.ID, other, mworkspace.RoleMember))
+	testutil.Must(t, repo.AddMember(testutil.TestCtx, wsB.ID, other.ID, mworkspace.RoleMember))
 
 	testutil.Must(t, repo.RemoveMember(testutil.TestCtx, wsA.ID, u.ID))
 	testutil.MustNotFound(t, repo.RemoveMember(testutil.TestCtx, wsA.ID, u.ID))
@@ -173,7 +174,7 @@ func TestWorkspaceRepoRemoveAndDeleteMembers(t *testing.T) {
 	testutil.MustNotFound(t, testutil.ErrOf(repo.FindMember(testutil.TestCtx, wsB.ID, u.ID)))
 	leftover, err := repo.ListMembers(testutil.TestCtx, wsB.ID)
 	testutil.Must(t, err)
-	if len(leftover) != 1 || leftover[0].UserID != other {
+	if len(leftover) != 1 || leftover[0].UserID != other.ID {
 		t.Fatalf("expected unrelated member to remain, got %v", leftover)
 	}
 

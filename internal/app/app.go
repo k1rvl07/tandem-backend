@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	_ "github.com/tandem/tandem/docs"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
@@ -24,6 +25,7 @@ import (
 	hworkspace "github.com/tandem/tandem/internal/http/handler/workspace"
 	"github.com/tandem/tandem/internal/http/router"
 	"github.com/tandem/tandem/internal/infrastructure/ratelimit"
+	"gorm.io/gorm"
 
 	miniofs "github.com/tandem/tandem/internal/infrastructure/minio"
 	"github.com/tandem/tandem/internal/infrastructure/password"
@@ -31,6 +33,7 @@ import (
 	"github.com/tandem/tandem/internal/infrastructure/token"
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
 	"github.com/tandem/tandem/internal/pkg/config"
+	fkprep "github.com/tandem/tandem/internal/pkg/fkprep"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	rboard "github.com/tandem/tandem/internal/repository/board"
 	rcolumn "github.com/tandem/tandem/internal/repository/column"
@@ -94,6 +97,12 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	hub := wshub.New()
 	logger.Info("websocket hub initialized")
 
+	if err := fkprep.Prepare(postgres.DB); err != nil {
+		_ = redis.Close()
+		_ = postgres.Close()
+		return nil, err
+	}
+
 	if err := postgres.AutoMigrate(&euser.User{}, &eworkspace.Workspace{}, &eworkspace.WorkspaceMember{}, &eboard.Board{}, &eboard.Column{}, &eboard.Task{}, &etask.TaskAttachment{}, &efavorite.Favorite{}); err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
@@ -121,17 +130,14 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	}, nil
 }
 
-func (a *App) Run() error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
+func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 	userRepo := ruser.NewUserRepo(a.postgres.DB)
 	tokenManager := token.NewJWTManager(a.config.JWT.Secret, a.redis)
 	hasher := password.NewBCryptHasher(a.config.App.PasswordCost)
-	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL)
+	authService := auth.NewService(userRepo, tokenManager, hasher, a.config.JWT.TokenTTL, a.config.JWT.RefreshTTL)
 	authHandler := hauth.NewAuthHandler(authService)
 	fileService := file.NewService(a.fileStore, a.logger)
-	profileService := profile.NewService(userRepo, hasher, fileService, a.redis, tokenManager, a.config.JWT.TokenTTL, a.logger)
+	profileService := profile.NewService(userRepo, hasher, fileService, a.redis, tokenManager, a.config.JWT.TokenTTL, a.config.JWT.RefreshTTL, a.logger)
 	profileHandler := hprofile.NewProfileHandler(profileService)
 	workspaceRepo := rworkspace.NewWorkspaceRepo(a.postgres.DB)
 	favoriteRepo := rtaskext.NewFavoriteRepo(a.postgres.DB)
@@ -154,17 +160,20 @@ func (a *App) Run() error {
 	treeService := tree.NewService(workspaceRepo, boardRepo, columnRepo, taskRepo, userRepo, favoriteRepo, a.redis)
 	treeHandler := htree.NewTreeHandler(treeService)
 
-	authLimiter := ratelimit.New(a.redis.Raw(), "auth", ratelimit.AuthLimit, ratelimit.AuthWindow, ratelimit.ByIP())
-	readLimiter := ratelimit.New(a.redis.Raw(), "read", ratelimit.ReadLimit, ratelimit.ReadWindow, ratelimit.ByUser())
-	writeLimiter := ratelimit.New(a.redis.Raw(), "write", ratelimit.WriteLimit, ratelimit.WriteWindow, ratelimit.ByUser())
-	uploadLimiter := ratelimit.New(a.redis.Raw(), "upload", ratelimit.UploadLimit, ratelimit.UploadWindow, ratelimit.ByUser())
-	wsLimiter := ratelimit.New(a.redis.Raw(), "ws", ratelimit.WsLimit, ratelimit.WsWindow, ratelimit.ByUser())
-
-	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
-		return err
+	var authLimiter, readLimiter, writeLimiter, uploadLimiter, wsLimiter router.RateLimiter
+	if a.config.App.Env != "testing" {
+		authLimiter = ratelimit.New(a.redis.Raw(), "auth", ratelimit.AuthLimit, ratelimit.AuthWindow, ratelimit.ByIP())
+		readLimiter = ratelimit.New(a.redis.Raw(), "read", ratelimit.ReadLimit, ratelimit.ReadWindow, ratelimit.ByUser())
+		writeLimiter = ratelimit.New(a.redis.Raw(), "write", ratelimit.WriteLimit, ratelimit.WriteWindow, ratelimit.ByUser())
+		uploadLimiter = ratelimit.New(a.redis.Raw(), "upload", ratelimit.UploadLimit, ratelimit.UploadWindow, ratelimit.ByUser())
+		wsLimiter = ratelimit.New(a.redis.Raw(), "ws", ratelimit.WsLimit, ratelimit.WsWindow, ratelimit.ByUser())
 	}
 
-	r := router.New(router.Dependencies{
+	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
+		return nil, err
+	}
+
+	return router.New(router.Dependencies{
 		Logger:              a.logger,
 		AllowedOrigin:       a.config.App.AllowedOrigins,
 		FileStore:           a.fileStore,
@@ -188,7 +197,17 @@ func (a *App) Run() error {
 		WriteLimiter:        writeLimiter,
 		UploadLimiter:       uploadLimiter,
 		WSLimiter:           wsLimiter,
-	})
+	}), nil
+}
+
+func (a *App) Run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	r, err := a.BuildRouter(ctx)
+	if err != nil {
+		return err
+	}
 
 	a.server = &http.Server{
 		Addr:         ":" + a.config.App.Port,
@@ -218,12 +237,16 @@ func (a *App) Run() error {
 		return err
 	}
 
-	a.close()
+	a.Close()
 	a.logger.Info("server stopped gracefully")
 	return nil
 }
 
-func (a *App) close() {
+func (a *App) Postgres() *gorm.DB {
+	return a.postgres.DB
+}
+
+func (a *App) Close() {
 	a.hub.Close()
 	if err := a.redis.Close(); err != nil {
 		a.logger.Warn("close redis", zap.Error(err))
