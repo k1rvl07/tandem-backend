@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -21,6 +20,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	"github.com/tandem/tandem/internal/usecase/common"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"go.uber.org/zap"
 )
@@ -224,7 +224,7 @@ func (s *Service) buildMemberResponses(ctx context.Context, members []mworkspace
 	for i := range members {
 		user, err := s.users.FindByID(ctx, members[i].UserID)
 		if err != nil {
-			if errorsIsNotFound(err) {
+			if common.IsNotFound(err) {
 				continue
 			}
 			return nil, err
@@ -375,7 +375,7 @@ func (s *Service) findUserForAdd(ctx context.Context, workspaceID, login string)
 	}
 	if _, err := s.workspaces.FindMember(ctx, workspaceID, target.ID); err == nil {
 		return nil, pkgerrors.ErrConflict
-	} else if !errorsIsNotFound(err) {
+	} else if !common.IsNotFound(err) {
 		return nil, err
 	}
 	return target, nil
@@ -559,7 +559,7 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 	}
 	member, findErr := s.workspaces.FindMember(ctx, ws.ID, actorID)
 	if findErr != nil {
-		if !errorsIsNotFound(findErr) {
+		if !common.IsNotFound(findErr) {
 			return nil, findErr
 		}
 		member = nil
@@ -592,18 +592,11 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
-	if err != nil {
-		if errorsIsNotFound(err) {
-			return nil, pkgerrors.ErrForbidden
-		}
-		return nil, err
-	}
-	return member, nil
+	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	common.BumpWorkspace(ctx, s.cache, workspaceID)
 }
 
 func (s *Service) bumpUser(ctx context.Context, userID string) {
@@ -629,7 +622,7 @@ func (s *Service) resolveOwner(ctx context.Context, workspaceID string) (*dworks
 		if members[i].Role == mworkspace.RoleOwner {
 			user, err := s.users.FindByID(ctx, members[i].UserID)
 			if err != nil {
-				if errorsIsNotFound(err) {
+				if common.IsNotFound(err) {
 					continue
 				}
 				return nil, err
@@ -707,10 +700,6 @@ func memberToResponse(user *muser.User, role mworkspace.WorkspaceRole) *dworkspa
 		AvatarKey:   user.AvatarKey,
 		Role:        string(role),
 	}
-}
-
-func errorsIsNotFound(err error) bool {
-	return errors.Is(err, pkgerrors.ErrNotFound)
 }
 
 var _ UseCase = (*Service)(nil)

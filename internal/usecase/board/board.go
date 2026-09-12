@@ -20,6 +20,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	"github.com/tandem/tandem/internal/usecase/common"
 	file "github.com/tandem/tandem/internal/usecase/file"
 )
 
@@ -79,7 +80,7 @@ func NewService(
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	common.BumpWorkspace(ctx, s.cache, workspaceID)
 }
 
 func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req dboard.CreateBoardRequest) (*dboard.BoardResponse, error) {
@@ -349,14 +350,7 @@ func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req 
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
-	if err != nil {
-		if errors.Is(err, pkgerrors.ErrNotFound) {
-			return nil, pkgerrors.ErrForbidden
-		}
-		return nil, err
-	}
-	return member, nil
+	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
 }
 
 func (s *Service) requireEditor(role mworkspace.WorkspaceRole) error {
@@ -378,35 +372,7 @@ func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID str
 }
 
 func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
-	ids := make(map[string]bool)
-	for _, task := range tasks {
-		if task.AuthorID != "" {
-			ids[task.AuthorID] = true
-		}
-		if task.AssigneeID != "" {
-			ids[task.AssigneeID] = true
-		}
-		if task.CuratorID != "" {
-			ids[task.CuratorID] = true
-		}
-	}
-	result := make(map[string]*dtask.TaskUserResponse)
-	for id := range ids {
-		user, err := s.users.FindByID(ctx, id)
-		if err != nil {
-			if errors.Is(err, pkgerrors.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		result[id] = &dtask.TaskUserResponse{
-			ID:          user.ID,
-			Login:       user.Login,
-			DisplayName: user.DisplayName,
-			AvatarKey:   user.AvatarKey,
-		}
-	}
-	return result, nil
+	return common.ResolveUsers(ctx, s.users, tasks)
 }
 
 func boardRoom(workspaceID string) string {

@@ -2,7 +2,6 @@ package tree
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -18,6 +17,7 @@ import (
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	"github.com/tandem/tandem/internal/usecase/common"
 )
 
 const taskFilterAll = "all"
@@ -291,7 +291,7 @@ func (s *Service) taskResponses(ctx context.Context, workspace *mworkspace.Works
 	for id := range ids {
 		user, err := s.users.FindByID(ctx, id)
 		if err != nil {
-			if errors.Is(err, pkgerrors.ErrNotFound) {
+			if common.IsNotFound(err) {
 				continue
 			}
 			return nil, err
@@ -332,14 +332,7 @@ func (s *Service) taskResponses(ctx context.Context, workspace *mworkspace.Works
 }
 
 func displayID(prefix, taskID string) string {
-	if prefix == "" {
-		prefix = "T"
-	}
-	short := taskID
-	if len(short) > 8 {
-		short = short[:8]
-	}
-	return prefix + "-" + short
+	return common.DisplayID(prefix, taskID)
 }
 
 var _ UseCase = (*Service)(nil)

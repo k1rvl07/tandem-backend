@@ -21,6 +21,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	"github.com/tandem/tandem/internal/usecase/common"
 	file "github.com/tandem/tandem/internal/usecase/file"
 )
 
@@ -74,7 +75,7 @@ func NewService(
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
+	common.BumpWorkspace(ctx, s.cache, workspaceID)
 }
 
 func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID string, req dtask.CreateTaskRequest) (*dtask.TaskResponse, error) {
@@ -387,7 +388,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	if task.ParentID != "" {
 		parent, err := s.tasks.FindTaskByID(ctx, task.ParentID)
 		if err != nil {
-			if !errors.Is(err, pkgerrors.ErrNotFound) {
+			if !common.IsNotFound(err) {
 				return nil, err
 			}
 		} else if parent != nil {
@@ -571,7 +572,7 @@ func (s *Service) validateAssignee(ctx context.Context, workspaceID, assigneeID 
 		return "", err
 	}
 	if _, err := s.workspaces.FindMember(ctx, workspaceID, assigneeID); err != nil {
-		if errors.Is(err, pkgerrors.ErrNotFound) {
+		if common.IsNotFound(err) {
 			return "", pkgerrors.NewValidationError("assignee must be a workspace member")
 		}
 		return "", err
@@ -587,7 +588,7 @@ func (s *Service) validateCurator(ctx context.Context, workspaceID, curatorID st
 		return "", err
 	}
 	if _, err := s.workspaces.FindMember(ctx, workspaceID, curatorID); err != nil {
-		if errors.Is(err, pkgerrors.ErrNotFound) {
+		if common.IsNotFound(err) {
 			return "", pkgerrors.NewValidationError("curator must be a workspace member")
 		}
 		return "", err
@@ -628,14 +629,7 @@ func (s *Service) validateParent(ctx context.Context, workspaceID, parentID, sel
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
-	if err != nil {
-		if errors.Is(err, pkgerrors.ErrNotFound) {
-			return nil, pkgerrors.ErrForbidden
-		}
-		return nil, err
-	}
-	return member, nil
+	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
 }
 
 func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
@@ -790,35 +784,7 @@ func (s *Service) taskReference(ctx context.Context, task *mtask.Task) (*dtask.T
 }
 
 func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
-	ids := make(map[string]bool)
-	for _, task := range tasks {
-		if task.AuthorID != "" {
-			ids[task.AuthorID] = true
-		}
-		if task.AssigneeID != "" {
-			ids[task.AssigneeID] = true
-		}
-		if task.CuratorID != "" {
-			ids[task.CuratorID] = true
-		}
-	}
-	result := make(map[string]*dtask.TaskUserResponse)
-	for id := range ids {
-		user, err := s.users.FindByID(ctx, id)
-		if err != nil {
-			if errors.Is(err, pkgerrors.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		result[id] = &dtask.TaskUserResponse{
-			ID:          user.ID,
-			Login:       user.Login,
-			DisplayName: user.DisplayName,
-			AvatarKey:   user.AvatarKey,
-		}
-	}
-	return result, nil
+	return common.ResolveUsers(ctx, s.users, tasks)
 }
 
 type workspaceColumn struct {
@@ -828,14 +794,7 @@ type workspaceColumn struct {
 }
 
 func displayID(prefix, taskID string) string {
-	if prefix == "" {
-		prefix = "T"
-	}
-	short := taskID
-	if len(short) > 8 {
-		short = short[:8]
-	}
-	return prefix + "-" + short
+	return common.DisplayID(prefix, taskID)
 }
 
 func removeTask(tasks []*mtask.Task, id string) []*mtask.Task {
