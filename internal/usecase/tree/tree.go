@@ -85,30 +85,16 @@ func (s *Service) List(ctx context.Context, actorID string, query dtree.TreeQuer
 	favBoardOnly := query.Boards == "fav"
 
 	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
-	favKey := fmt.Sprintf("u:%s:t:v1:fav:%s", actorID, uver)
-	var fav favFragment
-	if !cacheutil.Load(ctx, s.cache, favKey, &fav) {
-		favWorkspaces, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteWorkspace)
-		if err != nil {
-			return nil, err
-		}
-		favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteBoard)
-		if err != nil {
-			return nil, err
-		}
-		fav = favFragment{Workspaces: favWorkspaces, Boards: favBoards}
-		cacheutil.Store(ctx, s.cache, favKey, &fav, cacheutil.TTL)
+	fav, err := s.loadFavFragment(ctx, actorID, uver)
+	if err != nil {
+		return nil, err
 	}
 
 	memberships, err := s.workspaces.ListWorkspacesForUser(ctx, actorID)
 	if err != nil {
 		return nil, err
 	}
-	brickKeys := make([]string, len(memberships))
-	for i := range memberships {
-		wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+memberships[i].Workspace.ID)
-		brickKeys[i] = fmt.Sprintf("u:%s:t:v1:tree:%s:%s:%s:%s", actorID, memberships[i].Workspace.ID, wsver, uver, tasksFilter)
-	}
+	brickKeys := s.brickKeys(ctx, memberships, actorID, uver, tasksFilter)
 	values, err := s.cache.MGet(ctx, brickKeys...)
 	if err != nil {
 		values = make([]string, len(brickKeys))
@@ -141,6 +127,34 @@ func (s *Service) List(ctx context.Context, actorID string, query dtree.TreeQuer
 		result = append(result, dtree.TreeWorkspaceResponse{Workspace: wsResp, Boards: treeBoards})
 	}
 	return result, nil
+}
+
+func (s *Service) loadFavFragment(ctx context.Context, actorID, uver string) (favFragment, error) {
+	favKey := fmt.Sprintf("u:%s:t:v1:fav:%s", actorID, uver)
+	var fav favFragment
+	if cacheutil.Load(ctx, s.cache, favKey, &fav) {
+		return fav, nil
+	}
+	favWorkspaces, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteWorkspace)
+	if err != nil {
+		return fav, err
+	}
+	favBoards, err := s.favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteBoard)
+	if err != nil {
+		return fav, err
+	}
+	fav = favFragment{Workspaces: favWorkspaces, Boards: favBoards}
+	cacheutil.Store(ctx, s.cache, favKey, &fav, cacheutil.TTL)
+	return fav, nil
+}
+
+func (s *Service) brickKeys(ctx context.Context, memberships []mworkspace.WorkspaceMembership, actorID, uver, tasksFilter string) []string {
+	keys := make([]string, len(memberships))
+	for i := range memberships {
+		wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+memberships[i].Workspace.ID)
+		keys[i] = fmt.Sprintf("u:%s:t:v1:tree:%s:%s:%s:%s", actorID, memberships[i].Workspace.ID, wsver, uver, tasksFilter)
+	}
+	return keys
 }
 
 func (s *Service) loadBrick(ctx context.Context, values []string, index int, actorID string, workspace *mworkspace.Workspace, role mworkspace.WorkspaceRole, tasksFilter, key string) (treeBrick, error) {
@@ -177,31 +191,11 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mwo
 	}
 	treeBoards := make([]dtree.TreeBoardResponse, 0, len(boards))
 	for _, board := range boards {
-		matching := make([]*mtask.Task, 0, 4)
-		for _, task := range tasks {
-			if task.IsHidden {
-				continue
-			}
-			if columnBoard[task.ColumnID] != board.ID {
-				continue
-			}
-			if !s.taskMatches(tasksFilter, task, actorID) {
-				continue
-			}
-			matching = append(matching, task)
-		}
-		sort.SliceStable(matching, func(i, j int) bool {
-			if columnOrder[matching[i].ColumnID] != columnOrder[matching[j].ColumnID] {
-				return columnOrder[matching[i].ColumnID] < columnOrder[matching[j].ColumnID]
-			}
-			if matching[i].Position != matching[j].Position {
-				return matching[i].Position < matching[j].Position
-			}
-			return matching[i].CreatedAt.Before(matching[j].CreatedAt)
-		})
+		matching := s.matchingTasks(tasks, board, columnBoard, tasksFilter, actorID)
 		if len(matching) == 0 {
 			continue
 		}
+		sortTasksByColumnOrder(matching, columnOrder)
 		responses, err := s.taskResponses(ctx, workspace, board, matching)
 		if err != nil {
 			return treeBrick{}, err
@@ -233,6 +227,35 @@ func (s *Service) buildBrick(ctx context.Context, actorID string, workspace *mwo
 		},
 		Boards: treeBoards,
 	}, nil
+}
+
+func (s *Service) matchingTasks(tasks []*mtask.Task, board *mboard.Board, columnBoard map[string]string, tasksFilter string, actorID string) []*mtask.Task {
+	matching := make([]*mtask.Task, 0, 4)
+	for _, task := range tasks {
+		if task.IsHidden {
+			continue
+		}
+		if columnBoard[task.ColumnID] != board.ID {
+			continue
+		}
+		if !s.taskMatches(tasksFilter, task, actorID) {
+			continue
+		}
+		matching = append(matching, task)
+	}
+	return matching
+}
+
+func sortTasksByColumnOrder(tasks []*mtask.Task, columnOrder map[string]int) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		if columnOrder[tasks[i].ColumnID] != columnOrder[tasks[j].ColumnID] {
+			return columnOrder[tasks[i].ColumnID] < columnOrder[tasks[j].ColumnID]
+		}
+		if tasks[i].Position != tasks[j].Position {
+			return tasks[i].Position < tasks[j].Position
+		}
+		return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+	})
 }
 
 func (s *Service) taskMatches(filter string, task *mtask.Task, actorID string) bool {
