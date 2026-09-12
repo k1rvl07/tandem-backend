@@ -15,6 +15,22 @@ func CurrentUserID(c *gin.Context) string {
 	return uid
 }
 
+func ParseJSON(c *gin.Context, dst any) bool {
+	if err := c.ShouldBindJSON(dst); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return false
+	}
+	return true
+}
+
+func ParseQuery(c *gin.Context, dst any, invalidMsg string) bool {
+	if err := c.ShouldBindQuery(dst); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": invalidMsg})
+		return false
+	}
+	return true
+}
+
 func RespondError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, pkgerrors.ErrValidation):

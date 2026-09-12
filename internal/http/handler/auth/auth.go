@@ -30,8 +30,7 @@ func NewAuthHandler(uc pauth.UseCase) *AuthHandler {
 // @Router /api/v1/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req auth.LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.auth.Login(c.Request.Context(), req)
@@ -54,8 +53,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Router /api/v1/auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req auth.RefreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)

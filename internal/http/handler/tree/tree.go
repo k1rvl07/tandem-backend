@@ -30,8 +30,7 @@ func NewTreeHandler(uc ptree.UseCase) *TreeHandler {
 // @Router /api/v1/tasks/tree [get]
 func (h *TreeHandler) List(c *gin.Context) {
 	var query tree.TreeQuery
-	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query"})
+	if !common.ParseQuery(c, &query, "invalid query") {
 		return
 	}
 	resp, err := h.tree.List(c.Request.Context(), common.CurrentUserID(c), query)

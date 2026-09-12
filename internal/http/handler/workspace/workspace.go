@@ -29,8 +29,7 @@ func NewWorkspaceHandler(uc pworkspace.UseCase) *WorkspaceHandler {
 // @Router /api/v1/workspaces [post]
 func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var req workspace.CreateWorkspaceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.workspaces.Create(c.Request.Context(), common.CurrentUserID(c), req)
@@ -92,8 +91,7 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 // @Router /api/v1/workspaces/{id} [patch]
 func (h *WorkspaceHandler) Update(c *gin.Context) {
 	var req workspace.UpdateWorkspaceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.workspaces.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
@@ -138,8 +136,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/theme [put]
 func (h *WorkspaceHandler) SetTheme(c *gin.Context) {
 	var req workspace.SetThemeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.workspaces.SetTheme(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req.Theme)
@@ -166,8 +163,7 @@ func (h *WorkspaceHandler) SetTheme(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/members [post]
 func (h *WorkspaceHandler) AddMember(c *gin.Context) {
 	var req workspace.AddMemberRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.workspaces.AddMember(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
@@ -252,8 +248,7 @@ func (h *WorkspaceHandler) JoinByInvite(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/members/{userId} [patch]
 func (h *WorkspaceHandler) UpdateRole(c *gin.Context) {
 	var req workspace.UpdateMemberRoleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.workspaces.UpdateRole(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("userId"), req)
@@ -299,8 +294,7 @@ func (h *WorkspaceHandler) RemoveMember(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/owner [post]
 func (h *WorkspaceHandler) TransferOwner(c *gin.Context) {
 	var req workspace.TransferOwnerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	if err := h.workspaces.TransferOwner(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req); err != nil {

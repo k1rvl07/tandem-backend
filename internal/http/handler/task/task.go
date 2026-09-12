@@ -33,8 +33,7 @@ func NewTaskHandler(uc ptask.UseCase) *TaskHandler {
 // @Router /api/v1/workspaces/{id}/boards/{boardId}/tasks [post]
 func (h *TaskHandler) Create(c *gin.Context) {
 	var req task.CreateTaskRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.tasks.Create(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), req)
@@ -62,8 +61,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/boards/{boardId}/tasks/{taskId} [patch]
 func (h *TaskHandler) Update(c *gin.Context) {
 	var req task.UpdateTaskRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.tasks.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), c.Param("taskId"), req)
@@ -113,8 +111,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/tasks [get]
 func (h *TaskHandler) List(c *gin.Context) {
 	var query task.ListWorkspaceTasksQuery
-	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query"})
+	if !common.ParseQuery(c, &query, "invalid query") {
 		return
 	}
 	resp, err := h.tasks.List(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), query)

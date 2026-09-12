@@ -278,6 +278,10 @@ func (a *App) seedAdmin(ctx context.Context, repo repoport.UserRepository, hashe
 		return nil
 	}
 
+	return a.createAdmin(ctx, repo, hasher, login)
+}
+
+func (a *App) createAdmin(ctx context.Context, repo repoport.UserRepository, hasher service.PasswordHasher, login string) error {
 	passwordHash, err := hasher.Hash(a.config.App.AdminPassword)
 	if err != nil {
 		return err

@@ -51,8 +51,7 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 // @Router /api/v1/me [patch]
 func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	var req profile.UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	userID := common.CurrentUserID(c)
@@ -127,8 +126,7 @@ func (h *ProfileHandler) DeleteAvatar(c *gin.Context) {
 // @Router /api/v1/me/password [post]
 func (h *ProfileHandler) ChangePassword(c *gin.Context) {
 	var req profile.ChangePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	userID := common.CurrentUserID(c)

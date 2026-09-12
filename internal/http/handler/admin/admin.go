@@ -33,8 +33,7 @@ func NewAdminHandler(uc padmin.UseCase) *AdminHandler {
 // @Router /api/v1/admin/users [post]
 func (h *AdminHandler) CreateUser(c *gin.Context) {
 	var req admin.CreateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	actor := padmin.Actor{ID: common.CurrentUserID(c), Role: c.GetString(mwstaff.CtxUserRole)}
@@ -60,8 +59,7 @@ func (h *AdminHandler) CreateUser(c *gin.Context) {
 // @Router /api/v1/admin/users [get]
 func (h *AdminHandler) ListUsers(c *gin.Context) {
 	var query admin.AdminListQuery
-	if err := c.ShouldBindQuery(&query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query parameters"})
+	if !common.ParseQuery(c, &query, "invalid query parameters") {
 		return
 	}
 	page, err := h.admin.ListUsers(c.Request.Context(), common.CurrentUserID(c), query)
@@ -107,8 +105,7 @@ func (h *AdminHandler) DeleteUser(c *gin.Context) {
 // @Router /api/v1/admin/users/{id}/role [patch]
 func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	var req admin.UpdateUserRoleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	actor := padmin.Actor{ID: common.CurrentUserID(c), Role: c.GetString(mwstaff.CtxUserRole)}

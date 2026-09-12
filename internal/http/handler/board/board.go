@@ -50,8 +50,7 @@ func (h *BoardHandler) List(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/boards [post]
 func (h *BoardHandler) Create(c *gin.Context) {
 	var req board.CreateBoardRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.boards.Create(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
@@ -118,8 +117,7 @@ func (h *BoardHandler) SetMain(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/boards/reorder [put]
 func (h *BoardHandler) Reorder(c *gin.Context) {
 	var req board.ReorderBoardsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.boards.Reorder(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
@@ -146,8 +144,7 @@ func (h *BoardHandler) Reorder(c *gin.Context) {
 // @Router /api/v1/workspaces/{id}/boards/{boardId} [patch]
 func (h *BoardHandler) Update(c *gin.Context) {
 	var req board.UpdateBoardRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+	if !common.ParseJSON(c, &req) {
 		return
 	}
 	resp, err := h.boards.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), req)
