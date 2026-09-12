@@ -179,16 +179,34 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 		return nil, err
 	}
 
+	oldImageKey, err := s.applyUpdateFields(ctx, actorID, workspaceID, task, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.applyTaskMoves(ctx, workspaceID, boardID, task, req); err != nil {
+		return nil, err
+	}
+	if err := s.tasks.UpdateTask(ctx, task); err != nil {
+		return nil, err
+	}
+	if oldImageKey != "" && oldImageKey != task.ImageKey {
+		s.files.RemoveMany(ctx, []string{oldImageKey})
+	}
+	return s.finishUpdate(ctx, workspaceID, task)
+}
+
+func (s *Service) applyUpdateFields(ctx context.Context, actorID, workspaceID string, task *mtask.Task, req dtask.UpdateTaskRequest) (string, error) {
+	oldImageKey := task.ImageKey
 	if req.Title != nil {
 		if err := validate.Title(*req.Title); err != nil {
-			return nil, err
+			return "", err
 		}
 		next := strings.TrimSpace(*req.Title)
 		task.Title = next
 	}
 	if req.Description != nil {
 		if utf8.RuneCountInString(strings.TrimSpace(*req.Description)) > maxDescriptionLen {
-			return nil, pkgerrors.NewValidationError("description must be at most %d characters", maxDescriptionLen)
+			return "", pkgerrors.NewValidationError("description must be at most %d characters", maxDescriptionLen)
 		}
 		next := strings.TrimSpace(*req.Description)
 		task.Description = next
@@ -196,28 +214,28 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 	if req.DueDate != nil {
 		dueDate, err := parseDueDate(*req.DueDate)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		task.DueDate = dueDate
 	}
 	if req.AssigneeID != nil {
 		assigneeID, err := s.validateAssignee(ctx, workspaceID, strings.TrimSpace(*req.AssigneeID))
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		task.AssigneeID = assigneeID
 	}
 	if req.CuratorID != nil {
 		curatorID, err := s.validateCurator(ctx, workspaceID, strings.TrimSpace(*req.CuratorID))
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		task.CuratorID = curatorID
 	}
 	if req.ParentID != nil {
 		parentID, err := s.validateParent(ctx, workspaceID, strings.TrimSpace(*req.ParentID), task.ID)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		task.ParentID = parentID
 	}
@@ -227,47 +245,50 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 	if req.IsHidden != nil {
 		task.IsHidden = *req.IsHidden
 	}
-	oldImageKey := task.ImageKey
 	if req.ImageKey != nil {
 		key := strings.TrimSpace(*req.ImageKey)
 		if err := s.files.ValidateImageKey(key, actorID); err != nil {
-			return nil, err
+			return "", err
 		}
 		task.ImageKey = key
 	}
+	return oldImageKey, nil
+}
+
+func (s *Service) applyTaskMoves(ctx context.Context, workspaceID, boardID string, task *mtask.Task, req dtask.UpdateTaskRequest) error {
 	if req.BoardID != nil && *req.BoardID != boardID {
 		target, err := s.boardInWorkspace(ctx, workspaceID, *req.BoardID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		columns, err := s.columns.ListColumns(ctx, target.ID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if len(columns) == 0 {
-			return nil, pkgerrors.NewValidationError("target board has no columns")
+			return pkgerrors.NewValidationError("target board has no columns")
 		}
 		first := columns[0]
 		targetTasks, err := s.tasks.ListTasksForColumn(ctx, first.ID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if err := s.leaveColumn(ctx, task); err != nil {
-			return nil, err
+			return err
 		}
 		task.ColumnID = first.ID
 		if err := s.shiftPositions(ctx, targetTasks); err != nil {
-			return nil, err
+			return err
 		}
 		task.Position = 0
 	} else if req.ColumnID != nil || req.Position != nil {
 		targetColumnID := task.ColumnID
 		if req.ColumnID != nil {
 			if err := validate.UUID(*req.ColumnID); err != nil {
-				return nil, err
+				return err
 			}
 			if _, err := s.columnInBoard(ctx, boardID, *req.ColumnID); err != nil {
-				return nil, err
+				return err
 			}
 			targetColumnID = *req.ColumnID
 		}
@@ -281,18 +302,11 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID, boardID, tas
 		shouldMove := targetColumnID != task.ColumnID || req.Position != nil
 		if shouldMove {
 			if err := s.moveTask(ctx, task, targetColumnID, position); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
-
-	if err := s.tasks.UpdateTask(ctx, task); err != nil {
-		return nil, err
-	}
-	if oldImageKey != "" && oldImageKey != task.ImageKey {
-		s.files.RemoveMany(ctx, []string{oldImageKey})
-	}
-	return s.finishUpdate(ctx, workspaceID, task)
+	return nil
 }
 
 func (s *Service) finishUpdate(ctx context.Context, workspaceID string, task *mtask.Task) (*dtask.TaskResponse, error) {
@@ -421,6 +435,28 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	if err != nil {
 		return nil, err
 	}
+	columnInfo, err := s.buildColumnInfo(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	filtered := s.filterTasks(tasks, columnInfo, query, actorID)
+	if offset > len(filtered) {
+		offset = len(filtered)
+	}
+	end := offset + limit
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	filtered = filtered[offset:end]
+	responses, err := s.responsesFor(ctx, workspaceID, filtered)
+	if err != nil {
+		return nil, err
+	}
+	cacheutil.Store(ctx, s.cache, listKey, responses, cacheutil.TTL)
+	return responses, nil
+}
+
+func (s *Service) buildColumnInfo(ctx context.Context, workspaceID string) (map[string]workspaceColumn, error) {
 	columns, err := s.columns.ListColumnsForWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -429,6 +465,10 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 	for i := range columns {
 		columnInfo[columns[i].ID] = workspaceColumn{name: columns[i].Name, boardID: columns[i].BoardID}
 	}
+	return columnInfo, nil
+}
+
+func (s *Service) filterTasks(tasks []*mtask.Task, columnInfo map[string]workspaceColumn, query dtask.ListWorkspaceTasksQuery, actorID string) []*mtask.Task {
 	filtered := make([]*mtask.Task, 0, len(tasks))
 	for _, task := range tasks {
 		info, ok := columnInfo[task.ColumnID]
@@ -462,20 +502,7 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID string, query d
 		}
 		filtered = append(filtered, task)
 	}
-	if offset > len(filtered) {
-		offset = len(filtered)
-	}
-	end := offset + limit
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-	filtered = filtered[offset:end]
-	responses, err := s.responsesFor(ctx, workspaceID, filtered)
-	if err != nil {
-		return nil, err
-	}
-	cacheutil.Store(ctx, s.cache, listKey, responses, cacheutil.TTL)
-	return responses, nil
+	return filtered
 }
 
 func (s *Service) moveTask(ctx context.Context, task *mtask.Task, targetColumnID string, position int) error {
