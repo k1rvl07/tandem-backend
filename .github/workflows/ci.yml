@@ -22,6 +22,29 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        command: ["redis-server", "--requirepass", "secret_redis"]
+        options: >-
+          --health-cmd "redis-cli -a secret_redis ping | grep -q PONG"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        image: minio/minio:RELEASE.2024-05-27T19-17-46Z
+        env:
+          MINIO_ROOT_USER: tandem
+          MINIO_ROOT_PASSWORD: secret_minio
+        command: server /data --console-address ":9001"
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "mc ready local"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -31,6 +54,11 @@ jobs:
         run: |
           go install github.com/swaggo/swag/v2/cmd/swag@v2.0.0-rc5
           swag init -g ./cmd/server/main.go -o ./docs --v3.1
+      - name: sanity check swagger
+        run: |
+          jq -e '.paths | length > 0' docs/swagger.json > /dev/null
+          jq -e '.paths | has("/api/v1/auth/login")' docs/swagger.json > /dev/null
+          echo "swagger docs valid: $(jq '.paths | length' docs/swagger.json) paths"
       - name: check formatting
         run: |
           unformatted=$(gofmt -l .)
@@ -46,4 +74,10 @@ jobs:
       - name: test
         env:
           TEST_DATABASE_URL: postgres://tandem:tandem@localhost:5432/tandem_test?sslmode=disable
+          TEST_REDIS_ADDR: localhost:6379
+          TEST_REDIS_PASSWORD: secret_redis
+          TEST_MINIO_ENDPOINT: localhost:9000
+          TEST_MINIO_ROOT_USER: tandem
+          TEST_MINIO_ROOT_PASSWORD: secret_minio
+          TEST_MINIO_BUCKET: tandem-files
         run: go test ./... -count=1
