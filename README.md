@@ -27,8 +27,9 @@ make backend              # запуск через Air, hot-reload, порт 80
 ```
 
 `docs/` — сгенерированный пакет OpenAPI, не отслеживается git, но требуется
-для сборки (blank-import в `internal/app/app.go`). Перегенерировать: `make swag`
-(цель корневого Makefile).
+для сборки (blank-import в `internal/app/app.go`). `make build` сам генерирует
+docs при их отсутствии (`make ensure-docs`); принудительная перегенерация после
+изменения контрактов — `make swag` (цель корневого Makefile).
 
 Конфигурация читается из файла, переданного при старте (`.env.dev` для dev,
 `.env.prod` для prod), затем из переменных окружения.
@@ -50,13 +51,17 @@ make backend              # запуск через Air, hot-reload, порт 80
 | `MINIO_ROOT_USER` | `tandem` | Access key |
 | `MINIO_ROOT_PASSWORD` | `change_me_minio` | Secret key |
 | `MINIO_USE_SSL` | `false` | TLS для MinIO |
+| `MINIO_PUBLIC_ENDPOINT` | — | Публичный endpoint для presigned URL (в прод — через nginx) |
+| `MINIO_PUBLIC_USE_SSL` | `false` | TLS для публичного endpoint |
 | `MINIO_BUCKET` | `tandem-files` | Бакет для вложений |
 | `JWT_SECRET` | — | Секрет JWT, обязателен |
-| `JWT_TTL` | `24h` | Время жизни токена |
+| `JWT_TTL` | `24h` | Время жизни access-токена |
+| `JWT_REFRESH_TTL` | `168h` | Время жизни refresh-токена |
 | `ADMIN_LOGIN` | — | Логин администратора (сидер при старте) |
 | `ADMIN_PASSWORD` | — | Пароль администратора |
 | `BCRYPT_COST` | `12` | Стоимость bcrypt (10–15) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Разрешённые origin (через запятую) |
+| `SWAGGER_ENABLED` | `true` (dev) / `false` (prod) | Служить Swagger UI на `/swagger` |
 
 `.env.dev` и `.env.prod` не отслеживаются git — создаются локально.
 
@@ -133,3 +138,10 @@ make swag         # перегенерировать OpenAPI после изме
 Тестами покрыт прикладной слой (`usecase/*`, фейки репозиториев/кеша — в
 `internal/usecase/testutil`), хендлеры и инфраструктурные адаптеры.
 `make test` (из корня репозитория) — то же, что `go test ./...`.
+
+## Индексация кода (Repowise)
+
+Репозиторий проиндексирован [Repowise](https://repowise.dev); авто-артефакты
+(`.repowise/`, `.claude/CLAUDE.md`, `.mcp.json`, `.vscode/`) в git не
+отслеживаются. Обновлять индекс после крупных изменений: `repowise update`
+(инкрементально) или `repowise init` (полная переиндексация).
