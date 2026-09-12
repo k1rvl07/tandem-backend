@@ -33,7 +33,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       minio:
-        image: minio/minio:RELEASE.2024-05-27T19-17-46Z
+        image: quay.io/minio/minio:RELEASE.2024-05-27T19-17-46Z
         env:
           MINIO_ROOT_USER: tandem
           MINIO_ROOT_PASSWORD: secret_minio
