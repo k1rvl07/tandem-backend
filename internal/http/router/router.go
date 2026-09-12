@@ -69,133 +69,202 @@ func New(deps Dependencies) *gin.Engine {
 	if deps.Hub == nil {
 		deps.Hub = nopHub{}
 	}
+	b := &routerBuilder{deps: deps}
+	b.setup()
+	return b.r
+}
 
-	r := gin.New()
-	r.Use(gin.Recovery())
-	r.Use(mwlog.Logger(deps.Logger))
-	r.Use(mwcors.CORS(deps.AllowedOrigin))
+type routerBuilder struct {
+	deps  Dependencies
+	r     *gin.Engine
+	api   *gin.RouterGroup
+	read  *gin.RouterGroup
+	write *gin.RouterGroup
+}
 
-	r.GET("/healthz", func(c *gin.Context) {
+func (b *routerBuilder) setup() {
+	b.r = gin.New()
+	b.r.Use(gin.Recovery())
+	b.r.Use(mwlog.Logger(b.deps.Logger))
+	b.r.Use(mwcors.CORS(b.deps.AllowedOrigin))
+
+	b.r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	api := r.Group("/api/v1")
-	if deps.AuthHandler != nil {
-		authGroup := api.Group("/auth")
-		if deps.AuthLimiter != nil {
-			authGroup.Use(deps.AuthLimiter.Middleware())
-		}
-		authGroup.POST("/login", deps.AuthHandler.Login)
-		authGroup.POST("/refresh", deps.AuthHandler.Refresh)
-	}
+	b.api = b.r.Group("/api/v1")
+	b.registerAuth()
+	b.registerWS()
+	b.registerAuthed()
 
-	if deps.TokenService != nil && deps.Hub != nil && deps.AuthHandler != nil {
-		wsHandler := hws.NewWSHandler(deps.Hub, deps.TokenService, deps.WorkspaceRepository, deps.AllowedOrigin)
-		wsHandlers := []gin.HandlerFunc{mwws.WSIdentity(deps.TokenService)}
-		if deps.WSLimiter != nil {
-			wsHandlers = append(wsHandlers, deps.WSLimiter.Middleware())
-		}
-		wsHandlers = append(wsHandlers, wsHandler.Connect)
-		r.GET("/ws", wsHandlers...)
+	if b.deps.EnableSwagger {
+		openapi.Register(b.r, "/swagger")
 	}
+}
 
-	if deps.TokenService != nil {
-		authMw := mwauth.Auth(deps.TokenService)
-		readHandlers := []gin.HandlerFunc{authMw}
-		if deps.ReadLimiter != nil {
-			readHandlers = append(readHandlers, deps.ReadLimiter.Middleware())
-		}
-		writeHandlers := []gin.HandlerFunc{authMw}
-		if deps.WriteLimiter != nil {
-			writeHandlers = append(writeHandlers, deps.WriteLimiter.Middleware())
-		}
-		read := api.Group("", readHandlers...)
-		write := api.Group("", writeHandlers...)
-		if deps.AuthHandler != nil {
-			write.POST("/auth/logout", deps.AuthHandler.Logout)
-		}
-		if deps.ProfileHandler != nil {
-			read.GET("/me", deps.ProfileHandler.GetProfile)
-			write.PATCH("/me", deps.ProfileHandler.UpdateProfile)
-			write.POST("/me/avatar", deps.ProfileHandler.UploadAvatar)
-			write.DELETE("/me/avatar", deps.ProfileHandler.DeleteAvatar)
-			write.POST("/me/password", deps.ProfileHandler.ChangePassword)
-		}
-		if deps.AdminHandler != nil && deps.UserRepository != nil {
-			adminRead := read.Group("", mwstaff.RequireStaff(deps.UserRepository))
-			adminWrite := write.Group("", mwstaff.RequireStaff(deps.UserRepository))
-			adminWrite.POST("/admin/users", deps.AdminHandler.CreateUser)
-			adminRead.GET("/admin/users", deps.AdminHandler.ListUsers)
-			adminWrite.PATCH("/admin/users/:id/role", deps.AdminHandler.UpdateUserRole)
-			adminWrite.DELETE("/admin/users/:id", deps.AdminHandler.DeleteUser)
-		}
-		if deps.WorkspaceHandler != nil {
-			write.POST("/workspaces", deps.WorkspaceHandler.Create)
-			read.GET("/workspaces", deps.WorkspaceHandler.List)
-			read.GET("/workspaces/:id", deps.WorkspaceHandler.Get)
-			write.PATCH("/workspaces/:id", deps.WorkspaceHandler.Update)
-			write.PUT("/workspaces/:id/theme", deps.WorkspaceHandler.SetTheme)
-			write.DELETE("/workspaces/:id", deps.WorkspaceHandler.Delete)
-			write.POST("/workspaces/:id/members", deps.WorkspaceHandler.AddMember)
-			write.PATCH("/workspaces/:id/members/:userId", deps.WorkspaceHandler.UpdateRole)
-			write.DELETE("/workspaces/:id/members/:userId", deps.WorkspaceHandler.RemoveMember)
-			write.POST("/workspaces/:id/owner", deps.WorkspaceHandler.TransferOwner)
-			read.GET("/workspaces/:id/invite", deps.WorkspaceHandler.GetInvite)
-			write.DELETE("/workspaces/:id/invite", deps.WorkspaceHandler.DisableInvite)
-			write.POST("/invite/:token/join", deps.WorkspaceHandler.JoinByInvite)
-		}
-		if deps.BoardHandler != nil {
-			read.GET("/workspaces/:id/boards", deps.BoardHandler.List)
-			write.POST("/workspaces/:id/boards", deps.BoardHandler.Create)
-			write.PUT("/workspaces/:id/boards/reorder", deps.BoardHandler.Reorder)
-			read.GET("/workspaces/:id/boards/:boardId", deps.BoardHandler.Get)
-			write.PATCH("/workspaces/:id/boards/:boardId", deps.BoardHandler.Update)
-			write.PUT("/workspaces/:id/boards/:boardId/main", deps.BoardHandler.SetMain)
-			write.DELETE("/workspaces/:id/boards/:boardId", deps.BoardHandler.Delete)
-		}
-		if deps.TaskHandler != nil {
-			read.GET("/workspaces/:id/tasks", deps.TaskHandler.List)
-			read.GET("/workspaces/:id/tasks/:taskId", deps.TaskHandler.Get)
-			write.POST("/workspaces/:id/boards/:boardId/tasks", deps.TaskHandler.Create)
-			write.PATCH("/workspaces/:id/boards/:boardId/tasks/:taskId", deps.TaskHandler.Update)
-			write.DELETE("/workspaces/:id/boards/:boardId/tasks/:taskId", deps.TaskHandler.Delete)
-		}
-		if deps.AttachmentHandler != nil {
-			attachmentCreate := write.Group("/workspaces/:id/tasks/:taskId/attachments")
-			if deps.UploadLimiter != nil {
-				attachmentCreate.Use(deps.UploadLimiter.Middleware())
-			}
-			attachmentCreate.POST("", deps.AttachmentHandler.Create)
-			read.GET("/workspaces/:id/tasks/:taskId/attachments", deps.AttachmentHandler.List)
-			read.GET("/workspaces/:id/tasks/:taskId/attachments/:attachmentId", deps.AttachmentHandler.Download)
-			write.DELETE("/workspaces/:id/tasks/:taskId/attachments/:attachmentId", deps.AttachmentHandler.Delete)
-		}
-		if deps.FavoriteHandler != nil {
-			write.PUT("/favorites/workspaces/:workspaceId", deps.FavoriteHandler.AddWorkspace)
-			write.DELETE("/favorites/workspaces/:workspaceId", deps.FavoriteHandler.RemoveWorkspace)
-			write.PUT("/favorites/boards/:boardId", deps.FavoriteHandler.AddBoard)
-			write.DELETE("/favorites/boards/:boardId", deps.FavoriteHandler.RemoveBoard)
-		}
-		if deps.TreeHandler != nil {
-			read.GET("/tasks/tree", deps.TreeHandler.List)
-		}
-		if deps.Files != nil {
-			filesHandler := hfile.NewFileHandler(deps.Files)
-			uploadImage := write.Group("/files/images")
-			if deps.UploadLimiter != nil {
-				uploadImage.Use(deps.UploadLimiter.Middleware())
-			}
-			uploadImage.POST("", filesHandler.UploadImage)
-			uploadImage.DELETE("", filesHandler.DeleteImage)
-			read.GET("/files/sign", filesHandler.Sign)
-		}
+func (b *routerBuilder) registerAuth() {
+	if b.deps.AuthHandler == nil {
+		return
 	}
-
-	if deps.EnableSwagger {
-		openapi.Register(r, "/swagger")
+	authGroup := b.api.Group("/auth")
+	if b.deps.AuthLimiter != nil {
+		authGroup.Use(b.deps.AuthLimiter.Middleware())
 	}
+	authGroup.POST("/login", b.deps.AuthHandler.Login)
+	authGroup.POST("/refresh", b.deps.AuthHandler.Refresh)
+}
 
-	return r
+func (b *routerBuilder) registerWS() {
+	if b.deps.TokenService == nil || b.deps.Hub == nil || b.deps.AuthHandler == nil {
+		return
+	}
+	wsHandler := hws.NewWSHandler(b.deps.Hub, b.deps.TokenService, b.deps.WorkspaceRepository, b.deps.AllowedOrigin)
+	wsHandlers := []gin.HandlerFunc{mwws.WSIdentity(b.deps.TokenService)}
+	if b.deps.WSLimiter != nil {
+		wsHandlers = append(wsHandlers, b.deps.WSLimiter.Middleware())
+	}
+	wsHandlers = append(wsHandlers, wsHandler.Connect)
+	b.r.GET("/ws", wsHandlers...)
+}
+
+func (b *routerBuilder) registerAuthed() {
+	if b.deps.TokenService == nil {
+		return
+	}
+	authMw := mwauth.Auth(b.deps.TokenService)
+	readHandlers := []gin.HandlerFunc{authMw}
+	if b.deps.ReadLimiter != nil {
+		readHandlers = append(readHandlers, b.deps.ReadLimiter.Middleware())
+	}
+	writeHandlers := []gin.HandlerFunc{authMw}
+	if b.deps.WriteLimiter != nil {
+		writeHandlers = append(writeHandlers, b.deps.WriteLimiter.Middleware())
+	}
+	b.read = b.api.Group("", readHandlers...)
+	b.write = b.api.Group("", writeHandlers...)
+	b.registerProfile()
+	b.registerAdmin()
+	b.registerWorkspace()
+	b.registerBoard()
+	b.registerTask()
+	b.registerAttachment()
+	b.registerFavorite()
+	b.registerTree()
+	b.registerFiles()
+}
+
+func (b *routerBuilder) registerProfile() {
+	if b.deps.AuthHandler != nil {
+		b.write.POST("/auth/logout", b.deps.AuthHandler.Logout)
+	}
+	if b.deps.ProfileHandler == nil {
+		return
+	}
+	b.read.GET("/me", b.deps.ProfileHandler.GetProfile)
+	b.write.PATCH("/me", b.deps.ProfileHandler.UpdateProfile)
+	b.write.POST("/me/avatar", b.deps.ProfileHandler.UploadAvatar)
+	b.write.DELETE("/me/avatar", b.deps.ProfileHandler.DeleteAvatar)
+	b.write.POST("/me/password", b.deps.ProfileHandler.ChangePassword)
+}
+
+func (b *routerBuilder) registerAdmin() {
+	if b.deps.AdminHandler == nil || b.deps.UserRepository == nil {
+		return
+	}
+	adminRead := b.read.Group("", mwstaff.RequireStaff(b.deps.UserRepository))
+	adminWrite := b.write.Group("", mwstaff.RequireStaff(b.deps.UserRepository))
+	adminWrite.POST("/admin/users", b.deps.AdminHandler.CreateUser)
+	adminRead.GET("/admin/users", b.deps.AdminHandler.ListUsers)
+	adminWrite.PATCH("/admin/users/:id/role", b.deps.AdminHandler.UpdateUserRole)
+	adminWrite.DELETE("/admin/users/:id", b.deps.AdminHandler.DeleteUser)
+}
+
+func (b *routerBuilder) registerWorkspace() {
+	if b.deps.WorkspaceHandler == nil {
+		return
+	}
+	b.write.POST("/workspaces", b.deps.WorkspaceHandler.Create)
+	b.read.GET("/workspaces", b.deps.WorkspaceHandler.List)
+	b.read.GET("/workspaces/:id", b.deps.WorkspaceHandler.Get)
+	b.write.PATCH("/workspaces/:id", b.deps.WorkspaceHandler.Update)
+	b.write.PUT("/workspaces/:id/theme", b.deps.WorkspaceHandler.SetTheme)
+	b.write.DELETE("/workspaces/:id", b.deps.WorkspaceHandler.Delete)
+	b.write.POST("/workspaces/:id/members", b.deps.WorkspaceHandler.AddMember)
+	b.write.PATCH("/workspaces/:id/members/:userId", b.deps.WorkspaceHandler.UpdateRole)
+	b.write.DELETE("/workspaces/:id/members/:userId", b.deps.WorkspaceHandler.RemoveMember)
+	b.write.POST("/workspaces/:id/owner", b.deps.WorkspaceHandler.TransferOwner)
+	b.read.GET("/workspaces/:id/invite", b.deps.WorkspaceHandler.GetInvite)
+	b.write.DELETE("/workspaces/:id/invite", b.deps.WorkspaceHandler.DisableInvite)
+	b.write.POST("/invite/:token/join", b.deps.WorkspaceHandler.JoinByInvite)
+}
+
+func (b *routerBuilder) registerBoard() {
+	if b.deps.BoardHandler == nil {
+		return
+	}
+	b.read.GET("/workspaces/:id/boards", b.deps.BoardHandler.List)
+	b.write.POST("/workspaces/:id/boards", b.deps.BoardHandler.Create)
+	b.write.PUT("/workspaces/:id/boards/reorder", b.deps.BoardHandler.Reorder)
+	b.read.GET("/workspaces/:id/boards/:boardId", b.deps.BoardHandler.Get)
+	b.write.PATCH("/workspaces/:id/boards/:boardId", b.deps.BoardHandler.Update)
+	b.write.PUT("/workspaces/:id/boards/:boardId/main", b.deps.BoardHandler.SetMain)
+	b.write.DELETE("/workspaces/:id/boards/:boardId", b.deps.BoardHandler.Delete)
+}
+
+func (b *routerBuilder) registerTask() {
+	if b.deps.TaskHandler == nil {
+		return
+	}
+	b.read.GET("/workspaces/:id/tasks", b.deps.TaskHandler.List)
+	b.read.GET("/workspaces/:id/tasks/:taskId", b.deps.TaskHandler.Get)
+	b.write.POST("/workspaces/:id/boards/:boardId/tasks", b.deps.TaskHandler.Create)
+	b.write.PATCH("/workspaces/:id/boards/:boardId/tasks/:taskId", b.deps.TaskHandler.Update)
+	b.write.DELETE("/workspaces/:id/boards/:boardId/tasks/:taskId", b.deps.TaskHandler.Delete)
+}
+
+func (b *routerBuilder) registerAttachment() {
+	if b.deps.AttachmentHandler == nil {
+		return
+	}
+	attachmentCreate := b.write.Group("/workspaces/:id/tasks/:taskId/attachments")
+	if b.deps.UploadLimiter != nil {
+		attachmentCreate.Use(b.deps.UploadLimiter.Middleware())
+	}
+	attachmentCreate.POST("", b.deps.AttachmentHandler.Create)
+	b.read.GET("/workspaces/:id/tasks/:taskId/attachments", b.deps.AttachmentHandler.List)
+	b.read.GET("/workspaces/:id/tasks/:taskId/attachments/:attachmentId", b.deps.AttachmentHandler.Download)
+	b.write.DELETE("/workspaces/:id/tasks/:taskId/attachments/:attachmentId", b.deps.AttachmentHandler.Delete)
+}
+
+func (b *routerBuilder) registerFavorite() {
+	if b.deps.FavoriteHandler == nil {
+		return
+	}
+	b.write.PUT("/favorites/workspaces/:workspaceId", b.deps.FavoriteHandler.AddWorkspace)
+	b.write.DELETE("/favorites/workspaces/:workspaceId", b.deps.FavoriteHandler.RemoveWorkspace)
+	b.write.PUT("/favorites/boards/:boardId", b.deps.FavoriteHandler.AddBoard)
+	b.write.DELETE("/favorites/boards/:boardId", b.deps.FavoriteHandler.RemoveBoard)
+}
+
+func (b *routerBuilder) registerTree() {
+	if b.deps.TreeHandler == nil {
+		return
+	}
+	b.read.GET("/tasks/tree", b.deps.TreeHandler.List)
+}
+
+func (b *routerBuilder) registerFiles() {
+	if b.deps.Files == nil {
+		return
+	}
+	filesHandler := hfile.NewFileHandler(b.deps.Files)
+	uploadImage := b.write.Group("/files/images")
+	if b.deps.UploadLimiter != nil {
+		uploadImage.Use(b.deps.UploadLimiter.Middleware())
+	}
+	uploadImage.POST("", filesHandler.UploadImage)
+	uploadImage.DELETE("", filesHandler.DeleteImage)
+	b.read.GET("/files/sign", filesHandler.Sign)
 }
 
 type nopFileStore struct{}
