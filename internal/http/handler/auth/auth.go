@@ -42,6 +42,30 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// @Summary Refresh access token
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body auth.RefreshRequest true "Refresh payload"
+// @Success 200 {object} auth.RefreshResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/v1/auth/refresh [post]
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	var req auth.RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	resp, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		common.RespondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // @Summary Log out current user
 // @Tags auth
 // @Produce json

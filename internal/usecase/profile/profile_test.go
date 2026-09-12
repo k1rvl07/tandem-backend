@@ -128,7 +128,7 @@ func (s *fakeStore) PresignGet(_ context.Context, key string, _ time.Duration) (
 func newTestService(repo *fakeRepo, store filestore.FileStore) (*Service, *testutil.FakeTokenService) {
 	hasher := password.NewBCryptHasher(12)
 	tokens := &testutil.FakeTokenService{}
-	return NewService(repo, hasher, file.NewService(store, zap.NewNop()), testutil.NewFakeCache(), tokens, time.Hour, zap.NewNop()), tokens
+	return NewService(repo, hasher, file.NewService(store, zap.NewNop()), testutil.NewFakeCache(), tokens, time.Hour, 7*24*time.Hour, zap.NewNop()), tokens
 }
 
 func TestGetProfile(t *testing.T) {
@@ -176,9 +176,10 @@ func TestChangePassword(t *testing.T) {
 	repo.users[user.Login] = user
 	svc, tokens := newTestService(repo, newFakeStore())
 
-	token, err := svc.ChangePassword(context.Background(), "u1", dprofile.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "oldpass123"})
+	resp, err := svc.ChangePassword(context.Background(), "u1", dprofile.ChangePasswordRequest{NewPassword: "newpass123", CurrentPassword: "oldpass123"})
 	require.NoError(t, err)
-	require.NotEmpty(t, token)
+	require.NotEmpty(t, resp.Token)
+	require.NotEmpty(t, resp.RefreshToken)
 	require.Len(t, tokens.Revoked, 1)
 	require.Equal(t, "u1", tokens.Revoked[0])
 	assert.True(t, hasher.Check(repo.users["ivanov.ii"].PasswordHash, "newpass123"))

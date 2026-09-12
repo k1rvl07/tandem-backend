@@ -132,10 +132,10 @@ func (h *ProfileHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	userID := common.CurrentUserID(c)
-	token, err := h.profiles.ChangePassword(c.Request.Context(), userID, req)
+	resp, err := h.profiles.ChangePassword(c.Request.Context(), userID, req)
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": token, "message": "password updated"})
+	c.JSON(http.StatusOK, gin.H{"token": resp.Token, "refresh_token": resp.RefreshToken, "message": "password updated"})
 }

@@ -31,23 +31,24 @@ const avatarNamespace = "avatars"
 type UserCase interface {
 	Get(ctx context.Context, userID string) (*dauth.UserResponse, error)
 	UpdateProfile(ctx context.Context, userID string, req dprofile.UpdateProfileRequest) (*dauth.UserResponse, error)
-	ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (string, error)
+	ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (*dprofile.ChangePasswordResponse, error)
 	UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dauth.UserResponse, error)
 	RemoveAvatar(ctx context.Context, userID string) (*dauth.UserResponse, error)
 }
 
 type Service struct {
-	users    repository.UserRepository
-	hasher   service.PasswordHasher
-	files    *file.Service
-	cache    cache.Cache
-	tokens   service.TokenService
-	tokenTTL time.Duration
-	logger   *zap.Logger
+	users      repository.UserRepository
+	hasher     service.PasswordHasher
+	files      *file.Service
+	cache      cache.Cache
+	tokens     service.TokenService
+	tokenTTL   time.Duration
+	refreshTTL time.Duration
+	logger     *zap.Logger
 }
 
-func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache, tokens service.TokenService, tokenTTL time.Duration, logger *zap.Logger) *Service {
-	return &Service{users: users, hasher: hasher, files: files, cache: cache, tokens: tokens, tokenTTL: tokenTTL, logger: logger}
+func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache, tokens service.TokenService, tokenTTL, refreshTTL time.Duration, logger *zap.Logger) *Service {
+	return &Service{users: users, hasher: hasher, files: files, cache: cache, tokens: tokens, tokenTTL: tokenTTL, refreshTTL: refreshTTL, logger: logger}
 }
 
 func (s *Service) Get(ctx context.Context, userID string) (*dauth.UserResponse, error) {
@@ -92,30 +93,38 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req dprofile
 	return toUserResponse(user), nil
 }
 
-func (s *Service) ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (string, error) {
+func (s *Service) ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (*dprofile.ChangePasswordResponse, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !s.hasher.Check(user.PasswordHash, req.CurrentPassword) {
-		return "", pkgerrors.NewValidationError("current password is incorrect")
+		return nil, pkgerrors.NewValidationError("current password is incorrect")
 	}
 	if err := validate.Password(req.NewPassword); err != nil {
-		return "", err
+		return nil, err
 	}
 	hash, err := s.hasher.Hash(req.NewPassword)
 	if err != nil {
-		return "", pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 	user.PasswordHash = hash
 	if err := s.users.Update(ctx, user); err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := s.tokens.Revoke(ctx, userID); err != nil {
-		return "", err
+		return nil, err
 	}
 	s.bumpUser(ctx, userID)
-	return s.tokens.Generate(userID, s.tokenTTL)
+	access, err := s.tokens.Generate(userID, s.tokenTTL)
+	if err != nil {
+		return nil, err
+	}
+	refresh, err := s.tokens.GenerateRefresh(userID, s.refreshTTL)
+	if err != nil {
+		return nil, err
+	}
+	return &dprofile.ChangePasswordResponse{Token: access, RefreshToken: refresh}, nil
 }
 
 func (s *Service) UploadAvatar(ctx context.Context, userID, filename, contentType string, reader io.Reader, size int64) (*dauth.UserResponse, error) {

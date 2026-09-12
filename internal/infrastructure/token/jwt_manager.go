@@ -2,6 +2,8 @@ package token
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strconv"
 	"sync"
@@ -9,9 +11,12 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
+	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 )
 
 const versionPrefix = "t:tokver:"
+
+const refreshPrefix = "t:refresh:"
 
 const versionTTL = 7 * 24 * time.Hour
 
@@ -19,8 +24,22 @@ const memTTL = 10 * time.Minute
 
 const jwtAudience = "tandem"
 
+const tokenTypeAccess = "access"
+
+const tokenTypeRefresh = "refresh"
+
+func randomJTI() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 type Claims struct {
-	Ver int64 `json:"ver"`
+	Ver int64  `json:"ver"`
+	Typ string `json:"typ"`
+	JTI string `json:"jti,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -42,6 +61,54 @@ func NewJWTManager(secret string, c cache.Cache) *JWTManager {
 }
 
 func (m *JWTManager) Generate(subject string, ttl time.Duration) (string, error) {
+	return m.generate(subject, tokenTypeAccess, ttl, "")
+}
+
+func (m *JWTManager) GenerateRefresh(subject string, ttl time.Duration) (string, error) {
+	if m.cache == nil {
+		return m.generate(subject, tokenTypeRefresh, ttl, "")
+	}
+	jti, err := randomJTI()
+	if err != nil {
+		return "", err
+	}
+	if err := m.cache.Set(context.Background(), refreshPrefix+jti, subject, ttl); err != nil {
+		return "", err
+	}
+	return m.generate(subject, tokenTypeRefresh, ttl, jti)
+}
+
+func (m *JWTManager) RotateRefresh(ctx context.Context, refreshToken string, accessTTL, refreshTTL time.Duration) (string, string, error) {
+	claims, err := m.parse(refreshToken)
+	if err != nil || claims.Typ != tokenTypeRefresh || claims.JTI == "" {
+		return "", "", pkgerrors.ErrUnauthorized
+	}
+	if m.cache == nil {
+		return m.mintPair(claims.Subject, accessTTL, refreshTTL)
+	}
+	gone, err := m.cache.GetDel(ctx, refreshPrefix+claims.JTI)
+	if err != nil {
+		return "", "", err
+	}
+	if gone != claims.Subject {
+		return "", "", pkgerrors.ErrUnauthorized
+	}
+	return m.mintPair(claims.Subject, accessTTL, refreshTTL)
+}
+
+func (m *JWTManager) mintPair(subject string, accessTTL, refreshTTL time.Duration) (string, string, error) {
+	access, err := m.generate(subject, tokenTypeAccess, accessTTL, "")
+	if err != nil {
+		return "", "", err
+	}
+	refresh, err := m.GenerateRefresh(subject, refreshTTL)
+	if err != nil {
+		return "", "", err
+	}
+	return access, refresh, nil
+}
+
+func (m *JWTManager) generate(subject string, typ string, ttl time.Duration, jti string) (string, error) {
 	ver, err := m.currentVersion(context.Background(), subject)
 	if err != nil {
 		return "", err
@@ -49,6 +116,8 @@ func (m *JWTManager) Generate(subject string, ttl time.Duration) (string, error)
 	now := time.Now()
 	claims := Claims{
 		Ver: ver,
+		Typ: typ,
+		JTI: jti,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   subject,
 			Issuer:    m.issuer,
@@ -61,7 +130,7 @@ func (m *JWTManager) Generate(subject string, ttl time.Duration) (string, error)
 	return token.SignedString(m.secret)
 }
 
-func (m *JWTManager) Parse(tokenString string) (string, error) {
+func (m *JWTManager) parse(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{},
 		func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -74,17 +143,39 @@ func (m *JWTManager) Parse(tokenString string) (string, error) {
 		jwt.WithAudience(jwtAudience),
 	)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return "", errors.New("invalid token")
+		return nil, errors.New("invalid token")
 	}
 	if claims.Subject == "" {
-		return "", errors.New("invalid token")
+		return nil, errors.New("invalid token")
 	}
 	if !m.versionValid(context.Background(), claims.Subject, claims.Ver) {
-		return "", errors.New("token revoked")
+		return nil, errors.New("token revoked")
+	}
+	return claims, nil
+}
+
+func (m *JWTManager) Parse(tokenString string) (string, error) {
+	claims, err := m.parse(tokenString)
+	if err != nil {
+		return "", err
+	}
+	if claims.Typ != "" && claims.Typ != tokenTypeAccess {
+		return "", errors.New("invalid token type")
+	}
+	return claims.Subject, nil
+}
+
+func (m *JWTManager) ParseRefresh(tokenString string) (string, error) {
+	claims, err := m.parse(tokenString)
+	if err != nil {
+		return "", err
+	}
+	if claims.Typ != tokenTypeRefresh {
+		return "", errors.New("invalid token type")
 	}
 	return claims.Subject, nil
 }

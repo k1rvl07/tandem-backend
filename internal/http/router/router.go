@@ -86,6 +86,7 @@ func New(deps Dependencies) *gin.Engine {
 			authGroup.Use(deps.AuthLimiter.Middleware())
 		}
 		authGroup.POST("/login", deps.AuthHandler.Login)
+		authGroup.POST("/refresh", deps.AuthHandler.Refresh)
 	}
 
 	if deps.TokenService != nil && deps.Hub != nil && deps.AuthHandler != nil {

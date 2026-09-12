@@ -14,18 +14,20 @@ import (
 
 type UseCase interface {
 	Login(ctx context.Context, req dauth.LoginRequest) (*dauth.LoginResponse, error)
+	Refresh(ctx context.Context, refreshToken string) (*dauth.RefreshResponse, error)
 	Logout(ctx context.Context, userID string) error
 }
 
 type Service struct {
-	users    repository.UserRepository
-	tokens   service.TokenService
-	hasher   service.PasswordHasher
-	tokenTTL time.Duration
+	users      repository.UserRepository
+	tokens     service.TokenService
+	hasher     service.PasswordHasher
+	tokenTTL   time.Duration
+	refreshTTL time.Duration
 }
 
-func NewService(users repository.UserRepository, tokens service.TokenService, hasher service.PasswordHasher, tokenTTL time.Duration) *Service {
-	return &Service{users: users, tokens: tokens, hasher: hasher, tokenTTL: tokenTTL}
+func NewService(users repository.UserRepository, tokens service.TokenService, hasher service.PasswordHasher, tokenTTL, refreshTTL time.Duration) *Service {
+	return &Service{users: users, tokens: tokens, hasher: hasher, tokenTTL: tokenTTL, refreshTTL: refreshTTL}
 }
 
 func (s *Service) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.LoginResponse, error) {
@@ -49,8 +51,20 @@ func (s *Service) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.Log
 	if err != nil {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
+	refreshToken, err := s.tokens.GenerateRefresh(user.ID, s.refreshTTL)
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
 
-	return &dauth.LoginResponse{Token: token, User: toUserResponse(user)}, nil
+	return &dauth.LoginResponse{Token: token, RefreshToken: refreshToken, User: toUserResponse(user)}, nil
+}
+
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (*dauth.RefreshResponse, error) {
+	access, nextRefresh, err := s.tokens.RotateRefresh(ctx, refreshToken, s.tokenTTL, s.refreshTTL)
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrUnauthorized, err)
+	}
+	return &dauth.RefreshResponse{Token: access, RefreshToken: nextRefresh}, nil
 }
 
 func (s *Service) Logout(ctx context.Context, userID string) error {

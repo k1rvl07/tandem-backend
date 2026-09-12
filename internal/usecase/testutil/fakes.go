@@ -747,6 +747,17 @@ func (f *FakeCache) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+func (f *FakeCache) GetDel(_ context.Context, key string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e, ok := f.entries[key]
+	if !ok {
+		return "", nil
+	}
+	delete(f.entries, key)
+	return e.value, nil
+}
+
 func (f *FakeCache) Expire(_ context.Context, key string, ttl time.Duration) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -797,8 +808,28 @@ func (f *FakeTokenService) Generate(subject string, _ time.Duration) (string, er
 	return next, nil
 }
 
+func (f *FakeTokenService) GenerateRefresh(subject string, _ time.Duration) (string, error) {
+	if f.GenErr != nil {
+		return "", f.GenErr
+	}
+	next := "refresh:" + subject
+	f.Current = next
+	return next, nil
+}
+
 func (f *FakeTokenService) Parse(string) (string, error) {
 	return "", nil
+}
+
+func (f *FakeTokenService) ParseRefresh(string) (string, error) {
+	return "", nil
+}
+
+func (f *FakeTokenService) RotateRefresh(_ context.Context, refreshToken string, _, _ time.Duration) (string, string, error) {
+	if f.GenErr != nil {
+		return "", "", f.GenErr
+	}
+	return "tok:rotated", "refresh:rotated", nil
 }
 
 func (f *FakeTokenService) Revoke(_ context.Context, subject string) error {

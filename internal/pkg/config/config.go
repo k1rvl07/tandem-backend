@@ -53,8 +53,9 @@ type MinIOConfig struct {
 }
 
 type JWTConfig struct {
-	Secret   string
-	TokenTTL time.Duration
+	Secret     string
+	TokenTTL   time.Duration
+	RefreshTTL time.Duration
 }
 
 func Load(envFile string) (*Config, error) {
@@ -95,8 +96,9 @@ func Load(envFile string) (*Config, error) {
 			Bucket:         getEnv("MINIO_BUCKET", "tandem-files"),
 		},
 		JWT: JWTConfig{
-			Secret:   getEnv("JWT_SECRET", ""),
-			TokenTTL: getEnvDuration("JWT_TTL", 24*time.Hour),
+			Secret:     getEnv("JWT_SECRET", ""),
+			TokenTTL:   getEnvDuration("JWT_TTL", 24*time.Hour),
+			RefreshTTL: getEnvDuration("JWT_REFRESH_TTL", 7*24*time.Hour),
 		},
 	}
 

@@ -14,6 +14,7 @@ import (
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	"github.com/tandem/tandem/internal/infrastructure/token"
+	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 
 type fakeUserRepo struct {
@@ -106,7 +107,7 @@ func (f *fakeUserRepo) Delete(_ context.Context, id string) error {
 func newTestService(repo repository.UserRepository) *Service {
 	tokens := token.NewJWTManager("test-secret", nil)
 	hasher := password.NewBCryptHasher(12)
-	return NewService(repo, tokens, hasher, 24*time.Hour)
+	return NewService(repo, tokens, hasher, 24*time.Hour, 7*24*time.Hour)
 }
 
 func TestLoginSuccess(t *testing.T) {
@@ -128,8 +129,74 @@ func TestLoginSuccess(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Token)
+	assert.NotEmpty(t, resp.RefreshToken)
 	assert.Equal(t, "ivanov.ii", resp.User.Login)
 	assert.Equal(t, muser.RoleUser, resp.User.Role)
+}
+
+func TestRefreshRotatesTokens(t *testing.T) {
+	repo := newFakeUserRepo()
+	hasher := password.NewBCryptHasher(12)
+	hash, _ := hasher.Hash("password123")
+	err := repo.Create(context.Background(), &muser.User{ID: uuid.New().String(), Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser})
+	require.NoError(t, err)
+	tokens := token.NewJWTManager("test-secret", testutil.NewFakeCache())
+	svc := NewService(repo, tokens, hasher, time.Hour, 7*24*time.Hour)
+
+	login, err := svc.Login(context.Background(), dauth.LoginRequest{Login: "ivanov.ii", Password: "password123"})
+	require.NoError(t, err)
+
+	first, err := svc.Refresh(context.Background(), login.RefreshToken)
+	require.NoError(t, err)
+	assert.NotEmpty(t, first.Token)
+	assert.NotEmpty(t, first.RefreshToken)
+	assert.NotEqual(t, login.RefreshToken, first.RefreshToken)
+
+	_, err = svc.Refresh(context.Background(), login.RefreshToken)
+	require.Error(t, err)
+
+	second, err := svc.Refresh(context.Background(), first.RefreshToken)
+	require.NoError(t, err)
+	assert.NotEmpty(t, second.Token)
+}
+
+func TestRefreshInvalidToken(t *testing.T) {
+	svc := newTestService(newFakeUserRepo())
+	_, err := svc.Refresh(context.Background(), "not-a-token")
+	require.Error(t, err)
+}
+
+func TestRefreshRejectsAccessToken(t *testing.T) {
+	repo := newFakeUserRepo()
+	hasher := password.NewBCryptHasher(12)
+	hash, _ := hasher.Hash("password123")
+	err := repo.Create(context.Background(), &muser.User{ID: uuid.New().String(), Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser})
+	require.NoError(t, err)
+	svc := newTestService(repo)
+
+	login, err := svc.Login(context.Background(), dauth.LoginRequest{Login: "ivanov.ii", Password: "password123"})
+	require.NoError(t, err)
+
+	_, err = svc.Refresh(context.Background(), login.Token)
+	require.Error(t, err)
+}
+
+func TestRefreshRevokedByLogout(t *testing.T) {
+	repo := newFakeUserRepo()
+	hasher := password.NewBCryptHasher(12)
+	hash, _ := hasher.Hash("password123")
+	userID := uuid.New().String()
+	err := repo.Create(context.Background(), &muser.User{ID: userID, Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser})
+	require.NoError(t, err)
+	tokens := token.NewJWTManager("test-secret", testutil.NewFakeCache())
+	svc := NewService(repo, tokens, hasher, time.Hour, 7*24*time.Hour)
+
+	login, err := svc.Login(context.Background(), dauth.LoginRequest{Login: "ivanov.ii", Password: "password123"})
+	require.NoError(t, err)
+	require.NoError(t, svc.Logout(context.Background(), userID))
+
+	_, err = svc.Refresh(context.Background(), login.RefreshToken)
+	require.Error(t, err)
 }
 
 func TestLoginWrongPassword(t *testing.T) {
@@ -183,8 +250,20 @@ func (r *recordingTokens) Generate(string, time.Duration) (string, error) {
 	return "token", nil
 }
 
+func (r *recordingTokens) GenerateRefresh(string, time.Duration) (string, error) {
+	return "refresh", nil
+}
+
 func (r *recordingTokens) Parse(string) (string, error) {
 	return "u1", nil
+}
+
+func (r *recordingTokens) ParseRefresh(string) (string, error) {
+	return "u1", nil
+}
+
+func (r *recordingTokens) RotateRefresh(context.Context, string, time.Duration, time.Duration) (string, string, error) {
+	return "token", "refresh", nil
 }
 
 func (r *recordingTokens) Revoke(_ context.Context, subject string) error {
@@ -194,7 +273,7 @@ func (r *recordingTokens) Revoke(_ context.Context, subject string) error {
 
 func TestLogoutRevokesToken(t *testing.T) {
 	tokens := &recordingTokens{}
-	svc := NewService(newFakeUserRepo(), tokens, password.NewBCryptHasher(12), time.Hour)
+	svc := NewService(newFakeUserRepo(), tokens, password.NewBCryptHasher(12), time.Hour, 7*24*time.Hour)
 
 	err := svc.Logout(context.Background(), "u1")
 	require.NoError(t, err)

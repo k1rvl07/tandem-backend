@@ -60,6 +60,14 @@ func (r *Redis) Set(ctx context.Context, key, value string, ttl time.Duration) e
 	return r.client.Set(ctx, key, value, ttl).Err()
 }
 
+func (r *Redis) GetDel(ctx context.Context, key string) (string, error) {
+	val, err := r.client.GetDel(ctx, key).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return val, err
+}
+
 func (r *Redis) Delete(ctx context.Context, key string) error {
 	return r.client.Del(ctx, key).Err()
 }

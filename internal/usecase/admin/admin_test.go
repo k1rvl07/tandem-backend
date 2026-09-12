@@ -157,8 +157,20 @@ func (fakeTokenService) Generate(_ string, _ time.Duration) (string, error) {
 	return "", nil
 }
 
+func (fakeTokenService) GenerateRefresh(_ string, _ time.Duration) (string, error) {
+	return "", nil
+}
+
 func (fakeTokenService) Parse(_ string) (string, error) {
 	return "", nil
+}
+
+func (fakeTokenService) ParseRefresh(_ string) (string, error) {
+	return "", nil
+}
+
+func (fakeTokenService) RotateRefresh(_ context.Context, _ string, _, _ time.Duration) (string, string, error) {
+	return "", "", nil
 }
 
 func (fakeTokenService) Revoke(_ context.Context, _ string) error {

@@ -192,3 +192,85 @@ func TestGenerateFailsClosedWhenCacheDown(t *testing.T) {
 	_, err = manager.Generate("user-1", time.Hour)
 	assert.Error(t, err)
 }
+
+func TestRefreshGenerateAndParse(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	refresh, err := manager.GenerateRefresh("user-1", 7*24*time.Hour)
+	require.NoError(t, err)
+
+	subject, err := manager.ParseRefresh(refresh)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", subject)
+}
+
+func TestRefreshRejectsAccessToken(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	access, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	_, err = manager.ParseRefresh(access)
+	assert.Error(t, err)
+}
+
+func TestAccessRejectsRefreshToken(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	refresh, err := manager.GenerateRefresh("user-1", 7*24*time.Hour)
+	require.NoError(t, err)
+
+	_, err = manager.Parse(refresh)
+	assert.Error(t, err)
+}
+
+func TestRotateRefreshIssuesNewPair(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	refresh, err := manager.GenerateRefresh("user-1", 7*24*time.Hour)
+	require.NoError(t, err)
+
+	access, next, err := manager.RotateRefresh(context.Background(), refresh, time.Hour, 7*24*time.Hour)
+	require.NoError(t, err)
+	require.NotEmpty(t, access)
+	require.NotEmpty(t, next)
+
+	subject, err := manager.Parse(access)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", subject)
+}
+
+func TestRotateRefreshRejectsReuse(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	refresh, err := manager.GenerateRefresh("user-1", 7*24*time.Hour)
+	require.NoError(t, err)
+
+	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, 7*24*time.Hour)
+	require.NoError(t, err)
+
+	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, 7*24*time.Hour)
+	assert.Error(t, err)
+}
+
+func TestRotateRefreshRejectsAccessToken(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	access, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	_, _, err = manager.RotateRefresh(context.Background(), access, time.Hour, 7*24*time.Hour)
+	assert.Error(t, err)
+}
+
+func TestRefreshRevokedByVersion(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+
+	refresh, err := manager.GenerateRefresh("user-1", 7*24*time.Hour)
+	require.NoError(t, err)
+
+	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
+
+	_, err = manager.ParseRefresh(refresh)
+	assert.Error(t, err)
+}
