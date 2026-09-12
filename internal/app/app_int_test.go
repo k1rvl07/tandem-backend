@@ -44,6 +44,9 @@ func newHarness(t *testing.T) *harness {
 	}
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
+	dbName := strings.TrimPrefix(u.Path, "/")
+	require.NotEqual(t, "tandem", dbName,
+		"refusing to truncate the live database; point TEST_DATABASE_URL to a dedicated test database")
 	pw, _ := u.User.Password()
 	cfg := &config.Config{
 		App: config.AppConfig{
@@ -57,7 +60,7 @@ func newHarness(t *testing.T) *harness {
 			Port:     u.Port(),
 			User:     u.User.Username(),
 			Password: pw,
-			Name:     strings.TrimPrefix(u.Path, "/"),
+			Name:     dbName,
 		},
 		Redis: config.RedisConfig{
 			Addr:     envOr("TEST_REDIS_ADDR", "localhost:6379"),
