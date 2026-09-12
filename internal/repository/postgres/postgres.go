@@ -83,22 +83,8 @@ type options struct {
 
 type Option func(*options)
 
-func WithPool(maxOpen, maxIdle int, lifetime time.Duration) Option {
-	return func(o *options) {
-		o.MaxOpenConns = maxOpen
-		o.MaxIdleConns = maxIdle
-		o.ConnMaxLifetime = lifetime
-	}
-}
-
 func WithConnectTimeout(d time.Duration) Option {
 	return func(o *options) {
 		o.ConnectTimeout = d
-	}
-}
-
-func WithSilentLogger() Option {
-	return func(o *options) {
-		o.Silent = true
 	}
 }
