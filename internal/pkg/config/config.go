@@ -25,6 +25,7 @@ type AppConfig struct {
 	AdminLogin     string
 	AdminPassword  string
 	PasswordCost   int
+	SwaggerEnabled bool
 }
 
 type DatabaseConfig struct {
@@ -114,6 +115,8 @@ func Load(envFile string) (*Config, error) {
 
 	cfg.App.PasswordCost = passwordCost()
 
+	cfg.App.SwaggerEnabled = swaggerEnabled(cfg.App.Env)
+
 	cfg.App.AllowedOrigins = allowedOrigins(cfg.App.Env)
 
 	return cfg, nil
@@ -143,6 +146,14 @@ func allowedOrigins(env string) []string {
 		return nil
 	}
 	return []string{"http://localhost:5173", "http://127.0.0.1:5173"}
+}
+
+func swaggerEnabled(env string) bool {
+	raw := getEnv("SWAGGER_ENABLED", "")
+	if raw != "" {
+		return raw == "true"
+	}
+	return env != "production"
 }
 
 func getEnv(key, fallback string) string {

@@ -191,7 +191,7 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 		FavoriteHandler:     favoriteHandler,
 		TreeHandler:         treeHandler,
 		Files:               fileService,
-		EnableSwagger:       true,
+		EnableSwagger:       a.config.App.SwaggerEnabled,
 		AuthLimiter:         authLimiter,
 		ReadLimiter:         readLimiter,
 		WriteLimiter:        writeLimiter,

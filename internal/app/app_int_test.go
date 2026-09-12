@@ -50,10 +50,11 @@ func newHarness(t *testing.T) *harness {
 	pw, _ := u.User.Password()
 	cfg := &config.Config{
 		App: config.AppConfig{
-			Env:           "testing",
-			AdminLogin:    "admin",
-			AdminPassword: "admin12345",
-			PasswordCost:  10,
+			Env:            "testing",
+			AdminLogin:     "admin",
+			AdminPassword:  "admin12345",
+			PasswordCost:   10,
+			SwaggerEnabled: true,
 		},
 		Database: config.DatabaseConfig{
 			Host:     u.Hostname(),
@@ -235,6 +236,27 @@ func TestE2EWorkspaceDeleteCascades(t *testing.T) {
 		require.NoError(t, h.db.Table(table).Count(&n).Error)
 		require.Zero(t, n, "%s not cascade deleted", table)
 	}
+}
+
+func TestE2ESwaggerUI(t *testing.T) {
+	h := newHarness(t)
+
+	status, body := h.do(t, http.MethodGet, "/swagger/index.html", "", "")
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, string(body), "swagger-ui-bundle.js")
+
+	status, body = h.do(t, http.MethodGet, "/swagger/swagger-initializer.js", "", "")
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, string(body), "SwaggerUIBundle")
+
+	status, body = h.do(t, http.MethodGet, "/swagger/doc.json", "", "")
+	require.Equal(t, http.StatusOK, status)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(body, &doc))
+	require.Equal(t, "3.1.0", doc["openapi"])
+	paths, ok := doc["paths"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, paths, "/api/v1/auth/login")
 }
 
 func envOr(key, fallback string) string {
