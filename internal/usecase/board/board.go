@@ -203,34 +203,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, boardID string)
 	if err != nil {
 		return nil, err
 	}
-	columnNames := make(map[string]string, len(columns))
-	for i := range columns {
-		columnNames[columns[i].ID] = columns[i].Name
-	}
-
-	columnDetails := make([]dboard.ColumnDetailResponse, 0, len(columns))
-	for i := range columns {
-		columnTasks := make([]dtask.TaskResponse, 0)
-		for _, task := range tasks {
-			if task.ColumnID != columns[i].ID {
-				continue
-			}
-			if task.IsHidden {
-				continue
-			}
-			columnTasks = append(columnTasks, taskToResponse(task, users, workspace.Prefix, boardID, board.Name, columns[i].Name))
-		}
-		columnDetails = append(columnDetails, dboard.ColumnDetailResponse{
-			ID:        columns[i].ID,
-			BoardID:   columns[i].BoardID,
-			Name:      columns[i].Name,
-			Position:  columns[i].Position,
-			TaskCount: len(columnTasks),
-			Tasks:     columnTasks,
-			CreatedAt: columns[i].CreatedAt,
-			UpdatedAt: columns[i].UpdatedAt,
-		})
-	}
+	columnDetails := buildColumnDetails(columns, tasks, users, workspace.Prefix, boardID, board.Name)
 	detail := &dboard.BoardDetailResponse{
 		ID:          board.ID,
 		WorkspaceID: board.WorkspaceID,
@@ -359,22 +332,8 @@ func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req 
 	if err != nil {
 		return nil, err
 	}
-	valid := make(map[string]bool, len(boards))
-	for _, b := range boards {
-		valid[b.ID] = true
-	}
-	if len(req.BoardIDs) == 0 {
-		return nil, pkgerrors.NewValidationError("board_ids is required")
-	}
-	seen := make(map[string]bool, len(req.BoardIDs))
-	for _, id := range req.BoardIDs {
-		if !valid[id] {
-			return nil, pkgerrors.NewValidationError("board_ids contains a board not in this workspace")
-		}
-		if seen[id] {
-			return nil, pkgerrors.NewValidationError("board_ids contains duplicates")
-		}
-		seen[id] = true
+	if err := validateReorderIDs(req.BoardIDs, boards); err != nil {
+		return nil, err
 	}
 	if err := s.boards.ReorderBoards(ctx, workspaceID, req.BoardIDs); err != nil {
 		return nil, err
@@ -383,18 +342,7 @@ func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req 
 	if err != nil {
 		return nil, err
 	}
-	ordered := make([]dboard.BoardResponse, 0, len(req.BoardIDs))
-	for _, id := range req.BoardIDs {
-		for _, b := range boards {
-			if b.ID == id {
-				resp := boardToResponse(b)
-				resp.Position = len(ordered)
-				resp.TaskCount = counts[id]
-				ordered = append(ordered, *resp)
-				break
-			}
-		}
-	}
+	ordered := orderBoards(req.BoardIDs, boards, counts)
 	s.bumpWorkspace(ctx, workspaceID)
 	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventBoardsReordered, Data: ordered})
 	return ordered, nil
@@ -463,6 +411,70 @@ func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[st
 
 func boardRoom(workspaceID string) string {
 	return "workspace:" + workspaceID
+}
+
+func validateReorderIDs(boardIDs []string, boards []*mboard.Board) error {
+	if len(boardIDs) == 0 {
+		return pkgerrors.NewValidationError("board_ids is required")
+	}
+	valid := make(map[string]bool, len(boards))
+	for _, b := range boards {
+		valid[b.ID] = true
+	}
+	seen := make(map[string]bool, len(boardIDs))
+	for _, id := range boardIDs {
+		if !valid[id] {
+			return pkgerrors.NewValidationError("board_ids contains a board not in this workspace")
+		}
+		if seen[id] {
+			return pkgerrors.NewValidationError("board_ids contains duplicates")
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+func orderBoards(boardIDs []string, boards []*mboard.Board, counts map[string]int) []dboard.BoardResponse {
+	ordered := make([]dboard.BoardResponse, 0, len(boardIDs))
+	for _, id := range boardIDs {
+		for _, b := range boards {
+			if b.ID == id {
+				resp := boardToResponse(b)
+				resp.Position = len(ordered)
+				resp.TaskCount = counts[id]
+				ordered = append(ordered, *resp)
+				break
+			}
+		}
+	}
+	return ordered
+}
+
+func buildColumnDetails(columns []*mcolumn.Column, tasks []*mtask.Task, users map[string]*dtask.TaskUserResponse, prefix, boardID, boardName string) []dboard.ColumnDetailResponse {
+	columnDetails := make([]dboard.ColumnDetailResponse, 0, len(columns))
+	for i := range columns {
+		columnTasks := make([]dtask.TaskResponse, 0)
+		for _, task := range tasks {
+			if task.ColumnID != columns[i].ID {
+				continue
+			}
+			if task.IsHidden {
+				continue
+			}
+			columnTasks = append(columnTasks, taskToResponse(task, users, prefix, boardID, boardName, columns[i].Name))
+		}
+		columnDetails = append(columnDetails, dboard.ColumnDetailResponse{
+			ID:        columns[i].ID,
+			BoardID:   columns[i].BoardID,
+			Name:      columns[i].Name,
+			Position:  columns[i].Position,
+			TaskCount: len(columnTasks),
+			Tasks:     columnTasks,
+			CreatedAt: columns[i].CreatedAt,
+			UpdatedAt: columns[i].UpdatedAt,
+		})
+	}
+	return columnDetails
 }
 
 func boardToResponse(board *mboard.Board) *dboard.BoardResponse {
