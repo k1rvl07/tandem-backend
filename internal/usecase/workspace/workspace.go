@@ -199,6 +199,27 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dworks
 	if err != nil {
 		return nil, err
 	}
+	memberResponses, err := s.buildMemberResponses(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+	detail := &dworkspace.WorkspaceDetailResponse{
+		ID:          ws.ID,
+		Name:        ws.Name,
+		Description: ws.Description,
+		Prefix:      ws.Prefix,
+		Theme:       ws.Theme,
+		Role:        string(member.Role),
+		IsFavorite:  isFavorite,
+		CreatedAt:   ws.CreatedAt,
+		UpdatedAt:   ws.UpdatedAt,
+		Members:     memberResponses,
+	}
+	cacheutil.Store(ctx, s.cache, detailKey, detail, cacheutil.TTL)
+	return detail, nil
+}
+
+func (s *Service) buildMemberResponses(ctx context.Context, members []mworkspace.WorkspaceMember) ([]dworkspace.WorkspaceMemberResponse, error) {
 	memberResponses := make([]dworkspace.WorkspaceMemberResponse, 0, len(members))
 	for i := range members {
 		user, err := s.users.FindByID(ctx, members[i].UserID)
@@ -217,20 +238,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID string) (*dworks
 			JoinedAt:    members[i].CreatedAt,
 		})
 	}
-	detail := &dworkspace.WorkspaceDetailResponse{
-		ID:          ws.ID,
-		Name:        ws.Name,
-		Description: ws.Description,
-		Prefix:      ws.Prefix,
-		Theme:       ws.Theme,
-		Role:        string(member.Role),
-		IsFavorite:  isFavorite,
-		CreatedAt:   ws.CreatedAt,
-		UpdatedAt:   ws.UpdatedAt,
-		Members:     memberResponses,
-	}
-	cacheutil.Store(ctx, s.cache, detailKey, detail, cacheutil.TTL)
-	return detail, nil
+	return memberResponses, nil
 }
 
 func (s *Service) Update(ctx context.Context, actorID, workspaceID string, req dworkspace.UpdateWorkspaceRequest) (*dworkspace.WorkspaceResponse, error) {
@@ -338,30 +346,17 @@ func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, re
 		return nil, pkgerrors.ErrForbidden
 	}
 
-	role := mworkspace.RoleMember
-	switch mworkspace.WorkspaceRole(req.Role) {
-	case "":
-	case mworkspace.RoleEditor:
-		role = mworkspace.RoleEditor
-	case mworkspace.RoleMember:
-		role = mworkspace.RoleMember
-	case mworkspace.RoleOwner:
-		return nil, pkgerrors.NewValidationError("owner must be assigned via ownership transfer")
-	default:
-		return nil, pkgerrors.NewValidationError("invalid role")
+	role, err := normalizeMemberRole(mworkspace.WorkspaceRole(req.Role))
+	if err != nil {
+		return nil, err
 	}
 
 	login := validate.NormalizeLogin(req.Login)
 	if err := validate.Login(login); err != nil {
 		return nil, err
 	}
-	target, err := s.users.FindByLogin(ctx, login)
+	target, err := s.findUserForAdd(ctx, workspaceID, login)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := s.workspaces.FindMember(ctx, workspaceID, target.ID); err == nil {
-		return nil, pkgerrors.ErrConflict
-	} else if !errorsIsNotFound(err) {
 		return nil, err
 	}
 	if err := s.workspaces.AddMember(ctx, workspaceID, target.ID, role); err != nil {
@@ -371,6 +366,35 @@ func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, re
 	s.bumpUser(ctx, target.ID)
 	s.broadcastUpdated(ctx, workspaceID, member.Role)
 	return memberToResponse(target, role), nil
+}
+
+func (s *Service) findUserForAdd(ctx context.Context, workspaceID, login string) (*muser.User, error) {
+	target, err := s.users.FindByLogin(ctx, login)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.workspaces.FindMember(ctx, workspaceID, target.ID); err == nil {
+		return nil, pkgerrors.ErrConflict
+	} else if !errorsIsNotFound(err) {
+		return nil, err
+	}
+	return target, nil
+}
+
+func normalizeMemberRole(role mworkspace.WorkspaceRole) (mworkspace.WorkspaceRole, error) {
+	normalized := mworkspace.RoleMember
+	switch role {
+	case "":
+	case mworkspace.RoleEditor:
+		normalized = mworkspace.RoleEditor
+	case mworkspace.RoleMember:
+		normalized = mworkspace.RoleMember
+	case mworkspace.RoleOwner:
+		return mworkspace.RoleMember, pkgerrors.NewValidationError("owner must be assigned via ownership transfer")
+	default:
+		return mworkspace.RoleMember, pkgerrors.NewValidationError("invalid role")
+	}
+	return normalized, nil
 }
 
 func (s *Service) UpdateRole(ctx context.Context, actorID, workspaceID, targetID string, req dworkspace.UpdateMemberRoleRequest) (*dworkspace.WorkspaceMemberResponse, error) {
