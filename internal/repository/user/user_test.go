@@ -55,43 +55,51 @@ func TestUserRepoListAndPage(t *testing.T) {
 	testutil.Must(t, repo.Create(testutil.TestCtx, testutil.NewUser(testutil.NewID(), "ann")))
 	testutil.Must(t, repo.Create(testutil.TestCtx, testutil.NewUser(testutil.NewID(), "bob")))
 
-	all, err := repo.List(testutil.TestCtx)
-	testutil.Must(t, err)
-	if len(all) != 4 {
-		t.Fatalf("expected 4 users, got %d", len(all))
-	}
-	seen := make(map[string]bool, len(all))
-	for _, u := range all {
-		seen[u.Login] = true
-	}
-	for _, login := range []string{"amber", "ann", "bob", "zorro"} {
-		if !seen[login] {
-			t.Fatalf("expected user %q in list", login)
+	t.Run("lists all users", func(t *testing.T) {
+		all, err := repo.List(testutil.TestCtx)
+		testutil.Must(t, err)
+		if len(all) != 4 {
+			t.Fatalf("expected 4 users, got %d", len(all))
 		}
-	}
+		seen := make(map[string]bool, len(all))
+		for _, u := range all {
+			seen[u.Login] = true
+		}
+		for _, login := range []string{"amber", "ann", "bob", "zorro"} {
+			if !seen[login] {
+				t.Fatalf("expected user %q in list", login)
+			}
+		}
+	})
 
-	page, err := repo.ListPage(testutil.TestCtx, "a", 10, 0)
-	testutil.Must(t, err)
-	if len(page) != 2 {
-		t.Fatalf("expected 2 matches for 'a', got %d", len(page))
-	}
+	t.Run("pages by login query", func(t *testing.T) {
+		page, err := repo.ListPage(testutil.TestCtx, "a", 10, 0)
+		testutil.Must(t, err)
+		if len(page) != 2 {
+			t.Fatalf("expected 2 matches for 'a', got %d", len(page))
+		}
+	})
 
-	total, err := repo.Count(testutil.TestCtx, "a")
-	testutil.Must(t, err)
-	if total != 2 {
-		t.Fatalf("expected count 2, got %d", total)
-	}
-	allCount, err := repo.Count(testutil.TestCtx, "")
-	testutil.Must(t, err)
-	if allCount != 4 {
-		t.Fatalf("expected count 4, got %d", allCount)
-	}
+	t.Run("counts matches", func(t *testing.T) {
+		total, err := repo.Count(testutil.TestCtx, "a")
+		testutil.Must(t, err)
+		if total != 2 {
+			t.Fatalf("expected count 2, got %d", total)
+		}
+		allCount, err := repo.Count(testutil.TestCtx, "")
+		testutil.Must(t, err)
+		if allCount != 4 {
+			t.Fatalf("expected count 4, got %d", allCount)
+		}
+	})
 
-	escaped, err := repo.ListPage(testutil.TestCtx, "%", 10, 0)
-	testutil.Must(t, err)
-	if len(escaped) != 0 {
-		t.Fatalf("expected no matches for escaped wildcard, got %d", len(escaped))
-	}
+	t.Run("escapes wildcard in query", func(t *testing.T) {
+		escaped, err := repo.ListPage(testutil.TestCtx, "%", 10, 0)
+		testutil.Must(t, err)
+		if len(escaped) != 0 {
+			t.Fatalf("expected no matches for escaped wildcard, got %d", len(escaped))
+		}
+	})
 }
 
 func TestUserRepoUpdateAndDelete(t *testing.T) {

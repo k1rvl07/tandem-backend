@@ -3,9 +3,18 @@ package testutil_test
 import (
 	"testing"
 
+	"gorm.io/gorm"
+
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
 	"github.com/tandem/tandem/internal/repository/testutil"
 )
+
+func insertRow(t *testing.T, db *gorm.DB, query string, args ...any) {
+	t.Helper()
+	if err := db.Exec(query, args...).Error; err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+}
 
 func TestForeignKeyConstraintsExist(t *testing.T) {
 	db := testutil.NewTestDB(t)
@@ -34,55 +43,31 @@ func TestCascadeDeletesFromWorkspace(t *testing.T) {
 	userID := testutil.NewID()
 	attachmentID := testutil.NewID()
 
-	if err := db.Exec(`INSERT INTO users (id, login, password_hash, role, display_name) VALUES (?, ?, ?, ?, ?)`, userID, "owner", "hash", "user", "Owner").Error; err != nil {
-		t.Fatalf("insert user: %v", err)
+	inserts := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users (id, login, password_hash, role, display_name) VALUES (?, ?, ?, ?, ?)`, []any{userID, "owner", "hash", "user", "Owner"}},
+		{`INSERT INTO workspaces (id, name, description, prefix, theme, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, []any{wsID, "WS", "d", "TA", "blue"}},
+		{`INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, now())`, []any{wsID, userID, "owner"}},
+		{`INSERT INTO boards (id, workspace_id, name, position, is_main, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, []any{boardID, wsID, "Board", 0, true}},
+		{`INSERT INTO board_columns (id, board_id, name, position, created_at, updated_at) VALUES (?, ?, ?, ?, now(), now())`, []any{columnID, boardID, "Col", 0}},
+		{`INSERT INTO tasks (id, column_id, title, author_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, 0, now(), now())`, []any{parentTaskID, columnID, "Parent", userID}},
+		{`INSERT INTO tasks (id, column_id, title, parent_id, author_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, now(), now())`, []any{taskID, columnID, "Child", parentTaskID, userID}},
+		{`INSERT INTO task_attachments (id, task_id, filename, object_key, size, content_type, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, now())`, []any{attachmentID, taskID, "f.txt", "k", 10, "text/plain", userID}},
 	}
-	if err := db.Exec(`INSERT INTO workspaces (id, name, description, prefix, theme, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, wsID, "WS", "d", "TA", "blue").Error; err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO workspace_members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, now())`, wsID, userID, "owner").Error; err != nil {
-		t.Fatalf("insert member: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO boards (id, workspace_id, name, position, is_main, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, boardID, wsID, "Board", 0, true).Error; err != nil {
-		t.Fatalf("insert board: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO board_columns (id, board_id, name, position, created_at, updated_at) VALUES (?, ?, ?, ?, now(), now())`, columnID, boardID, "Col", 0).Error; err != nil {
-		t.Fatalf("insert column: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO tasks (id, column_id, title, author_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, 0, now(), now())`, parentTaskID, columnID, "Parent", userID).Error; err != nil {
-		t.Fatalf("insert parent task: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO tasks (id, column_id, title, parent_id, author_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, now(), now())`, taskID, columnID, "Child", parentTaskID, userID).Error; err != nil {
-		t.Fatalf("insert child task: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO task_attachments (id, task_id, filename, object_key, size, content_type, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, now())`, attachmentID, taskID, "f.txt", "k", 10, "text/plain", userID).Error; err != nil {
-		t.Fatalf("insert attachment: %v", err)
+	for _, in := range inserts {
+		insertRow(t, db, in.query, in.args...)
 	}
 
-	if err := db.Exec(`DELETE FROM workspaces WHERE id = ?`, wsID).Error; err != nil {
-		t.Fatalf("delete workspace: %v", err)
-	}
+	insertRow(t, db, `DELETE FROM workspaces WHERE id = ?`, wsID)
 
-	var remaining int64
-	db.Table("tasks").Count(&remaining)
-	if remaining != 0 {
-		t.Fatalf("expected tasks cascade deleted, %d left", remaining)
-	}
-	db.Table("task_attachments").Count(&remaining)
-	if remaining != 0 {
-		t.Fatalf("expected attachments cascade deleted, %d left", remaining)
-	}
-	db.Table("board_columns").Count(&remaining)
-	if remaining != 0 {
-		t.Fatalf("expected columns cascade deleted, %d left", remaining)
-	}
-	db.Table("boards").Count(&remaining)
-	if remaining != 0 {
-		t.Fatalf("expected boards cascade deleted, %d left", remaining)
-	}
-	db.Table("workspace_members").Count(&remaining)
-	if remaining != 0 {
-		t.Fatalf("expected members cascade deleted, %d left", remaining)
+	for _, table := range []string{"tasks", "task_attachments", "board_columns", "boards", "workspace_members"} {
+		var remaining int64
+		db.Table(table).Count(&remaining)
+		if remaining != 0 {
+			t.Fatalf("expected %s cascade deleted, %d left", table, remaining)
+		}
 	}
 }
 
@@ -97,38 +82,21 @@ func TestDeleteUserSetsNullOnActorColumns(t *testing.T) {
 	assigneeID := testutil.NewID()
 	curatorID := testutil.NewID()
 
-	insert := func(id, login string, role string) error {
-		return db.Exec(`INSERT INTO users (id, login, password_hash, role, display_name) VALUES (?, ?, ?, ?, ?)`, id, login, "hash", role, "U"+login).Error
-	}
-	for _, u := range []struct{ id, login, role string }{
-		{authorID, "author", "user"},
-		{assigneeID, "assignee", "user"},
-		{curatorID, "curator", "user"},
+	for _, u := range []struct{ id, login string }{
+		{authorID, "author"},
+		{assigneeID, "assignee"},
+		{curatorID, "curator"},
 	} {
-		if err := insert(u.id, u.login, u.role); err != nil {
-			t.Fatalf("insert user: %v", err)
-		}
+		insertRow(t, db, `INSERT INTO users (id, login, password_hash, role, display_name) VALUES (?, ?, ?, ?, ?)`, u.id, u.login, "hash", "user", "U"+u.login)
 	}
 
-	if err := db.Exec(`INSERT INTO workspaces (id, name, description, prefix, theme, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, wsID, "WS", "d", "TA", "blue").Error; err != nil {
-		t.Fatalf("insert workspace: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO boards (id, workspace_id, name, position, is_main, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, boardID, wsID, "Board", 0, true).Error; err != nil {
-		t.Fatalf("insert board: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO board_columns (id, board_id, name, position, created_at, updated_at) VALUES (?, ?, ?, ?, now(), now())`, columnID, boardID, "Col", 0).Error; err != nil {
-		t.Fatalf("insert column: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO tasks (id, column_id, title, author_id, assignee_id, curator_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, now(), now())`, taskID, columnID, "Task", authorID, assigneeID, curatorID).Error; err != nil {
-		t.Fatalf("insert task: %v", err)
-	}
-	if err := db.Exec(`INSERT INTO task_attachments (id, task_id, filename, object_key, size, content_type, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, now())`, testutil.NewID(), taskID, "f.txt", "k", 10, "text/plain", authorID).Error; err != nil {
-		t.Fatalf("insert attachment: %v", err)
-	}
+	insertRow(t, db, `INSERT INTO workspaces (id, name, description, prefix, theme, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, wsID, "WS", "d", "TA", "blue")
+	insertRow(t, db, `INSERT INTO boards (id, workspace_id, name, position, is_main, created_at, updated_at) VALUES (?, ?, ?, ?, ?, now(), now())`, boardID, wsID, "Board", 0, true)
+	insertRow(t, db, `INSERT INTO board_columns (id, board_id, name, position, created_at, updated_at) VALUES (?, ?, ?, ?, now(), now())`, columnID, boardID, "Col", 0)
+	insertRow(t, db, `INSERT INTO tasks (id, column_id, title, author_id, assignee_id, curator_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, now(), now())`, taskID, columnID, "Task", authorID, assigneeID, curatorID)
+	insertRow(t, db, `INSERT INTO task_attachments (id, task_id, filename, object_key, size, content_type, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, now())`, testutil.NewID(), taskID, "f.txt", "k", 10, "text/plain", authorID)
 
-	if err := db.Exec(`DELETE FROM users WHERE id = ?`, authorID).Error; err != nil {
-		t.Fatalf("delete author: %v", err)
-	}
+	insertRow(t, db, `DELETE FROM users WHERE id = ?`, authorID)
 
 	var authorIDOut, assigneeIDOut, curatorIDOut *string
 	if err := db.Table("tasks").Where("id = ?", taskID).Select("author_id, assignee_id, curator_id").Row().Scan(&authorIDOut, &assigneeIDOut, &curatorIDOut); err != nil {
