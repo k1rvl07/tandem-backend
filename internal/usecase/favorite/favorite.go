@@ -4,7 +4,7 @@ import (
 	"context"
 
 	favcore "github.com/tandem/tandem/internal/usecase/favorite/core"
-	"github.com/tandem/tandem/internal/usecase/favorite/crud"
+	"github.com/tandem/tandem/internal/usecase/favorite/features/crud"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 

@@ -14,7 +14,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/task/core"
-	"github.com/tandem/tandem/internal/usecase/task/mutate"
+	"github.com/tandem/tandem/internal/usecase/task/features/mutate"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 	"go.uber.org/zap"
 )

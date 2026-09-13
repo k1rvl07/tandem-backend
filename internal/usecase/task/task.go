@@ -6,7 +6,7 @@ import (
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/task/core"
-	"github.com/tandem/tandem/internal/usecase/task/crud"
+	"github.com/tandem/tandem/internal/usecase/task/features/crud"
 )
 
 type UseCase interface {

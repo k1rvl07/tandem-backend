@@ -5,9 +5,9 @@ import (
 
 	dadmin "github.com/tandem/tandem/internal/http/dto/admin"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
-	"github.com/tandem/tandem/internal/usecase/admin/control"
 	"github.com/tandem/tandem/internal/usecase/admin/core"
-	"github.com/tandem/tandem/internal/usecase/admin/users"
+	"github.com/tandem/tandem/internal/usecase/admin/features/roles"
+	"github.com/tandem/tandem/internal/usecase/admin/features/users"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
@@ -26,14 +26,14 @@ type Deps struct {
 
 type Service struct {
 	*users.Users
-	*control.Control
+	*roles.Control
 }
 
 func NewService(deps Deps) *Service {
 	c := core.New(deps.Users, deps.Hasher, deps.Cache, deps.Tokens, deps.Workspaces, deps.Favorites, deps.Files)
 	return &Service{
 		Users:   users.New(c),
-		Control: control.New(c),
+		Control: roles.New(c),
 	}
 }
 

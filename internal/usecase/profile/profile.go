@@ -6,10 +6,10 @@ import (
 
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
-	"github.com/tandem/tandem/internal/usecase/profile/account"
-	"github.com/tandem/tandem/internal/usecase/profile/avatar"
 	"github.com/tandem/tandem/internal/usecase/profile/core"
-	"github.com/tandem/tandem/internal/usecase/profile/password"
+	"github.com/tandem/tandem/internal/usecase/profile/features/account"
+	"github.com/tandem/tandem/internal/usecase/profile/features/avatar"
+	"github.com/tandem/tandem/internal/usecase/profile/features/password"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 

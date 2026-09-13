@@ -15,8 +15,8 @@ import (
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"
 	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 	"github.com/tandem/tandem/internal/usecase/task/core"
-	"github.com/tandem/tandem/internal/usecase/task/mutate"
-	"github.com/tandem/tandem/internal/usecase/task/ordering"
+	"github.com/tandem/tandem/internal/usecase/task/features/mutate"
+	"github.com/tandem/tandem/internal/usecase/task/features/ordering"
 )
 
 type Crud struct {

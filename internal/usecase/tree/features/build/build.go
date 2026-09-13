@@ -10,7 +10,7 @@ import (
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
-	"github.com/tandem/tandem/internal/usecase/board/mapping"
+	"github.com/tandem/tandem/internal/usecase/board/features/mapping"
 	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
 )

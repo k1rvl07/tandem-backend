@@ -2,9 +2,9 @@ package file
 
 import (
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
-	"github.com/tandem/tandem/internal/usecase/file/attachments"
 	"github.com/tandem/tandem/internal/usecase/file/core"
-	"github.com/tandem/tandem/internal/usecase/file/images"
+	"github.com/tandem/tandem/internal/usecase/file/features/attachments"
+	"github.com/tandem/tandem/internal/usecase/file/features/images"
 	"go.uber.org/zap"
 )
 

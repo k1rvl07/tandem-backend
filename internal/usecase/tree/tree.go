@@ -5,9 +5,9 @@ import (
 
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
-	"github.com/tandem/tandem/internal/usecase/tree/build"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
-	"github.com/tandem/tandem/internal/usecase/tree/query"
+	"github.com/tandem/tandem/internal/usecase/tree/features/build"
+	"github.com/tandem/tandem/internal/usecase/tree/features/query"
 )
 
 type UseCase interface {

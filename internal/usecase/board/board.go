@@ -4,8 +4,8 @@ import (
 	"context"
 
 	dboard "github.com/tandem/tandem/internal/http/dto/board"
-	"github.com/tandem/tandem/internal/usecase/board/boards"
 	"github.com/tandem/tandem/internal/usecase/board/core"
+	"github.com/tandem/tandem/internal/usecase/board/features/crud"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
@@ -24,12 +24,12 @@ type Deps struct {
 }
 
 type Service struct {
-	*boards.Boards
+	*crud.Crud
 }
 
 func NewService(deps Deps) *Service {
 	c := core.New(deps.Boards, deps.Columns, deps.Tasks, deps.Workspaces, deps.Users, deps.Favorites, deps.Files, deps.Hub, deps.Cache)
-	return &Service{Boards: boards.New(c)}
+	return &Service{Crud: crud.New(c)}
 }
 
 var _ UseCase = (*Service)(nil)

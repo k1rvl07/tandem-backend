@@ -6,9 +6,9 @@ import (
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/workspace/core"
-	"github.com/tandem/tandem/internal/usecase/workspace/crud"
-	"github.com/tandem/tandem/internal/usecase/workspace/invites"
-	"github.com/tandem/tandem/internal/usecase/workspace/members"
+	"github.com/tandem/tandem/internal/usecase/workspace/features/crud"
+	"github.com/tandem/tandem/internal/usecase/workspace/features/invites"
+	"github.com/tandem/tandem/internal/usecase/workspace/features/members"
 )
 
 type UseCase interface {

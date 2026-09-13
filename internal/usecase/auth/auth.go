@@ -4,7 +4,7 @@ import (
 	"context"
 
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
-	"github.com/tandem/tandem/internal/usecase/auth/session"
+	"github.com/tandem/tandem/internal/usecase/auth/features/session"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 

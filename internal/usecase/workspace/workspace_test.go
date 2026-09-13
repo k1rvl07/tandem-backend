@@ -19,7 +19,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
-	"github.com/tandem/tandem/internal/usecase/workspace/invites"
+	"github.com/tandem/tandem/internal/usecase/workspace/features/invites"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )

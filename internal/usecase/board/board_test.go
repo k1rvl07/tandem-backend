@@ -117,7 +117,7 @@ func TestCreateBoardInvalidName(t *testing.T) {
 
 func TestListBoards(t *testing.T) {
 	e := newEnv(t)
-	boardsRepo := e.svc.Boards.Boards
+	boardsRepo := e.svc.Crud.Boards
 	b1 := boardsRepo.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 	b2 := boardsRepo.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 	boardsRepo.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
@@ -131,7 +131,7 @@ func TestListBoards(t *testing.T) {
 
 func TestGetBoard(t *testing.T) {
 	e := newEnv(t)
-	boards := e.svc.Boards.Boards.(*testutil.FakeBoardRepo)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
 	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
 	col1 := e.cols.AddColumnFixture(testutil.NewUUID(), board.ID, "Backlog", 0)
 	col2 := e.cols.AddColumnFixture(testutil.NewUUID(), board.ID, "Done", 1)
@@ -152,7 +152,7 @@ func TestGetBoard(t *testing.T) {
 
 func TestGetBoardFromOtherWorkspace(t *testing.T) {
 	e := newEnv(t)
-	board := e.svc.Boards.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
 	_, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID)
 	if !errors.Is(err, pkgerrors.ErrNotFound) {
 		t.Fatalf("expected not found, got %v", err)
@@ -161,7 +161,7 @@ func TestGetBoardFromOtherWorkspace(t *testing.T) {
 
 func TestGetBoardNonMember(t *testing.T) {
 	e := newEnv(t)
-	board := e.svc.Boards.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
 	outsider := testutil.NewUUID()
 	_, err := e.svc.Get(context.Background(), outsider, e.wsA, board.ID)
 	if !errors.Is(err, pkgerrors.ErrForbidden) {
@@ -171,7 +171,7 @@ func TestGetBoardNonMember(t *testing.T) {
 
 func TestUpdateBoard(t *testing.T) {
 	e := newEnv(t)
-	board := e.svc.Boards.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
 	updated, err := e.svc.Update(context.Background(), e.actorA, e.wsA, board.ID, dboard.UpdateBoardRequest{Name: "Release"})
 	require.NoError(t, err)
 	assert.Equal(t, "Release", updated.Name)
@@ -180,29 +180,29 @@ func TestUpdateBoard(t *testing.T) {
 
 func TestUpdateBoardMemberForbidden(t *testing.T) {
 	e := newEnv(t)
-	board := e.svc.Boards.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
 	_, err := e.svc.Update(context.Background(), e.actorB, e.wsA, board.ID, dboard.UpdateBoardRequest{Name: "Release"})
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
 func TestDeleteBoard(t *testing.T) {
 	e := newEnv(t)
-	board := e.svc.Boards.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
 	require.NoError(t, e.svc.Delete(context.Background(), e.actorA, e.wsA, board.ID))
-	assert.NotContains(t, e.svc.Boards.Boards.(*testutil.FakeBoardRepo).Boards, board.ID)
+	assert.NotContains(t, e.svc.Crud.Boards.(*testutil.FakeBoardRepo).Boards, board.ID)
 	assert.Equal(t, core.EventBoardDeleted, e.hub.Messages[0].Type)
 }
 
 func TestDeleteBoardFromOtherWorkspace(t *testing.T) {
 	e := newEnv(t)
-	board := e.svc.Boards.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
 	err := e.svc.Delete(context.Background(), e.actorA, e.wsA, board.ID)
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
 func TestReorderBoards(t *testing.T) {
 	e := newEnv(t)
-	boards := e.svc.Boards.Boards.(*testutil.FakeBoardRepo)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 	b2 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 	b3 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Gamma")
@@ -226,7 +226,7 @@ func TestReorderBoards(t *testing.T) {
 
 func TestReorderBoardsValidation(t *testing.T) {
 	e := newEnv(t)
-	boards := e.svc.Boards.Boards.(*testutil.FakeBoardRepo)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 	boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 
@@ -240,7 +240,7 @@ func TestReorderBoardsValidation(t *testing.T) {
 
 func TestReorderBoardsMemberForbidden(t *testing.T) {
 	e := newEnv(t)
-	boards := e.svc.Boards.Boards.(*testutil.FakeBoardRepo)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 
 	_, err := e.svc.Reorder(context.Background(), e.actorB, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})

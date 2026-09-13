@@ -9,8 +9,8 @@ import (
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
-	"github.com/tandem/tandem/internal/usecase/tree/build"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
+	"github.com/tandem/tandem/internal/usecase/tree/features/build"
 )
 
 const taskFilterAll = "all"

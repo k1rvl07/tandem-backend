@@ -1,4 +1,4 @@
-package boards
+package crud
 
 import (
 	"context"
@@ -14,21 +14,21 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/board/core"
-	"github.com/tandem/tandem/internal/usecase/board/mapping"
+	"github.com/tandem/tandem/internal/usecase/board/features/mapping"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 )
 
 var defaultColumns = mcolumn.DefaultColumnNames
 
-type Boards struct {
+type Crud struct {
 	*core.Core
 }
 
-func New(c *core.Core) *Boards {
-	return &Boards{Core: c}
+func New(c *core.Core) *Crud {
+	return &Crud{Core: c}
 }
 
-func (s *Boards) Create(ctx context.Context, actorID, workspaceID string, req dboard.CreateBoardRequest) (*dboard.BoardResponse, error) {
+func (s *Crud) Create(ctx context.Context, actorID, workspaceID string, req dboard.CreateBoardRequest) (*dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (s *Boards) Create(ctx context.Context, actorID, workspaceID string, req db
 	return response, nil
 }
 
-func (s *Boards) List(ctx context.Context, actorID, workspaceID string) ([]dboard.BoardResponse, error) {
+func (s *Crud) List(ctx context.Context, actorID, workspaceID string) ([]dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *Boards) List(ctx context.Context, actorID, workspaceID string) ([]dboar
 	return responses, nil
 }
 
-func (s *Boards) Get(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardDetailResponse, error) {
+func (s *Crud) Get(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardDetailResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (s *Boards) Get(ctx context.Context, actorID, workspaceID, boardID string) 
 	return detail, nil
 }
 
-func (s *Boards) Update(ctx context.Context, actorID, workspaceID, boardID string, req dboard.UpdateBoardRequest) (*dboard.BoardResponse, error) {
+func (s *Crud) Update(ctx context.Context, actorID, workspaceID, boardID string, req dboard.UpdateBoardRequest) (*dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (s *Boards) Update(ctx context.Context, actorID, workspaceID, boardID strin
 	return response, nil
 }
 
-func (s *Boards) Delete(ctx context.Context, actorID, workspaceID, boardID string) error {
+func (s *Crud) Delete(ctx context.Context, actorID, workspaceID, boardID string) error {
 	if err := validate.UUID(workspaceID); err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ func (s *Boards) Delete(ctx context.Context, actorID, workspaceID, boardID strin
 	return nil
 }
 
-func (s *Boards) SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardResponse, error) {
+func (s *Crud) SetMain(ctx context.Context, actorID, workspaceID, boardID string) (*dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
@@ -262,7 +262,7 @@ func (s *Boards) SetMain(ctx context.Context, actorID, workspaceID, boardID stri
 	return response, nil
 }
 
-func (s *Boards) Reorder(ctx context.Context, actorID, workspaceID string, req dboard.ReorderBoardsRequest) ([]dboard.BoardResponse, error) {
+func (s *Crud) Reorder(ctx context.Context, actorID, workspaceID string, req dboard.ReorderBoardsRequest) ([]dboard.BoardResponse, error) {
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
