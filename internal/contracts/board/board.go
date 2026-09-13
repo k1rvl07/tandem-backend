@@ -15,15 +15,15 @@ type UpdateBoardRequest struct {
 }
 
 type BoardResponse struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	Position    int
-	IsMain      bool
-	IsFavorite  bool
-	TaskCount   int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	Name        string    `json:"name"`
+	Position    int       `json:"position"`
+	IsMain      bool      `json:"is_main"`
+	IsFavorite  bool      `json:"is_favorite"`
+	TaskCount   int       `json:"task_count"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type ReorderBoardsRequest struct {

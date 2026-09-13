@@ -31,33 +31,33 @@ type UpdateTaskRequest struct {
 }
 
 type TaskUserResponse struct {
-	ID          string
-	Login       string
-	DisplayName string
-	AvatarKey   string
+	ID          string `json:"id"`
+	Login       string `json:"login"`
+	DisplayName string `json:"display_name"`
+	AvatarKey   string `json:"avatar_key"`
 }
 
 type TaskResponse struct {
-	ID          string
-	DisplayID   string
-	WorkspaceID string
-	BoardID     string
-	BoardName   string
-	ColumnID    string
-	ColumnName  string
-	Title       string
-	Description string
-	Author      *TaskUserResponse
-	Assignee    *TaskUserResponse
-	Curator     *TaskUserResponse
-	ParentID    string
-	DueDate     *time.Time
-	Position    int
-	IsUrgent    bool
-	IsHidden    bool
-	ImageKey    string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string            `json:"id"`
+	DisplayID   string            `json:"display_id"`
+	WorkspaceID string            `json:"workspace_id"`
+	BoardID     string            `json:"board_id"`
+	BoardName   string            `json:"board_name"`
+	ColumnID    string            `json:"column_id"`
+	ColumnName  string            `json:"column_name"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Author      *TaskUserResponse `json:"author"`
+	Assignee    *TaskUserResponse `json:"assignee"`
+	Curator     *TaskUserResponse `json:"curator"`
+	ParentID    string            `json:"parent_id"`
+	DueDate     *time.Time        `json:"due_date"`
+	Position    int               `json:"position"`
+	IsUrgent    bool              `json:"is_urgent"`
+	IsHidden    bool              `json:"is_hidden"`
+	ImageKey    string            `json:"image_key"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 type TaskReference struct {

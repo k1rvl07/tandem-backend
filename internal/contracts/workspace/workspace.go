@@ -32,30 +32,30 @@ type UpdateMemberRoleRequest struct {
 }
 
 type WorkspaceResponse struct {
-	ID          string
-	Name        string
-	Description string
-	Prefix      string
-	Theme       string
-	Role        string
-	IsFavorite  bool
-	Owner       *WorkspaceMemberResponse
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string                   `json:"id"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Prefix      string                   `json:"prefix"`
+	Theme       string                   `json:"theme"`
+	Role        string                   `json:"role"`
+	IsFavorite  bool                     `json:"is_favorite"`
+	Owner       *WorkspaceMemberResponse `json:"owner"`
+	CreatedAt   time.Time                `json:"created_at"`
+	UpdatedAt   time.Time                `json:"updated_at"`
 }
 
 type WorkspaceMemberResponse struct {
-	ID          string
-	Login       string
-	DisplayName string
-	AvatarKey   string
-	Role        string
-	JoinedAt    time.Time
+	ID          string    `json:"id"`
+	Login       string    `json:"login"`
+	DisplayName string    `json:"display_name"`
+	AvatarKey   string    `json:"avatar_key"`
+	Role        string    `json:"role"`
+	JoinedAt    time.Time `json:"joined_at"`
 }
 
 type WorkspaceDetailResponse struct {
 	WorkspaceResponse
-	Members []WorkspaceMemberResponse
+	Members []WorkspaceMemberResponse `json:"members"`
 }
 
 type WorkspaceInviteResponse struct {
