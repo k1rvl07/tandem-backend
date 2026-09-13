@@ -2,12 +2,18 @@ package hub
 
 import (
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 )
 
-const sendQueueSize = 1024
+const (
+	sendQueueSize = 1024
+	writeWait     = 10 * time.Second
+	pongWait      = 60 * time.Second
+	pingPeriod    = (pongWait * 9) / 10
+)
 
 type Hub struct {
 	mu      sync.RWMutex
@@ -204,7 +210,6 @@ func (c *Client) Send(msg *ws.Message) {
 	select {
 	case c.send <- msg:
 	case <-c.done:
-		return
 	}
 }
 
@@ -216,11 +221,21 @@ func (c *Client) Close() {
 }
 
 func (c *Client) writePump() {
-	defer c.Close()
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Close()
+	}()
 	for {
 		select {
 		case msg := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteJSON(msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		case <-c.done:
@@ -232,6 +247,10 @@ func (c *Client) writePump() {
 func (c *Client) readPump() {
 	defer c.unregisterAndClose()
 	c.conn.SetReadLimit(8192)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
