@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	tandemapp "github.com/tandem/tandem/internal/app"
+	"github.com/tandem/tandem/internal/http/handler/common"
 	"github.com/tandem/tandem/internal/pkg/config"
 	"github.com/tandem/tandem/internal/repository/testutil"
 	"go.uber.org/zap"
@@ -24,10 +26,11 @@ import (
 const truncateSQL = "TRUNCATE users, workspaces, workspace_members, boards, board_columns, tasks, task_attachments, favorites CASCADE"
 
 type harness struct {
-	ts  *httptest.Server
-	app *tandemapp.App
-	cfg *config.Config
-	db  *gorm.DB
+	ts     *httptest.Server
+	app    *tandemapp.App
+	cfg    *config.Config
+	db     *gorm.DB
+	client *http.Client
 }
 
 type pair struct {
@@ -90,7 +93,9 @@ func newHarness(t *testing.T) *harness {
 	require.NoError(t, err)
 	ts := httptest.NewServer(r)
 	t.Cleanup(ts.Close)
-	return &harness{ts: ts, app: a, cfg: cfg, db: db}
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	return &harness{ts: ts, app: a, cfg: cfg, db: db, client: &http.Client{Jar: jar}}
 }
 
 func (h *harness) do(t *testing.T, method, path, token, body string) (int, []byte) {
@@ -116,13 +121,50 @@ func (h *harness) do(t *testing.T, method, path, token, body string) (int, []byt
 }
 
 func (h *harness) login(t *testing.T, login, password string) pair {
-	var resp pair
-	status, body := h.do(t, http.MethodPost, "/api/v1/auth/login", "", fmt.Sprintf(`{"login":%q,"password":%q}`, login, password))
-	require.Equal(t, http.StatusOK, status, "login failed: %s", body)
-	require.NoError(t, json.Unmarshal(body, &resp))
-	require.NotEmpty(t, resp.Token)
-	require.NotEmpty(t, resp.RefreshToken)
-	return resp
+	req, err := http.NewRequest(http.MethodPost, h.ts.URL+"/api/v1/auth/login",
+		strings.NewReader(fmt.Sprintf(`{"login":%q,"password":%q}`, login, password)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "login failed: %s", data)
+	var claims struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(data, &claims))
+	require.NotEmpty(t, claims.Token)
+	rt := refreshCookie(resp.Cookies())
+	require.NotEmpty(t, rt, "login must set the tandem_refresh cookie")
+	return pair{Token: claims.Token, RefreshToken: rt}
+}
+
+func (h *harness) refreshViaCookie(t *testing.T, path string) pair {
+	req, err := http.NewRequest(http.MethodPost, h.ts.URL+path, nil)
+	require.NoError(t, err)
+	resp, err := h.client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "refresh failed: %s", data)
+	var claims struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(data, &claims))
+	require.NotEmpty(t, claims.Token)
+	return pair{Token: claims.Token, RefreshToken: refreshCookie(resp.Cookies())}
+}
+
+func refreshCookie(cookies []*http.Cookie) string {
+	for _, c := range cookies {
+		if c.Name == common.RefreshCookieName {
+			return c.Value
+		}
+	}
+	return ""
 }
 
 func (h *harness) createUser(t *testing.T, adminToken, login, password, role string) string {
@@ -145,20 +187,19 @@ func TestE2EAuthFlow(t *testing.T) {
 	status, _ := h.do(t, http.MethodGet, "/api/v1/me", admin.Token, "")
 	require.Equal(t, http.StatusOK, status)
 
-	var refreshed pair
-	status, body := h.do(t, http.MethodPost, "/api/v1/auth/refresh", "", fmt.Sprintf(`{"refresh_token":%q}`, admin.RefreshToken))
-	require.Equal(t, http.StatusOK, status, "refresh failed: %s", body)
-	require.NoError(t, json.Unmarshal(body, &refreshed))
-	require.NotEmpty(t, refreshed.Token)
+	refreshed := h.refreshViaCookie(t, "/api/v1/auth/refresh")
+	require.NotEmpty(t, refreshed.RefreshToken, "refresh must rotate the refresh cookie")
 	require.NotEqual(t, admin.RefreshToken, refreshed.RefreshToken)
 
 	status, _ = h.do(t, http.MethodPost, "/api/v1/auth/refresh", "", fmt.Sprintf(`{"refresh_token":%q}`, admin.RefreshToken))
 	require.Equal(t, http.StatusUnauthorized, status, "reused refresh token must be rejected")
 
-	status, body = h.do(t, http.MethodPost, "/api/v1/me/password", admin.Token,
+	status, body := h.do(t, http.MethodPost, "/api/v1/me/password", admin.Token,
 		`{"current_password":"admin12345","new_password":"admin54321"}`)
 	require.Equal(t, http.StatusOK, status, "change password failed: %s", body)
-	var changed pair
+	var changed struct {
+		Token string `json:"token"`
+	}
 	require.NoError(t, json.Unmarshal(body, &changed))
 	require.NotEmpty(t, changed.Token)
 

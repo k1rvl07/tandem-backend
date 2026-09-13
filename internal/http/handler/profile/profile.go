@@ -3,6 +3,7 @@ package profile
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/profile"
@@ -11,13 +12,15 @@ import (
 )
 
 type ProfileHandler struct {
-	profiles pprofile.UserCase
+	profiles     pprofile.UserCase
+	cookieSecure bool
+	refreshTTL   time.Duration
 }
 
 const maxImageSize = 5 << 20
 
-func NewProfileHandler(uc pprofile.UserCase) *ProfileHandler {
-	return &ProfileHandler{profiles: uc}
+func NewProfileHandler(uc pprofile.UserCase, cookieSecure bool, refreshTTL time.Duration) *ProfileHandler {
+	return &ProfileHandler{profiles: uc, cookieSecure: cookieSecure, refreshTTL: refreshTTL}
 }
 
 // @Summary Get current user's profile
@@ -135,5 +138,6 @@ func (h *ProfileHandler) ChangePassword(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"token": resp.Token, "refresh_token": resp.RefreshToken, "message": "password updated"})
+	common.SetRefreshCookie(c.Writer, resp.RefreshToken, h.refreshTTL, h.cookieSecure)
+	c.JSON(http.StatusOK, gin.H{"token": resp.Token, "message": "password updated"})
 }

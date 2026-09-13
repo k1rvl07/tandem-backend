@@ -22,7 +22,7 @@ func NewTaskHandler(uc ptask.UseCase) *TaskHandler {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Param request body task.CreateTaskRequest true "Task payload"
 // @Success 201 {object} task.TaskResponse
@@ -49,7 +49,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Param taskId path string true "Task ID"
 // @Param request body task.UpdateTaskRequest true "Task payload"
@@ -76,7 +76,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 // @Tags tasks
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param taskId path string true "Task ID"
 // @Success 200 {object} task.TaskDetailResponse
 // @Failure 400 {object} map[string]string
@@ -97,7 +97,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 // @Tags tasks
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param q query string false "Search in title"
 // @Param board_id query string false "Filter by board"
 // @Param assignee_id query string false "Filter by assignee"
@@ -126,7 +126,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 // @Tags tasks
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Param taskId path string true "Task ID"
 // @Success 200 {object} map[string]string

@@ -20,7 +20,7 @@ type UserResponse struct {
 
 type LoginResponse struct {
 	Token        string       `json:"token"`
-	RefreshToken string       `json:"refresh_token"`
+	RefreshToken string       `json:"-"`
 	User         UserResponse `json:"user"`
 }
 
@@ -30,5 +30,5 @@ type RefreshRequest struct {
 
 type RefreshResponse struct {
 	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"-"`
 }

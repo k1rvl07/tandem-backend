@@ -38,6 +38,7 @@ type RateLimiter interface {
 type Dependencies struct {
 	Logger              *zap.Logger
 	AllowedOrigin       []string
+	TrustedProxies      []string
 	FileStore           filestore.FileStore
 	Hub                 ws.Hub
 	TokenService        service.TokenService
@@ -84,6 +85,11 @@ type routerBuilder struct {
 
 func (b *routerBuilder) setup() {
 	b.r = gin.New()
+	if len(b.deps.TrustedProxies) > 0 {
+		_ = b.r.SetTrustedProxies(b.deps.TrustedProxies)
+	} else {
+		b.r.SetTrustedProxies(nil)
+	}
 	b.r.Use(gin.Recovery())
 	b.r.Use(mwlog.Logger(b.deps.Logger))
 	b.r.Use(mwcors.CORS(b.deps.AllowedOrigin))

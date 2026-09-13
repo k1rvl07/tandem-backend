@@ -21,7 +21,7 @@ func NewBoardHandler(uc pboard.UseCase) *BoardHandler {
 // @Tags boards
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Success 200 {array} board.BoardResponse
 // @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
@@ -41,7 +41,7 @@ func (h *BoardHandler) List(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param request body board.CreateBoardRequest true "Board payload"
 // @Success 201 {object} board.BoardResponse
 // @Failure 400 {object} map[string]string
@@ -65,7 +65,7 @@ func (h *BoardHandler) Create(c *gin.Context) {
 // @Tags boards
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Success 200 {object} board.BoardDetailResponse
 // @Failure 400 {object} map[string]string
@@ -86,7 +86,7 @@ func (h *BoardHandler) Get(c *gin.Context) {
 // @Tags boards
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Success 200 {object} board.BoardResponse
 // @Failure 400 {object} map[string]string
@@ -108,7 +108,7 @@ func (h *BoardHandler) SetMain(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param request body board.ReorderBoardsRequest true "Ordered board ids"
 // @Success 200 {array} board.BoardResponse
 // @Failure 400 {object} map[string]string
@@ -133,7 +133,7 @@ func (h *BoardHandler) Reorder(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Param request body board.UpdateBoardRequest true "Board payload"
 // @Success 200 {object} board.BoardResponse
@@ -159,7 +159,7 @@ func (h *BoardHandler) Update(c *gin.Context) {
 // @Tags boards
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param boardId path string true "Board ID"
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string

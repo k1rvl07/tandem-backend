@@ -25,7 +25,7 @@ const maxAttachmentRequestSize = 20 << 20
 // @Accept multipart/form-data
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param taskId path string true "Task ID"
 // @Param file formData file true "Attachment file"
 // @Success 201 {object} attachment.AttachmentResponse
@@ -68,7 +68,7 @@ func (h *AttachmentHandler) Create(c *gin.Context) {
 // @Tags attachments
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param taskId path string true "Task ID"
 // @Success 200 {array} attachment.AttachmentResponse
 // @Failure 400 {object} map[string]string
@@ -89,7 +89,7 @@ func (h *AttachmentHandler) List(c *gin.Context) {
 // @Tags attachments
 // @Produce application/octet-stream
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param taskId path string true "Task ID"
 // @Param attachmentId path string true "Attachment ID"
 // @Success 200 {file} binary
@@ -131,7 +131,7 @@ func sanitizeFilename(name string) string {
 // @Tags attachments
 // @Produce json
 // @Security BearerAuth
-// @Param wsId path string true "Workspace ID"
+// @Param id path string true "Workspace ID"
 // @Param taskId path string true "Task ID"
 // @Param attachmentId path string true "Attachment ID"
 // @Success 200 {object} map[string]string

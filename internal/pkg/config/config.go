@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -22,10 +23,13 @@ type AppConfig struct {
 	Port           string
 	Env            string
 	AllowedOrigins []string
+	TrustedProxies []string
 	AdminLogin     string
 	AdminPassword  string
 	PasswordCost   int
+	AuthRateLimit  int64
 	SwaggerEnabled bool
+	CookieSecure   bool
 }
 
 type DatabaseConfig struct {
@@ -74,6 +78,7 @@ func Load(envFile string) (*Config, error) {
 			Env:           getEnv("APP_ENV", "dev"),
 			AdminLogin:    getEnv("ADMIN_LOGIN", ""),
 			AdminPassword: getEnv("ADMIN_PASSWORD", ""),
+			CookieSecure:  getEnv("COOKIE_SECURE", "") == "true",
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("POSTGRES_HOST", "localhost"),
@@ -103,23 +108,88 @@ func Load(envFile string) (*Config, error) {
 		},
 	}
 
-	if cfg.JWT.Secret == "" || cfg.JWT.Secret == "CHANGE_ME" {
+	if isDefault(cfg.JWT.Secret, "CHANGE_ME", "secret_jwt", "change_me") {
 		return nil, fmt.Errorf("JWT_SECRET must be set to a non-default value")
 	}
 
 	if cfg.App.Env == "production" {
-		if cfg.MinIO.SecretKey == "" || cfg.MinIO.SecretKey == "change_me_minio" {
-			return nil, fmt.Errorf("MINIO_ROOT_PASSWORD must be set to a non-default value in production")
+		if err := validateProductionSecrets(cfg); err != nil {
+			return nil, err
 		}
 	}
 
 	cfg.App.PasswordCost = passwordCost()
 
+	cfg.App.AuthRateLimit = authRateLimit()
+
 	cfg.App.SwaggerEnabled = swaggerEnabled(cfg.App.Env)
 
 	cfg.App.AllowedOrigins = allowedOrigins(cfg.App.Env)
 
+	trustedProxies, err := trustedProxies()
+	if err != nil {
+		return nil, err
+	}
+	cfg.App.TrustedProxies = trustedProxies
+
 	return cfg, nil
+}
+
+func isDefault(value string, defaults ...string) bool {
+	if value == "" {
+		return true
+	}
+	for _, d := range defaults {
+		if value == d {
+			return true
+		}
+	}
+	return false
+}
+
+func validateProductionSecrets(cfg *Config) error {
+	checks := []struct {
+		name string
+		val  string
+		bad  []string
+	}{
+		{"POSTGRES_PASSWORD", cfg.Database.Password, []string{"change_me", "secret_postgres"}},
+		{"REDIS_PASSWORD", cfg.Redis.Password, []string{"secret_redis"}},
+		{"MINIO_ROOT_PASSWORD", cfg.MinIO.SecretKey, []string{"change_me_minio", "secret_minio"}},
+	}
+	for _, c := range checks {
+		if isDefault(c.val, c.bad...) {
+			return fmt.Errorf("%s must be set to a non-default value in production", c.name)
+		}
+	}
+	if isDefault(cfg.App.AdminPassword, "secret_admin", "admin", "password") {
+		return fmt.Errorf("ADMIN_PASSWORD must be set to a non-default value in production")
+	}
+	return nil
+}
+
+func trustedProxies() ([]string, error) {
+	raw := getEnv("TRUSTED_PROXIES", "")
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	proxies := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p == "" {
+			continue
+		}
+		_, _, err := net.ParseCIDR(p)
+		if err != nil {
+			if ip := net.ParseIP(p); ip != nil {
+				proxies = append(proxies, p)
+				continue
+			}
+			return nil, fmt.Errorf("invalid trusted proxy %q: must be an IP or CIDR", p)
+		}
+		proxies = append(proxies, p)
+	}
+	return proxies, nil
 }
 
 func passwordCost() int {
@@ -129,6 +199,15 @@ func passwordCost() int {
 		return 12
 	}
 	return cost
+}
+
+func authRateLimit() int64 {
+	v := getEnv("AUTH_RATE_LIMIT", "15")
+	limit, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || limit < 1 {
+		return 15
+	}
+	return limit
 }
 
 func allowedOrigins(env string) []string {

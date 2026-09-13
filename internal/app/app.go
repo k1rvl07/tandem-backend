@@ -33,7 +33,7 @@ import (
 	"github.com/tandem/tandem/internal/infrastructure/token"
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
 	"github.com/tandem/tandem/internal/pkg/config"
-	fkprep "github.com/tandem/tandem/internal/pkg/fkprep"
+	"github.com/tandem/tandem/internal/pkg/migrations"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	rboard "github.com/tandem/tandem/internal/repository/board"
 	rcolumn "github.com/tandem/tandem/internal/repository/column"
@@ -97,23 +97,13 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	hub := wshub.New()
 	logger.Info("websocket hub initialized")
 
-	if err := fkprep.Prepare(postgres.DB); err != nil {
+	if err := migrations.Run(postgres.DB); err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
 	}
 
 	if err := postgres.AutoMigrate(&euser.User{}, &eworkspace.Workspace{}, &eworkspace.WorkspaceMember{}, &eboard.Board{}, &eboard.Column{}, &eboard.Task{}, &etask.TaskAttachment{}, &efavorite.Favorite{}); err != nil {
-		_ = redis.Close()
-		_ = postgres.Close()
-		return nil, err
-	}
-	if err := postgres.DB.Exec("DROP TABLE IF EXISTS task_comments").Error; err != nil {
-		_ = redis.Close()
-		_ = postgres.Close()
-		return nil, err
-	}
-	if err := postgres.DB.Exec("UPDATE workspace_members SET role = 'member' WHERE role = 'viewer'").Error; err != nil {
 		_ = redis.Close()
 		_ = postgres.Close()
 		return nil, err
@@ -135,10 +125,10 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 	tokenManager := token.NewJWTManager(a.config.JWT.Secret, a.redis)
 	hasher := password.NewBCryptHasher(a.config.App.PasswordCost)
 	authService := auth.NewService(auth.Deps{Users: userRepo, Tokens: tokenManager, Hasher: hasher, TokenTTL: a.config.JWT.TokenTTL, RefreshTTL: a.config.JWT.RefreshTTL})
-	authHandler := hauth.NewAuthHandler(authService)
+	authHandler := hauth.NewAuthHandler(authService, a.cookieSecure(), a.config.JWT.RefreshTTL)
 	fileService := file.NewService(a.fileStore, a.logger)
 	profileService := profile.NewService(profile.Deps{Users: userRepo, Hasher: hasher, Files: fileService, Cache: a.redis, Tokens: tokenManager, TokenTTL: a.config.JWT.TokenTTL, RefreshTTL: a.config.JWT.RefreshTTL, Logger: a.logger})
-	profileHandler := hprofile.NewProfileHandler(profileService)
+	profileHandler := hprofile.NewProfileHandler(profileService, a.cookieSecure(), a.config.JWT.RefreshTTL)
 	workspaceRepo := rworkspace.NewWorkspaceRepo(a.postgres.DB)
 	favoriteRepo := rtaskext.NewFavoriteRepo(a.postgres.DB)
 	adminService := admin.NewService(admin.Deps{Users: userRepo, Hasher: hasher, Cache: a.redis, Tokens: tokenManager, Workspaces: workspaceRepo, Favorites: favoriteRepo, Files: fileService})
@@ -162,7 +152,7 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 
 	var authLimiter, readLimiter, writeLimiter, uploadLimiter, wsLimiter router.RateLimiter
 	if a.config.App.Env != "testing" {
-		authLimiter = ratelimit.New(a.redis.Raw(), "auth", ratelimit.AuthLimit, ratelimit.AuthWindow, ratelimit.ByIP())
+		authLimiter = ratelimit.New(a.redis.Raw(), "auth", a.config.App.AuthRateLimit, ratelimit.AuthWindow, ratelimit.ByIP())
 		readLimiter = ratelimit.New(a.redis.Raw(), "read", ratelimit.ReadLimit, ratelimit.ReadWindow, ratelimit.ByUser())
 		writeLimiter = ratelimit.New(a.redis.Raw(), "write", ratelimit.WriteLimit, ratelimit.WriteWindow, ratelimit.ByUser())
 		uploadLimiter = ratelimit.New(a.redis.Raw(), "upload", ratelimit.UploadLimit, ratelimit.UploadWindow, ratelimit.ByUser())
@@ -192,6 +182,7 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 		TreeHandler:         treeHandler,
 		Files:               fileService,
 		EnableSwagger:       a.config.App.SwaggerEnabled,
+		TrustedProxies:      a.config.App.TrustedProxies,
 		AuthLimiter:         authLimiter,
 		ReadLimiter:         readLimiter,
 		WriteLimiter:        writeLimiter,
@@ -240,6 +231,13 @@ func (a *App) Run() error {
 	a.Close()
 	a.logger.Info("server stopped gracefully")
 	return nil
+}
+
+func (a *App) cookieSecure() bool {
+	if a.config.App.CookieSecure {
+		return true
+	}
+	return a.config.App.Env == "production"
 }
 
 func (a *App) Postgres() *gorm.DB {

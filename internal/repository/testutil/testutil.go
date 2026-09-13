@@ -3,7 +3,9 @@ package testutil
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -13,7 +15,7 @@ import (
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
-	fkprep "github.com/tandem/tandem/internal/pkg/fkprep"
+	"github.com/tandem/tandem/internal/pkg/migrations"
 	eboard "github.com/tandem/tandem/internal/repository/entity/board"
 	efavorite "github.com/tandem/tandem/internal/repository/entity/favorite"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
@@ -33,14 +35,21 @@ func NewTestDB(t *testing.T) *gorm.DB {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping repository integration tests")
 	}
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
+	}
+	if dbName := strings.TrimPrefix(parsed.Path, "/"); dbName == "tandem" {
+		t.Fatalf("refusing to run integration tests against live database %q; set TEST_DATABASE_URL to a dedicated test DB", dbName)
+	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
 	})
 	if err != nil {
 		t.Fatalf("connect postgres: %v", err)
 	}
-	if err := fkprep.Prepare(db); err != nil {
-		t.Fatalf("prepare fk constraints: %v", err)
+	if err := migrations.Run(db); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 	if err := db.AutoMigrate(
 		&euser.User{}, &eworkspace.Workspace{}, &eworkspace.WorkspaceMember{},

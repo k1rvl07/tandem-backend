@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/auth"
@@ -11,11 +12,13 @@ import (
 )
 
 type AuthHandler struct {
-	auth pauth.UseCase
+	auth         pauth.UseCase
+	cookieSecure bool
+	refreshTTL   time.Duration
 }
 
-func NewAuthHandler(uc pauth.UseCase) *AuthHandler {
-	return &AuthHandler{auth: uc}
+func NewAuthHandler(uc pauth.UseCase, cookieSecure bool, refreshTTL time.Duration) *AuthHandler {
+	return &AuthHandler{auth: uc, cookieSecure: cookieSecure, refreshTTL: refreshTTL}
 }
 
 // @Summary Login a user
@@ -38,6 +41,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
+	common.SetRefreshCookie(c.Writer, resp.RefreshToken, h.refreshTTL, h.cookieSecure)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -45,22 +49,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Tags auth
 // @Accept json
 // @Produce json
-// @Param request body auth.RefreshRequest true "Refresh payload"
+// @Param request body auth.RefreshRequest false "Refresh payload (fallback when cookie is missing)"
 // @Success 200 {object} auth.RefreshResponse
 // @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/v1/auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	var req auth.RefreshRequest
-	if !common.ParseJSON(c, &req) {
-		return
+	refreshToken, err := c.Cookie(common.RefreshCookieName)
+	if err != nil && refreshToken == "" {
+		var req auth.RefreshRequest
+		if !common.ParseJSON(c, &req) {
+			return
+		}
+		refreshToken = req.RefreshToken
 	}
-	resp, err := h.auth.Refresh(c.Request.Context(), req.RefreshToken)
+	resp, err := h.auth.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
+	common.SetRefreshCookie(c.Writer, resp.RefreshToken, h.refreshTTL, h.cookieSecure)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -77,5 +86,6 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
+	common.ClearRefreshCookie(c.Writer, h.cookieSecure)
 	c.Status(http.StatusNoContent)
 }
