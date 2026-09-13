@@ -1,29 +1,14 @@
-package taskmap
+package mapping
 
 import (
 	"context"
 	"errors"
 
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 )
-
-func UserResponse(u *muser.User) *dauth.UserResponse {
-	return &dauth.UserResponse{
-		ID:          u.ID,
-		Login:       u.Login,
-		Role:        u.Role,
-		DisplayName: u.DisplayName,
-		Bio:         u.Bio,
-		AvatarKey:   u.AvatarKey,
-		CreatedAt:   u.CreatedAt,
-		UpdatedAt:   u.UpdatedAt,
-	}
-}
 
 func ResolveUsers(ctx context.Context, repo repository.UserRepository, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
 	ids := make(map[string]bool)

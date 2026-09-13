@@ -10,8 +10,8 @@ import (
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
-	"github.com/tandem/tandem/internal/usecase/board/features/mapping"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/board/mapping"
+	sharedmap "github.com/tandem/tandem/internal/usecase/shared/mapping"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
 )
 
@@ -125,18 +125,18 @@ func (s *Build) taskResponses(ctx context.Context, workspace *mworkspace.Workspa
 	for i := range columns {
 		columnNames[columns[i].ID] = columns[i].Name
 	}
-	users, err := taskmap.ResolveUsers(ctx, s.Users, tasks)
+	users, err := sharedmap.ResolveUsers(ctx, s.Users, tasks)
 	if err != nil {
 		return nil, err
 	}
 	responses := make([]dtask.TaskResponse, 0, len(tasks))
 	for _, task := range tasks {
-		responses = append(responses, taskmap.BuildTaskResponse(task, users, taskmap.TaskResponseCtx{
+		responses = append(responses, sharedmap.BuildTaskResponse(task, users, sharedmap.TaskResponseCtx{
 			WorkspaceID: workspace.ID,
 			BoardID:     board.ID,
 			BoardName:   board.Name,
 			ColumnName:  columnNames[task.ColumnID],
-			DisplayID:   taskmap.DisplayID(workspace.Prefix, task.ID),
+			DisplayID:   sharedmap.DisplayID(workspace.Prefix, task.ID),
 		}))
 	}
 	return responses, nil

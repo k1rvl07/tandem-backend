@@ -14,7 +14,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/board/core"
-	"github.com/tandem/tandem/internal/usecase/board/features/mapping"
+	"github.com/tandem/tandem/internal/usecase/board/mapping"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 )
 

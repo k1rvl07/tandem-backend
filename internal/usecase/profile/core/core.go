@@ -10,7 +10,7 @@ import (
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 	"go.uber.org/zap"
 )
 
@@ -30,5 +30,5 @@ func New(users repository.UserRepository, hasher service.PasswordHasher, files *
 }
 
 func (c *Core) UserResponse(u *muser.User) *dauth.UserResponse {
-	return taskmap.UserResponse(u)
+	return mapping.UserResponse(u)
 }

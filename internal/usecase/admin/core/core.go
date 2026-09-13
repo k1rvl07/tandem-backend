@@ -11,7 +11,7 @@ import (
 	file "github.com/tandem/tandem/internal/usecase/file"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 
 type Actor struct {
@@ -37,5 +37,5 @@ func (c *Core) BumpUsers(ctx context.Context) {
 }
 
 func (c *Core) UserResponse(u *muser.User) *dauth.UserResponse {
-	return taskmap.UserResponse(u)
+	return mapping.UserResponse(u)
 }

@@ -9,7 +9,7 @@ import (
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 
 type Session struct {
@@ -50,7 +50,7 @@ func (s *Session) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.Log
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 
-	return &dauth.LoginResponse{Token: token, RefreshToken: refreshToken, User: *taskmap.UserResponse(user)}, nil
+	return &dauth.LoginResponse{Token: token, RefreshToken: refreshToken, User: *mapping.UserResponse(user)}, nil
 }
 
 func (s *Session) Refresh(ctx context.Context, refreshToken string) (*dauth.RefreshResponse, error) {

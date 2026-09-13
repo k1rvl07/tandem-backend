@@ -6,7 +6,7 @@ import (
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	dboard "github.com/tandem/tandem/internal/http/dto/board"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	sharedmap "github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 
 func BoardToResponse(board *mboard.Board) *dboard.BoardResponse {
@@ -49,10 +49,10 @@ func BuildColumnDetails(columns []*mcolumn.Column, tasks []*mtask.Task, users ma
 }
 
 func taskToResponse(task *mtask.Task, users map[string]*dtask.TaskUserResponse, prefix, boardID, boardName, columnName string) dtask.TaskResponse {
-	return taskmap.BuildTaskResponse(task, users, taskmap.TaskResponseCtx{
+	return sharedmap.BuildTaskResponse(task, users, sharedmap.TaskResponseCtx{
 		BoardID:    boardID,
 		BoardName:  boardName,
 		ColumnName: columnName,
-		DisplayID:  taskmap.DisplayID(prefix, task.ID),
+		DisplayID:  sharedmap.DisplayID(prefix, task.ID),
 	})
 }

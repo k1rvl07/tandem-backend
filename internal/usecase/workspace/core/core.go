@@ -12,6 +12,7 @@ import (
 	file "github.com/tandem/tandem/internal/usecase/file"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"
+	"github.com/tandem/tandem/internal/usecase/workspace/mapping"
 	"go.uber.org/zap"
 )
 
@@ -108,25 +109,9 @@ func (c *Core) BuildMemberResponses(ctx context.Context, members []mworkspace.Wo
 }
 
 func (c *Core) WorkspaceResponse(ws *mworkspace.Workspace, role mworkspace.WorkspaceRole, isFavorite bool) *dworkspace.WorkspaceResponse {
-	return &dworkspace.WorkspaceResponse{
-		ID:          ws.ID,
-		Name:        ws.Name,
-		Description: ws.Description,
-		Prefix:      ws.Prefix,
-		Theme:       ws.Theme,
-		Role:        string(role),
-		IsFavorite:  isFavorite,
-		CreatedAt:   ws.CreatedAt,
-		UpdatedAt:   ws.UpdatedAt,
-	}
+	return mapping.WorkspaceResponse(ws, role, isFavorite)
 }
 
 func (c *Core) MemberResponse(user *muser.User, role mworkspace.WorkspaceRole) *dworkspace.WorkspaceMemberResponse {
-	return &dworkspace.WorkspaceMemberResponse{
-		ID:          user.ID,
-		Login:       user.Login,
-		DisplayName: user.DisplayName,
-		AvatarKey:   user.AvatarKey,
-		Role:        string(role),
-	}
+	return mapping.MemberResponse(user, role)
 }

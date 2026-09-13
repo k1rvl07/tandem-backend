@@ -13,7 +13,7 @@ import (
 	"github.com/tandem/tandem/internal/pkg/validate"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 	"github.com/tandem/tandem/internal/usecase/task/core"
 	"github.com/tandem/tandem/internal/usecase/task/features/mutate"
 	"github.com/tandem/tandem/internal/usecase/task/features/ordering"
@@ -361,7 +361,7 @@ func (s *Crud) taskReference(ctx context.Context, task *mtask.Task) (*dtask.Task
 	}
 	return &dtask.TaskReference{
 		ID:          task.ID,
-		DisplayID:   taskmap.DisplayID(workspace.Prefix, task.ID),
+		DisplayID:   mapping.DisplayID(workspace.Prefix, task.ID),
 		Title:       task.Title,
 		WorkspaceID: board.WorkspaceID,
 		BoardID:     board.ID,

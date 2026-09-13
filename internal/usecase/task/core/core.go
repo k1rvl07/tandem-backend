@@ -15,7 +15,7 @@ import (
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 
 const (
@@ -79,7 +79,7 @@ func (c *Core) WorkspaceTask(ctx context.Context, workspaceID, taskID string) (*
 }
 
 func (c *Core) ResolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
-	return taskmap.ResolveUsers(ctx, c.Users, tasks)
+	return mapping.ResolveUsers(ctx, c.Users, tasks)
 }
 
 func (c *Core) ResponseFor(ctx context.Context, workspaceID string, task *mtask.Task) (*dtask.TaskResponse, error) {
@@ -124,12 +124,12 @@ func (c *Core) ResponsesFor(ctx context.Context, workspaceID string, tasks []*mt
 		if !ok {
 			info = WorkspaceColumn{BoardID: ""}
 		}
-		responses = append(responses, taskmap.BuildTaskResponse(task, users, taskmap.TaskResponseCtx{
+		responses = append(responses, mapping.BuildTaskResponse(task, users, mapping.TaskResponseCtx{
 			WorkspaceID: workspaceID,
 			BoardID:     info.BoardID,
 			BoardName:   info.BoardName,
 			ColumnName:  info.Name,
-			DisplayID:   taskmap.DisplayID(workspace.Prefix, task.ID),
+			DisplayID:   mapping.DisplayID(workspace.Prefix, task.ID),
 		}))
 	}
 	return responses, nil

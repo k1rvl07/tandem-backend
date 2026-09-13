@@ -12,7 +12,7 @@ import (
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
-	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
+	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 
 const (
@@ -42,5 +42,5 @@ func (c *Core) BoardInWorkspace(ctx context.Context, workspaceID, boardID string
 }
 
 func (c *Core) ResolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
-	return taskmap.ResolveUsers(ctx, c.Users, tasks)
+	return mapping.ResolveUsers(ctx, c.Users, tasks)
 }

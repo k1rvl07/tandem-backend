@@ -9,6 +9,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
+	"github.com/tandem/tandem/internal/usecase/attachment/mapping"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
@@ -38,14 +39,5 @@ func (c *Core) WorkspaceTask(ctx context.Context, workspaceID, taskID string) (*
 }
 
 func (c *Core) AttachmentResponse(attachment *mattachment.TaskAttachment, workspaceID, taskID string) *dattachment.AttachmentResponse {
-	return &dattachment.AttachmentResponse{
-		ID:          attachment.ID,
-		TaskID:      attachment.TaskID,
-		Filename:    attachment.Filename,
-		ContentType: attachment.ContentType,
-		Size:        attachment.Size,
-		UploadedBy:  attachment.UploadedBy,
-		CreatedAt:   attachment.CreatedAt,
-		URL:         "/api/v1/workspaces/" + workspaceID + "/tasks/" + taskID + "/attachments/" + attachment.ID,
-	}
+	return mapping.AttachmentResponse(attachment, workspaceID, taskID)
 }
