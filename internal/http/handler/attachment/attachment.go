@@ -36,14 +36,8 @@ const maxAttachmentRequestSize = 20 << 20
 // @Failure 413 {object} map[string]string
 // @Router /api/v1/workspaces/{id}/tasks/{taskId}/attachments [post]
 func (h *AttachmentHandler) Create(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAttachmentRequestSize)
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		if strings.Contains(err.Error(), "request body too large") {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+	file, header, ok := common.UploadFile(c, maxAttachmentRequestSize)
+	if !ok {
 		return
 	}
 	defer file.Close()

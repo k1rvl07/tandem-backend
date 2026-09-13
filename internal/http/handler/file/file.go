@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/handler/common"
-	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	fileuc "github.com/tandem/tandem/internal/usecase/file"
 )
 
@@ -37,28 +36,15 @@ type uploadResponse struct {
 // @Failure 413 {object} map[string]string
 // @Router /api/v1/files/images [post]
 func (h *FileHandler) UploadImage(c *gin.Context) {
-	userID, _ := c.Get(ctxkeys.CtxUserID)
-	uid, _ := userID.(string)
-	if uid == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImageSize)
-
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		if strings.Contains(err.Error(), "request body too large") {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+	file, header, ok := common.UploadFile(c, maxImageSize)
+	if !ok {
 		return
 	}
 	defer file.Close()
 
 	namespace := c.DefaultQuery("namespace", "avatars")
 
-	key, err := h.files.UploadImage(c.Request.Context(), uid, namespace, header.Filename, header.Header.Get("Content-Type"), file, header.Size)
+	key, err := h.files.UploadImage(c.Request.Context(), common.CurrentUserID(c), namespace, header.Filename, header.Header.Get("Content-Type"), file, header.Size)
 	if err != nil {
 		common.RespondError(c, err)
 		return
@@ -77,14 +63,8 @@ func (h *FileHandler) UploadImage(c *gin.Context) {
 // @Security BearerAuth
 // @Router /api/v1/files/images [delete]
 func (h *FileHandler) DeleteImage(c *gin.Context) {
-	userID, _ := c.Get(ctxkeys.CtxUserID)
-	uid, _ := userID.(string)
-	if uid == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
 	key := strings.TrimSpace(c.Query("key"))
-	if err := h.files.DeleteImage(c.Request.Context(), uid, key); err != nil {
+	if err := h.files.DeleteImage(c.Request.Context(), common.CurrentUserID(c), key); err != nil {
 		common.RespondError(c, err)
 		return
 	}

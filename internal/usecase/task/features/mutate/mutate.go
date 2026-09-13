@@ -95,35 +95,27 @@ func (s *Mutate) ApplyUpdateFields(ctx context.Context, actorID, workspaceID str
 }
 
 func (s *Mutate) ValidateAssignee(ctx context.Context, workspaceID, assigneeID string) (string, error) {
-	if assigneeID == "" {
-		return "", nil
-	}
-	if err := validate.UUID(assigneeID); err != nil {
-		return "", err
-	}
-	if _, err := s.Workspaces.FindMember(ctx, workspaceID, assigneeID); err != nil {
-		if errutil.IsNotFound(err) {
-			return "", pkgerrors.NewValidationError("assignee must be a workspace member")
-		}
-		return "", err
-	}
-	return assigneeID, nil
+	return s.validateMember(ctx, workspaceID, assigneeID, "assignee")
 }
 
 func (s *Mutate) ValidateCurator(ctx context.Context, workspaceID, curatorID string) (string, error) {
-	if curatorID == "" {
+	return s.validateMember(ctx, workspaceID, curatorID, "curator")
+}
+
+func (s *Mutate) validateMember(ctx context.Context, workspaceID, memberID, role string) (string, error) {
+	if memberID == "" {
 		return "", nil
 	}
-	if err := validate.UUID(curatorID); err != nil {
+	if err := validate.UUID(memberID); err != nil {
 		return "", err
 	}
-	if _, err := s.Workspaces.FindMember(ctx, workspaceID, curatorID); err != nil {
+	if _, err := s.Workspaces.FindMember(ctx, workspaceID, memberID); err != nil {
 		if errutil.IsNotFound(err) {
-			return "", pkgerrors.NewValidationError("curator must be a workspace member")
+			return "", pkgerrors.NewValidationError("%s must be a workspace member", role)
 		}
 		return "", err
 	}
-	return curatorID, nil
+	return memberID, nil
 }
 
 func (s *Mutate) ValidateParent(ctx context.Context, workspaceID, parentID, selfID string) (string, error) {

@@ -2,7 +2,9 @@ package common
 
 import (
 	"errors"
+	"mime/multipart"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/pkg/ctxkeys"
@@ -13,6 +15,20 @@ func CurrentUserID(c *gin.Context) string {
 	userID, _ := c.Get(ctxkeys.CtxUserID)
 	uid, _ := userID.(string)
 	return uid
+}
+
+func UploadFile(c *gin.Context, maxSize int64) (multipart.File, *multipart.FileHeader, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		if strings.Contains(err.Error(), "request body too large") {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
+			return nil, nil, false
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		return nil, nil, false
+	}
+	return file, header, true
 }
 
 func ParseJSON(c *gin.Context, dst any) bool {

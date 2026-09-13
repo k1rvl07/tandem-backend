@@ -2,7 +2,6 @@ package profile
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -79,15 +78,8 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 // @Router /api/v1/me/avatar [post]
 func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 	userID := common.CurrentUserID(c)
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImageSize)
-
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		if strings.Contains(err.Error(), "request body too large") {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+	file, header, ok := common.UploadFile(c, maxImageSize)
+	if !ok {
 		return
 	}
 	defer file.Close()
