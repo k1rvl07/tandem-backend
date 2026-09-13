@@ -2,26 +2,15 @@ package attachment
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 
-	"github.com/google/uuid"
-	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
-	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
-	"github.com/tandem/tandem/internal/pkg/validate"
+	attcore "github.com/tandem/tandem/internal/usecase/attachment/core"
+	"github.com/tandem/tandem/internal/usecase/attachment/crud"
 	file "github.com/tandem/tandem/internal/usecase/file"
-	"github.com/tandem/tandem/internal/usecase/shared/access"
-	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
-)
-
-const (
-	eventAttachmentCreated = "attachment.created"
-	eventAttachmentDeleted = "attachment.deleted"
 )
 
 type UseCase interface {
@@ -29,17 +18,6 @@ type UseCase interface {
 	List(ctx context.Context, actorID, workspaceID, taskID string) ([]dattachment.AttachmentResponse, error)
 	Download(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) (*dattachment.AttachmentResponse, io.ReadCloser, error)
 	Delete(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) error
-}
-
-type Service struct {
-	attachments repository.AttachmentRepository
-	tasks       repository.TaskRepository
-	columns     repository.ColumnRepository
-	boards      repository.BoardRepository
-	workspaces  repository.WorkspaceRepository
-	files       *file.Service
-	hub         ws.Hub
-	cache       cache.Cache
 }
 
 type Deps struct {
@@ -53,175 +31,13 @@ type Deps struct {
 	Cache       cache.Cache
 }
 
+type Service struct {
+	*crud.Crud
+}
+
 func NewService(deps Deps) *Service {
-	return &Service{
-		attachments: deps.Attachments,
-		tasks:       deps.Tasks,
-		columns:     deps.Columns,
-		boards:      deps.Boards,
-		workspaces:  deps.Workspaces,
-		files:       deps.Files,
-		hub:         deps.Hub,
-		cache:       deps.Cache,
-	}
-}
-
-func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	cacheutil.Bump(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
-}
-
-func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, filename, contentType string, reader io.Reader, size int64) (*dattachment.AttachmentResponse, error) {
-	if err := validate.UUID(workspaceID); err != nil {
-		return nil, err
-	}
-	if err := validate.UUID(taskID); err != nil {
-		return nil, err
-	}
-	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
-		return nil, err
-	}
-	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
-		return nil, err
-	}
-	key, err := s.files.PrepareAttachment(workspaceID, actorID, filename, size)
-	if err != nil {
-		return nil, err
-	}
-	attachment := &mattachment.TaskAttachment{
-		ID:          uuid.New().String(),
-		TaskID:      taskID,
-		Filename:    filename,
-		ObjectKey:   key,
-		Size:        size,
-		ContentType: contentType,
-		UploadedBy:  actorID,
-	}
-	if err := s.attachments.CreateAttachment(ctx, attachment); err != nil {
-		return nil, err
-	}
-	if err := s.files.PutAttachment(ctx, key, reader, size, contentType); err != nil {
-		_ = s.attachments.DeleteAttachment(ctx, attachment.ID)
-		s.files.RemoveMany(ctx, []string{key})
-		return nil, err
-	}
-	response := attachmentToResponse(attachment, workspaceID, taskID)
-	s.bumpWorkspace(ctx, workspaceID)
-	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{Type: eventAttachmentCreated, Data: response})
-	return response, nil
-}
-
-func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string) ([]dattachment.AttachmentResponse, error) {
-	if err := validate.UUID(workspaceID); err != nil {
-		return nil, err
-	}
-	if err := validate.UUID(taskID); err != nil {
-		return nil, err
-	}
-	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
-		return nil, err
-	}
-	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
-		return nil, err
-	}
-	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.cache, cacheutil.UVerKey+actorID)
-	listKey := fmt.Sprintf("u:%s:t:v1:attach:%s:%s:%s", actorID, taskID, wsver, uver)
-	var cached []dattachment.AttachmentResponse
-	if cacheutil.Load(ctx, s.cache, listKey, &cached) {
-		return cached, nil
-	}
-	attachments, err := s.attachments.ListAttachmentsByTask(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	responses := make([]dattachment.AttachmentResponse, 0, len(attachments))
-	for i := range attachments {
-		responses = append(responses, *attachmentToResponse(&attachments[i], workspaceID, taskID))
-	}
-	cacheutil.Store(ctx, s.cache, listKey, responses, cacheutil.TTL)
-	return responses, nil
-}
-
-func (s *Service) Download(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) (*dattachment.AttachmentResponse, io.ReadCloser, error) {
-	if err := validate.UUID(workspaceID); err != nil {
-		return nil, nil, err
-	}
-	if err := validate.UUID(taskID); err != nil {
-		return nil, nil, err
-	}
-	if err := validate.UUID(attachmentID); err != nil {
-		return nil, nil, err
-	}
-	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
-		return nil, nil, err
-	}
-	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
-		return nil, nil, err
-	}
-	attachment, err := s.attachments.FindAttachmentByID(ctx, attachmentID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if attachment.TaskID != taskID {
-		return nil, nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("attachment not in task"))
-	}
-	rc, err := s.files.OpenFile(ctx, attachment.ObjectKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	return attachmentToResponse(attachment, workspaceID, taskID), rc, nil
-}
-
-func (s *Service) Delete(ctx context.Context, actorID, workspaceID, taskID, attachmentID string) error {
-	if err := validate.UUID(workspaceID); err != nil {
-		return err
-	}
-	if err := validate.UUID(taskID); err != nil {
-		return err
-	}
-	if err := validate.UUID(attachmentID); err != nil {
-		return err
-	}
-	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
-		return err
-	}
-	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
-		return err
-	}
-	attachment, err := s.attachments.FindAttachmentByID(ctx, attachmentID)
-	if err != nil {
-		return err
-	}
-	if attachment.TaskID != taskID {
-		return pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("attachment not in task"))
-	}
-	if err := s.attachments.DeleteAttachment(ctx, attachmentID); err != nil {
-		return err
-	}
-	s.files.RemoveMany(ctx, []string{attachment.ObjectKey})
-	s.bumpWorkspace(ctx, workspaceID)
-	s.hub.BroadcastToRoom(boardRoom(workspaceID), &ws.Message{
-		Type: eventAttachmentDeleted,
-		Data: map[string]string{"id": attachment.ID},
-	})
-	return nil
-}
-
-func attachmentToResponse(attachment *mattachment.TaskAttachment, workspaceID, taskID string) *dattachment.AttachmentResponse {
-	return &dattachment.AttachmentResponse{
-		ID:          attachment.ID,
-		TaskID:      attachment.TaskID,
-		Filename:    attachment.Filename,
-		ContentType: attachment.ContentType,
-		Size:        attachment.Size,
-		UploadedBy:  attachment.UploadedBy,
-		CreatedAt:   attachment.CreatedAt,
-		URL:         "/api/v1/workspaces/" + workspaceID + "/tasks/" + taskID + "/attachments/" + attachment.ID,
-	}
-}
-
-func boardRoom(workspaceID string) string {
-	return "workspace:" + workspaceID
+	c := attcore.New(deps.Attachments, deps.Tasks, deps.Columns, deps.Boards, deps.Workspaces, deps.Files, deps.Hub, deps.Cache)
+	return &Service{Crud: crud.New(c)}
 }
 
 var _ UseCase = (*Service)(nil)
