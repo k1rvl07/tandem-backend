@@ -482,6 +482,48 @@ func (f *FakeTaskRepo) DeleteTask(_ context.Context, id string) error {
 	return nil
 }
 
+func (f *FakeTaskRepo) MoveTask(_ context.Context, task *mtask.Task, targetColumnID string, toPosition int) error {
+	moved, ok := f.Tasks[task.ID]
+	if !ok {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	}
+	source := make([]*mtask.Task, 0, len(f.Tasks))
+	for _, t := range f.Tasks {
+		if t.ColumnID == moved.ColumnID && t.ID != moved.ID {
+			source = append(source, t)
+		}
+	}
+	sortByPosition(source)
+	target := make([]*mtask.Task, 0, len(f.Tasks))
+	for _, t := range f.Tasks {
+		if t.ColumnID == targetColumnID && t.ID != moved.ID {
+			target = append(target, t)
+		}
+	}
+	if targetColumnID != moved.ColumnID {
+		sortByPosition(target)
+	}
+	for i, t := range source {
+		t.Position = i
+	}
+	if toPosition < 0 {
+		toPosition = 0
+	}
+	if toPosition > len(target) {
+		toPosition = len(target)
+	}
+	moved.ColumnID = targetColumnID
+	target = append(target, nil)
+	copy(target[toPosition+1:], target[toPosition:])
+	target[toPosition] = moved
+	for i, t := range target {
+		t.Position = i
+	}
+	task.ColumnID = moved.ColumnID
+	task.Position = moved.Position
+	return nil
+}
+
 func (f *FakeTaskRepo) CollectTaskKeys(_ context.Context, taskID string) ([]string, error) {
 	return nil, nil
 }

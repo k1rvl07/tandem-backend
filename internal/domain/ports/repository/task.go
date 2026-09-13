@@ -12,6 +12,7 @@ type TaskRepository interface {
 	FindTasksByIDs(ctx context.Context, ids []string) (map[string]*mtask.Task, error)
 	UpdateTask(ctx context.Context, task *mtask.Task) error
 	DeleteTask(ctx context.Context, id string) error
+	MoveTask(ctx context.Context, task *mtask.Task, targetColumnID string, toPosition int) error
 	ListTasksForBoard(ctx context.Context, boardID string) ([]*mtask.Task, error)
 	ListTasksForColumn(ctx context.Context, columnID string) ([]*mtask.Task, error)
 	ListTasksForWorkspace(ctx context.Context, workspaceID string) ([]*mtask.Task, error)

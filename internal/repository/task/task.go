@@ -11,6 +11,7 @@ import (
 	"github.com/tandem/tandem/internal/repository/entity/nullstr"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type TaskRepo struct {
@@ -89,6 +90,96 @@ func (r *TaskRepo) DeleteTask(ctx context.Context, id string) error {
 	}
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
+func (r *TaskRepo) MoveTask(ctx context.Context, task *mtask.Task, targetColumnID string, toPosition int) error {
+	if toPosition < 0 {
+		toPosition = 0
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []eboard.Task
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("column_id IN ?", []string{task.ColumnID, targetColumnID}).
+			Order("column_id ASC, position ASC, created_at ASC").
+			Find(&rows).Error
+		if err != nil {
+			return err
+		}
+		var moved *eboard.Task
+		for i := range rows {
+			if rows[i].ID == task.ID {
+				moved = &rows[i]
+				break
+			}
+		}
+		if moved == nil {
+			return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+		}
+
+		list := make([]*eboard.Task, 0, len(rows))
+		for i := range rows {
+			if rows[i].ID != task.ID {
+				list = append(list, &rows[i])
+			}
+		}
+		if targetColumnID != task.ColumnID {
+			source := make([]*eboard.Task, 0, len(rows))
+			for i := range rows {
+				if rows[i].ID != task.ID && rows[i].ColumnID == task.ColumnID {
+					source = append(source, &rows[i])
+				}
+			}
+			target := make([]*eboard.Task, 0, len(rows))
+			for i := range rows {
+				if rows[i].ColumnID == targetColumnID {
+					target = append(target, &rows[i])
+				}
+			}
+			if toPosition > len(target) {
+				toPosition = len(target)
+			}
+			target = append(target, nil)
+			copy(target[toPosition+1:], target[toPosition:])
+			target[toPosition] = moved
+			if err := rewritePositions(tx, source); err != nil {
+				return err
+			}
+			if err := rewritePositions(tx, target); err != nil {
+				return err
+			}
+			if err := tx.Model(&eboard.Task{}).Where("id = ?", task.ID).Update("column_id", targetColumnID).Error; err != nil {
+				return err
+			}
+			task.ColumnID = targetColumnID
+			task.Position = moved.Position
+			return nil
+		}
+
+		if toPosition > len(list) {
+			toPosition = len(list)
+		}
+		list = append(list, nil)
+		copy(list[toPosition+1:], list[toPosition:])
+		list[toPosition] = moved
+		if err := rewritePositions(tx, list); err != nil {
+			return err
+		}
+		task.Position = moved.Position
+		return nil
+	})
+}
+
+func rewritePositions(tx *gorm.DB, tasks []*eboard.Task) error {
+	for i, t := range tasks {
+		if t.Position == i {
+			continue
+		}
+		t.Position = i
+		if err := tx.Model(&eboard.Task{}).Where("id = ?", t.ID).Update("position", i).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }

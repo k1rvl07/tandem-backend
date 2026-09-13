@@ -175,6 +175,59 @@ func TestTaskRepoDeleteCascades(t *testing.T) {
 	})
 }
 
+func TestTaskRepoMove(t *testing.T) {
+	fx := newTaskFixture(t, 2)
+	tasks := make([]*mtask.Task, 3)
+	for i := range tasks {
+		tasks[i] = &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID, Title: fmt.Sprintf("T%d", i), Position: i}
+		testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, tasks[i]))
+	}
+
+	t.Run("reorders within the same column", func(t *testing.T) {
+		moved := &mtask.Task{ID: tasks[2].ID, ColumnID: fx.columns[0].ID}
+		testutil.Must(t, fx.taskRepo.MoveTask(testutil.TestCtx, moved, fx.columns[0].ID, 0))
+		order, err := fx.taskRepo.ListTasksForColumn(testutil.TestCtx, fx.columns[0].ID)
+		testutil.Must(t, err)
+		if len(order) != 3 || order[0].ID != tasks[2].ID || order[1].ID != tasks[0].ID || order[2].ID != tasks[1].ID {
+			t.Fatalf("unexpected order after same-column move: %v", idsOf(order))
+		}
+		if moved.Position != 0 {
+			t.Fatalf("expected moved task position 0, got %d", moved.Position)
+		}
+	})
+
+	t.Run("moves across columns and compacts source order", func(t *testing.T) {
+		moved := &mtask.Task{ID: tasks[0].ID, ColumnID: fx.columns[0].ID}
+		testutil.Must(t, fx.taskRepo.MoveTask(testutil.TestCtx, moved, fx.columns[1].ID, 0))
+		if moved.ColumnID != fx.columns[1].ID {
+			t.Fatalf("expected task column %s, got %s", fx.columns[1].ID, moved.ColumnID)
+		}
+		src, err := fx.taskRepo.ListTasksForColumn(testutil.TestCtx, fx.columns[0].ID)
+		testutil.Must(t, err)
+		if len(src) != 2 || src[0].ID != tasks[2].ID || src[1].ID != tasks[1].ID {
+			t.Fatalf("unexpected source column: %v", idsOf(src))
+		}
+		dst, err := fx.taskRepo.ListTasksForColumn(testutil.TestCtx, fx.columns[1].ID)
+		testutil.Must(t, err)
+		if len(dst) != 1 || dst[0].ID != tasks[0].ID {
+			t.Fatalf("unexpected target column: %v", idsOf(dst))
+		}
+	})
+
+	t.Run("moving a missing task is not found", func(t *testing.T) {
+		ghost := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID}
+		testutil.MustNotFound(t, fx.taskRepo.MoveTask(testutil.TestCtx, ghost, fx.columns[1].ID, 0))
+	})
+}
+
+func idsOf(tasks []*mtask.Task) []string {
+	ids := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		ids = append(ids, t.ID)
+	}
+	return ids
+}
+
 func TestTaskRepoCollectKeys(t *testing.T) {
 	fx := newTaskFixture(t, 1)
 	u := testutil.NewUser(testutil.NewID(), "author")
