@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
+	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 )
 
 type Session struct {
@@ -50,7 +50,7 @@ func (s *Session) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.Log
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 
-	return &dauth.LoginResponse{Token: token, RefreshToken: refreshToken, User: toUserResponse(user)}, nil
+	return &dauth.LoginResponse{Token: token, RefreshToken: refreshToken, User: *taskmap.UserResponse(user)}, nil
 }
 
 func (s *Session) Refresh(ctx context.Context, refreshToken string) (*dauth.RefreshResponse, error) {
@@ -63,17 +63,4 @@ func (s *Session) Refresh(ctx context.Context, refreshToken string) (*dauth.Refr
 
 func (s *Session) Logout(ctx context.Context, userID string) error {
 	return s.tokens.Revoke(ctx, userID)
-}
-
-func toUserResponse(u *muser.User) dauth.UserResponse {
-	return dauth.UserResponse{
-		ID:          u.ID,
-		Login:       u.Login,
-		Role:        u.Role,
-		DisplayName: u.DisplayName,
-		Bio:         u.Bio,
-		AvatarKey:   u.AvatarKey,
-		CreatedAt:   u.CreatedAt,
-		UpdatedAt:   u.UpdatedAt,
-	}
 }

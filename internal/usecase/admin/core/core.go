@@ -9,7 +9,9 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 )
 
 type Actor struct {
@@ -18,17 +20,16 @@ type Actor struct {
 }
 
 type Core struct {
-	Users      repository.UserRepository
-	Hasher     service.PasswordHasher
-	Cache      cache.Cache
-	Tokens     service.TokenService
-	Workspaces repository.WorkspaceRepository
-	Favorites  repository.FavoriteRepository
-	Files      *file.Service
+	sharedbase.Base
+	Users     repository.UserRepository
+	Hasher    service.PasswordHasher
+	Tokens    service.TokenService
+	Favorites repository.FavoriteRepository
+	Files     *file.Service
 }
 
 func New(users repository.UserRepository, hasher service.PasswordHasher, cache cache.Cache, tokens service.TokenService, workspaces repository.WorkspaceRepository, favorites repository.FavoriteRepository, files *file.Service) *Core {
-	return &Core{Users: users, Hasher: hasher, Cache: cache, Tokens: tokens, Workspaces: workspaces, Favorites: favorites, Files: files}
+	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Users: users, Hasher: hasher, Tokens: tokens, Favorites: favorites, Files: files}
 }
 
 func (c *Core) BumpUsers(ctx context.Context) {
@@ -36,14 +37,5 @@ func (c *Core) BumpUsers(ctx context.Context) {
 }
 
 func (c *Core) UserResponse(u *muser.User) *dauth.UserResponse {
-	return &dauth.UserResponse{
-		ID:          u.ID,
-		Login:       u.Login,
-		Role:        u.Role,
-		DisplayName: u.DisplayName,
-		Bio:         u.Bio,
-		AvatarKey:   u.AvatarKey,
-		CreatedAt:   u.CreatedAt,
-		UpdatedAt:   u.UpdatedAt,
-	}
+	return taskmap.UserResponse(u)
 }

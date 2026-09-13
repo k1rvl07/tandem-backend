@@ -10,8 +10,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	file "github.com/tandem/tandem/internal/usecase/file"
-	"github.com/tandem/tandem/internal/usecase/shared/access"
-	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"
 	"go.uber.org/zap"
 )
@@ -22,40 +21,19 @@ const (
 )
 
 type Core struct {
-	Workspaces repository.WorkspaceRepository
-	Users      repository.UserRepository
-	Favorites  repository.FavoriteRepository
-	Boards     repository.BoardRepository
-	Columns    repository.ColumnRepository
-	Tasks      repository.TaskRepository
-	Files      *file.Service
-	Hub        ws.Hub
-	Cache      cache.Cache
-	Logger     *zap.Logger
+	sharedbase.Base
+	Users     repository.UserRepository
+	Favorites repository.FavoriteRepository
+	Boards    repository.BoardRepository
+	Columns   repository.ColumnRepository
+	Tasks     repository.TaskRepository
+	Files     *file.Service
+	Hub       ws.Hub
+	Logger    *zap.Logger
 }
 
 func New(workspaces repository.WorkspaceRepository, users repository.UserRepository, favorites repository.FavoriteRepository, boards repository.BoardRepository, columns repository.ColumnRepository, tasks repository.TaskRepository, files *file.Service, hub ws.Hub, cache cache.Cache, logger *zap.Logger) *Core {
-	return &Core{Workspaces: workspaces, Users: users, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: hub, Cache: cache, Logger: logger}
-}
-
-func (c *Core) MemberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	return access.MemberOrForbidden(ctx, c.Workspaces, workspaceID, actorID)
-}
-
-func (c *Core) RequireOwner(role mworkspace.WorkspaceRole) error {
-	return access.RequireOwner(role)
-}
-
-func (c *Core) RequireEditor(role mworkspace.WorkspaceRole) error {
-	return access.RequireEditor(role)
-}
-
-func (c *Core) BumpWorkspace(ctx context.Context, workspaceID string) {
-	cacheutil.BumpWorkspace(ctx, c.Cache, workspaceID)
-}
-
-func (c *Core) BumpUser(ctx context.Context, userID string) {
-	cacheutil.Bump(ctx, c.Cache, cacheutil.UVerKey+userID)
+	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Users: users, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: hub, Logger: logger}
 }
 
 func (c *Core) BumpMembers(ctx context.Context, workspaceID string) {
@@ -66,10 +44,6 @@ func (c *Core) BumpMembers(ctx context.Context, workspaceID string) {
 	for i := range members {
 		c.BumpUser(ctx, members[i].UserID)
 	}
-}
-
-func (c *Core) Room(workspaceID string) string {
-	return "workspace:" + workspaceID
 }
 
 func (c *Core) BroadcastUpdated(ctx context.Context, workspaceID string, role mworkspace.WorkspaceRole) {

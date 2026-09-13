@@ -7,11 +7,10 @@ import (
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	dboard "github.com/tandem/tandem/internal/http/dto/board"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
-	"github.com/tandem/tandem/internal/usecase/shared/errutil"
+	"github.com/tandem/tandem/internal/usecase/board/mapping"
 	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
 )
@@ -55,16 +54,7 @@ func (s *Build) BuildBrick(ctx context.Context, actorID string, workspace *mwork
 			return core.TreeBrick{}, err
 		}
 		treeBoards = append(treeBoards, dtree.TreeBoardResponse{
-			Board: dboard.BoardResponse{
-				ID:          board.ID,
-				WorkspaceID: board.WorkspaceID,
-				Name:        board.Name,
-				Position:    board.Position,
-				IsMain:      board.IsMain,
-				IsFavorite:  false,
-				CreatedAt:   board.CreatedAt,
-				UpdatedAt:   board.UpdatedAt,
-			},
+			Board: *mapping.BoardToResponse(board),
 			Tasks: responses,
 		})
 	}
@@ -125,14 +115,8 @@ func (s *Build) taskMatches(filter string, task *mtask.Task, actorID string) boo
 
 func (s *Build) taskResponses(ctx context.Context, workspace *mworkspace.Workspace, board *mboard.Board, tasks []*mtask.Task) ([]dtask.TaskResponse, error) {
 	columnNames := make(map[string]string)
-	ids := make(map[string]bool)
 	for _, task := range tasks {
 		columnNames[task.ColumnID] = ""
-		for _, id := range []string{task.AuthorID, task.AssigneeID, task.CuratorID} {
-			if id != "" {
-				ids[id] = true
-			}
-		}
 	}
 	columns, err := s.Columns.ListColumnsForWorkspace(ctx, workspace.ID)
 	if err != nil {
@@ -141,46 +125,19 @@ func (s *Build) taskResponses(ctx context.Context, workspace *mworkspace.Workspa
 	for i := range columns {
 		columnNames[columns[i].ID] = columns[i].Name
 	}
-	users := make(map[string]*dtask.TaskUserResponse)
-	for id := range ids {
-		user, err := s.Users.FindByID(ctx, id)
-		if err != nil {
-			if errutil.IsNotFound(err) {
-				continue
-			}
-			return nil, err
-		}
-		users[id] = &dtask.TaskUserResponse{
-			ID:          user.ID,
-			Login:       user.Login,
-			DisplayName: user.DisplayName,
-			AvatarKey:   user.AvatarKey,
-		}
+	users, err := taskmap.ResolveUsers(ctx, s.Users, tasks)
+	if err != nil {
+		return nil, err
 	}
 	responses := make([]dtask.TaskResponse, 0, len(tasks))
 	for _, task := range tasks {
-		responses = append(responses, dtask.TaskResponse{
-			ID:          task.ID,
-			DisplayID:   taskmap.DisplayID(workspace.Prefix, task.ID),
+		responses = append(responses, taskmap.BuildTaskResponse(task, users, taskmap.TaskResponseCtx{
 			WorkspaceID: workspace.ID,
 			BoardID:     board.ID,
 			BoardName:   board.Name,
-			ColumnID:    task.ColumnID,
 			ColumnName:  columnNames[task.ColumnID],
-			Title:       task.Title,
-			Description: task.Description,
-			Author:      users[task.AuthorID],
-			Assignee:    users[task.AssigneeID],
-			Curator:     users[task.CuratorID],
-			ParentID:    task.ParentID,
-			DueDate:     task.DueDate,
-			Position:    task.Position,
-			IsUrgent:    task.IsUrgent,
-			IsHidden:    task.IsHidden,
-			ImageKey:    task.ImageKey,
-			CreatedAt:   task.CreatedAt,
-			UpdatedAt:   task.UpdatedAt,
-		})
+			DisplayID:   taskmap.DisplayID(workspace.Prefix, task.ID),
+		}))
 	}
 	return responses, nil
 }

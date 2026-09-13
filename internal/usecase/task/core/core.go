@@ -7,7 +7,6 @@ import (
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
@@ -15,7 +14,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"
-	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 )
 
@@ -26,32 +25,23 @@ const (
 )
 
 type Core struct {
-	Tasks      repository.TaskRepository
-	Columns    repository.ColumnRepository
-	Boards     repository.BoardRepository
-	Workspaces repository.WorkspaceRepository
-	Users      repository.UserRepository
-	Files      *file.Service
-	Hub        ws.Hub
-	Cache      cache.Cache
+	sharedbase.Base
+	Tasks   repository.TaskRepository
+	Columns repository.ColumnRepository
+	Boards  repository.BoardRepository
+	Users   repository.UserRepository
+	Files   *file.Service
+	Hub     ws.Hub
 }
 
 func New(tasks repository.TaskRepository, columns repository.ColumnRepository, boards repository.BoardRepository, workspaces repository.WorkspaceRepository, users repository.UserRepository, files *file.Service, hub ws.Hub, cache cache.Cache) *Core {
-	return &Core{Tasks: tasks, Columns: columns, Boards: boards, Workspaces: workspaces, Users: users, Files: files, Hub: hub, Cache: cache}
+	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Tasks: tasks, Columns: columns, Boards: boards, Users: users, Files: files, Hub: hub}
 }
 
 type WorkspaceColumn struct {
 	Name      string
 	BoardID   string
 	BoardName string
-}
-
-func (c *Core) BumpWorkspace(ctx context.Context, workspaceID string) {
-	cacheutil.BumpWorkspace(ctx, c.Cache, workspaceID)
-}
-
-func (c *Core) MemberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	return access.MemberOrForbidden(ctx, c.Workspaces, workspaceID, actorID)
 }
 
 func (c *Core) BoardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
@@ -86,10 +76,6 @@ func (c *Core) TaskInBoard(ctx context.Context, boardID, taskID string) (*mtask.
 
 func (c *Core) WorkspaceTask(ctx context.Context, workspaceID, taskID string) (*mtask.Task, error) {
 	return access.TaskInWorkspace(ctx, c.Tasks, c.Columns, c.Boards, workspaceID, taskID)
-}
-
-func (c *Core) Room(workspaceID string) string {
-	return "workspace:" + workspaceID
 }
 
 func (c *Core) ResolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {

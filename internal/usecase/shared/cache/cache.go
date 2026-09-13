@@ -44,6 +44,10 @@ func BumpWorkspace(ctx context.Context, c cache.Cache, workspaceID string) {
 	Bump(ctx, c, WSVerKey+workspaceID)
 }
 
+func BumpUser(ctx context.Context, c cache.Cache, userID string) {
+	Bump(ctx, c, UVerKey+userID)
+}
+
 func Load(ctx context.Context, c cache.Cache, key string, dst any) bool {
 	if c == nil {
 		return false

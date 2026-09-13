@@ -1,30 +1,23 @@
 package core
 
 import (
-	"context"
-
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 const EventFavoritesUpdated = "favorites.updated"
 
 type Core struct {
-	Favorites  repository.FavoriteRepository
-	Workspaces repository.WorkspaceRepository
-	Boards     repository.BoardRepository
-	Hub        ws.Hub
-	Cache      cache.Cache
+	sharedbase.Base
+	Favorites repository.FavoriteRepository
+	Boards    repository.BoardRepository
+	Hub       ws.Hub
 }
 
 func New(favorites repository.FavoriteRepository, workspaces repository.WorkspaceRepository, boards repository.BoardRepository, hub ws.Hub, cache cache.Cache) *Core {
-	return &Core{Favorites: favorites, Workspaces: workspaces, Boards: boards, Hub: hub, Cache: cache}
-}
-
-func (c *Core) BumpUser(ctx context.Context, actorID string) {
-	cacheutil.Bump(ctx, c.Cache, cacheutil.UVerKey+actorID)
+	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Favorites: favorites, Boards: boards, Hub: hub}
 }
 
 func (c *Core) BroadcastUpdated(actorID, targetType, targetID string) {
