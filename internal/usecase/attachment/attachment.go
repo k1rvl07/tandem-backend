@@ -4,13 +4,10 @@ import (
 	"context"
 	"io"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
 	attcore "github.com/tandem/tandem/internal/usecase/attachment/core"
 	"github.com/tandem/tandem/internal/usecase/attachment/crud"
-	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type UseCase interface {
@@ -21,14 +18,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Attachments repository.AttachmentRepository
-	Tasks       repository.TaskRepository
-	Columns     repository.ColumnRepository
-	Boards      repository.BoardRepository
-	Workspaces  repository.WorkspaceRepository
-	Files       *file.Service
-	Hub         ws.Hub
-	Cache       cache.Cache
+	base.Deps
 }
 
 type Service struct {

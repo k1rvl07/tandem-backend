@@ -11,20 +11,21 @@ import (
 	eboard "github.com/tandem/tandem/internal/repository/entity/board"
 	efavorite "github.com/tandem/tandem/internal/repository/entity/favorite"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
+	"github.com/tandem/tandem/internal/repository/postgres"
 	"gorm.io/gorm"
 )
 
 type BoardRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewBoardRepo(db *gorm.DB) *BoardRepo {
-	return &BoardRepo{db: db}
+	return &BoardRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *BoardRepo) CreateBoard(ctx context.Context, board *mboard.Board) error {
 	e := boardToEntity(board)
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -35,19 +36,15 @@ func (r *BoardRepo) CreateBoard(ctx context.Context, board *mboard.Board) error 
 
 func (r *BoardRepo) FindBoardByID(ctx context.Context, id string) (*mboard.Board, error) {
 	var e eboard.Board
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "id = ?", id); err != nil {
+		return nil, err
 	}
 	return boardToDomain(&e), nil
 }
 
 func (r *BoardRepo) UpdateBoard(ctx context.Context, board *mboard.Board) error {
 	e := boardToEntity(board)
-	err := r.db.WithContext(ctx).Model(&eboard.Board{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
+	err := r.helper.DB.WithContext(ctx).Model(&eboard.Board{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
 		"name":     e.Name,
 		"position": e.Position,
 		"is_main":  e.IsMain,
@@ -59,7 +56,7 @@ func (r *BoardRepo) UpdateBoard(ctx context.Context, board *mboard.Board) error 
 }
 
 func (r *BoardRepo) ClearMainBoards(ctx context.Context, workspaceID string) error {
-	err := r.db.WithContext(ctx).Model(&eboard.Board{}).Where("workspace_id = ?", workspaceID).Update("is_main", false).Error
+	err := r.helper.DB.WithContext(ctx).Model(&eboard.Board{}).Where("workspace_id = ?", workspaceID).Update("is_main", false).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -67,7 +64,7 @@ func (r *BoardRepo) ClearMainBoards(ctx context.Context, workspaceID string) err
 }
 
 func (r *BoardRepo) DeleteBoard(ctx context.Context, id string) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("task_id IN (SELECT tasks.id FROM tasks JOIN board_columns ON board_columns.id = tasks.column_id WHERE board_columns.board_id = ?)", id).Delete(&etask.TaskAttachment{}).Error; err != nil {
 			return err
 		}
@@ -100,9 +97,8 @@ func (r *BoardRepo) DeleteBoard(ctx context.Context, id string) error {
 
 func (r *BoardRepo) ListBoards(ctx context.Context, workspaceID string) ([]*mboard.Board, error) {
 	var es []eboard.Board
-	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("position ASC, created_at ASC").Find(&es).Error
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.List(ctx, &es, "position ASC, created_at ASC", "workspace_id = ?", workspaceID); err != nil {
+		return nil, err
 	}
 	boards := make([]*mboard.Board, 0, len(es))
 	for i := range es {
@@ -117,7 +113,7 @@ func (r *BoardRepo) CountTasksByBoard(ctx context.Context, workspaceID string) (
 		Count   int
 	}
 	var rows []row
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Model(&eboard.Task{}).
 		Select("cols.board_id as board_id, count(tasks.id) as count").
 		Joins("JOIN board_columns cols ON cols.id = tasks.column_id").
@@ -135,7 +131,7 @@ func (r *BoardRepo) CountTasksByBoard(ctx context.Context, workspaceID string) (
 }
 
 func (r *BoardRepo) ReorderBoards(ctx context.Context, workspaceID string, boardIDs []string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for i, id := range boardIDs {
 			res := tx.Model(&eboard.Board{}).
 				Where("id = ? AND workspace_id = ?", id, workspaceID).

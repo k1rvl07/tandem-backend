@@ -2,7 +2,6 @@ package taskext
 
 import (
 	"context"
-	"errors"
 
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
 	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
@@ -16,11 +15,11 @@ import (
 )
 
 type AttachmentRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewAttachmentRepo(db *gorm.DB) *AttachmentRepo {
-	return &AttachmentRepo{db: db}
+	return &AttachmentRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *AttachmentRepo) CreateAttachment(ctx context.Context, attachment *mattachment.TaskAttachment) error {
@@ -33,7 +32,7 @@ func (r *AttachmentRepo) CreateAttachment(ctx context.Context, attachment *matta
 		ContentType: attachment.ContentType,
 		UploadedBy:  nullstr.NilIfEmpty(attachment.UploadedBy),
 	}
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -43,12 +42,8 @@ func (r *AttachmentRepo) CreateAttachment(ctx context.Context, attachment *matta
 
 func (r *AttachmentRepo) FindAttachmentByID(ctx context.Context, id string) (*mattachment.TaskAttachment, error) {
 	var e etask.TaskAttachment
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "id = ?", id); err != nil {
+		return nil, err
 	}
 	return &mattachment.TaskAttachment{
 		ID:          e.ID,
@@ -64,9 +59,8 @@ func (r *AttachmentRepo) FindAttachmentByID(ctx context.Context, id string) (*ma
 
 func (r *AttachmentRepo) ListAttachmentsByTask(ctx context.Context, taskID string) ([]mattachment.TaskAttachment, error) {
 	var es []etask.TaskAttachment
-	err := r.db.WithContext(ctx).Where("task_id = ?", taskID).Order("created_at ASC").Find(&es).Error
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.List(ctx, &es, "created_at ASC", "task_id = ?", taskID); err != nil {
+		return nil, err
 	}
 	attachments := make([]mattachment.TaskAttachment, 0, len(es))
 	for i := range es {
@@ -85,7 +79,7 @@ func (r *AttachmentRepo) ListAttachmentsByTask(ctx context.Context, taskID strin
 }
 
 func (r *AttachmentRepo) DeleteAttachment(ctx context.Context, id string) error {
-	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&etask.TaskAttachment{})
+	res := r.helper.DB.WithContext(ctx).Where("id = ?", id).Delete(&etask.TaskAttachment{})
 	if res.Error != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
 	}
@@ -98,11 +92,11 @@ func (r *AttachmentRepo) DeleteAttachment(ctx context.Context, id string) error 
 var _ repository.AttachmentRepository = (*AttachmentRepo)(nil)
 
 type FavoriteRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewFavoriteRepo(db *gorm.DB) *FavoriteRepo {
-	return &FavoriteRepo{db: db}
+	return &FavoriteRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *FavoriteRepo) AddFavorite(ctx context.Context, favorite *mfavorite.Favorite) error {
@@ -112,7 +106,7 @@ func (r *FavoriteRepo) AddFavorite(ctx context.Context, favorite *mfavorite.Favo
 		TargetType: favorite.TargetType,
 		TargetID:   favorite.TargetID,
 	}
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
 			return nil
@@ -124,7 +118,7 @@ func (r *FavoriteRepo) AddFavorite(ctx context.Context, favorite *mfavorite.Favo
 }
 
 func (r *FavoriteRepo) RemoveFavorite(ctx context.Context, userID, targetType, targetID string) error {
-	res := r.db.WithContext(ctx).
+	res := r.helper.DB.WithContext(ctx).
 		Where("user_id = ? AND target_type = ? AND target_id = ?", userID, targetType, targetID).
 		Delete(&efavorite.Favorite{})
 	if res.Error != nil {
@@ -134,22 +128,13 @@ func (r *FavoriteRepo) RemoveFavorite(ctx context.Context, userID, targetType, t
 }
 
 func (r *FavoriteRepo) IsFavorite(ctx context.Context, userID, targetType, targetID string) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&efavorite.Favorite{}).
-		Where("user_id = ? AND target_type = ? AND target_id = ?", userID, targetType, targetID).
-		Count(&count).Error
-	if err != nil {
-		return false, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
-	}
-	return count > 0, nil
+	return r.helper.Exists(ctx, &efavorite.Favorite{}, "user_id = ? AND target_type = ? AND target_id = ?", userID, targetType, targetID)
 }
 
 func (r *FavoriteRepo) ListFavoriteTargets(ctx context.Context, userID, targetType string) (map[string]bool, error) {
 	var es []efavorite.Favorite
-	err := r.db.WithContext(ctx).Where("user_id = ? AND target_type = ?", userID, targetType).Find(&es).Error
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.Find(ctx, &es, "user_id = ? AND target_type = ?", userID, targetType); err != nil {
+		return nil, err
 	}
 	result := make(map[string]bool, len(es))
 	for i := range es {
@@ -159,7 +144,7 @@ func (r *FavoriteRepo) ListFavoriteTargets(ctx context.Context, userID, targetTy
 }
 
 func (r *FavoriteRepo) DeleteUserFavorites(ctx context.Context, userID string) error {
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&efavorite.Favorite{}).Error
+	err := r.helper.DB.WithContext(ctx).Where("user_id = ?", userID).Delete(&efavorite.Favorite{}).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}

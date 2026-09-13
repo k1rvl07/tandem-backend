@@ -10,21 +10,22 @@ import (
 	eboard "github.com/tandem/tandem/internal/repository/entity/board"
 	"github.com/tandem/tandem/internal/repository/entity/nullstr"
 	etask "github.com/tandem/tandem/internal/repository/entity/task"
+	"github.com/tandem/tandem/internal/repository/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type TaskRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewTaskRepo(db *gorm.DB) *TaskRepo {
-	return &TaskRepo{db: db}
+	return &TaskRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *TaskRepo) CreateTask(ctx context.Context, task *mtask.Task) error {
 	e := taskToEntity(task)
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -35,12 +36,8 @@ func (r *TaskRepo) CreateTask(ctx context.Context, task *mtask.Task) error {
 
 func (r *TaskRepo) FindTaskByID(ctx context.Context, id string) (*mtask.Task, error) {
 	var e eboard.Task
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "id = ?", id); err != nil {
+		return nil, err
 	}
 	return taskToDomain(&e), nil
 }
@@ -64,7 +61,7 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *mtask.Task) error {
 	} else {
 		updates["due_date"] = nil
 	}
-	err := r.db.WithContext(ctx).Model(&eboard.Task{}).Where("id = ?", task.ID).Updates(updates).Error
+	err := r.helper.DB.WithContext(ctx).Model(&eboard.Task{}).Where("id = ?", task.ID).Updates(updates).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -72,7 +69,7 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *mtask.Task) error {
 }
 
 func (r *TaskRepo) DeleteTask(ctx context.Context, id string) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("task_id IN (SELECT id FROM tasks WHERE id = ? OR parent_id = ?)", id, id).Delete(&etask.TaskAttachment{}).Error; err != nil {
 			return err
 		}
@@ -98,7 +95,7 @@ func (r *TaskRepo) MoveTask(ctx context.Context, task *mtask.Task, targetColumnI
 	if toPosition < 0 {
 		toPosition = 0
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []eboard.Task
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("column_id IN ?", []string{task.ColumnID, targetColumnID}).
@@ -186,7 +183,7 @@ func rewritePositions(tx *gorm.DB, tasks []*eboard.Task) error {
 
 func (r *TaskRepo) ListTasksForBoard(ctx context.Context, boardID string) ([]*mtask.Task, error) {
 	var es []eboard.Task
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("tasks").
 		Select("tasks.*").
 		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
@@ -201,7 +198,7 @@ func (r *TaskRepo) ListTasksForBoard(ctx context.Context, boardID string) ([]*mt
 
 func (r *TaskRepo) ListTasksForColumn(ctx context.Context, columnID string) ([]*mtask.Task, error) {
 	var es []eboard.Task
-	err := r.db.WithContext(ctx).Where("column_id = ?", columnID).Order("position ASC, created_at ASC").Find(&es).Error
+	err := r.helper.DB.WithContext(ctx).Where("column_id = ?", columnID).Order("position ASC, created_at ASC").Find(&es).Error
 	if err != nil {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -210,7 +207,7 @@ func (r *TaskRepo) ListTasksForColumn(ctx context.Context, columnID string) ([]*
 
 func (r *TaskRepo) ListTasksForWorkspace(ctx context.Context, workspaceID string) ([]*mtask.Task, error) {
 	var es []eboard.Task
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("tasks").
 		Select("tasks.*").
 		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
@@ -229,7 +226,7 @@ func (r *TaskRepo) FindTasksByIDs(ctx context.Context, ids []string) (map[string
 		return map[string]*mtask.Task{}, nil
 	}
 	var es []eboard.Task
-	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&es).Error
+	err := r.helper.DB.WithContext(ctx).Where("id IN ?", ids).Find(&es).Error
 	if err != nil {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -242,7 +239,7 @@ func (r *TaskRepo) FindTasksByIDs(ctx context.Context, ids []string) (map[string
 
 func (r *TaskRepo) ListChildTasks(ctx context.Context, parentID string) ([]*mtask.Task, error) {
 	var es []eboard.Task
-	err := r.db.WithContext(ctx).Where("parent_id = ?", parentID).Order("position ASC, created_at ASC").Find(&es).Error
+	err := r.helper.DB.WithContext(ctx).Where("parent_id = ?", parentID).Order("position ASC, created_at ASC").Find(&es).Error
 	if err != nil {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -251,7 +248,7 @@ func (r *TaskRepo) ListChildTasks(ctx context.Context, parentID string) ([]*mtas
 
 func (r *TaskRepo) CollectTaskKeys(ctx context.Context, taskID string) ([]string, error) {
 	var imageKeys []string
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Model(&eboard.Task{}).
 		Where("(id = ? OR parent_id = ?) AND image_key <> ''", taskID, taskID).
 		Pluck("image_key", &imageKeys).Error
@@ -268,7 +265,7 @@ func (r *TaskRepo) CollectTaskKeys(ctx context.Context, taskID string) ([]string
 
 func (r *TaskRepo) CollectBoardKeys(ctx context.Context, boardID string) ([]string, error) {
 	var imageKeys []string
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("tasks").
 		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
 		Where("board_columns.board_id = ? AND tasks.image_key <> ''", boardID).
@@ -286,7 +283,7 @@ func (r *TaskRepo) CollectBoardKeys(ctx context.Context, boardID string) ([]stri
 
 func (r *TaskRepo) CollectWorkspaceKeys(ctx context.Context, workspaceID string) ([]string, error) {
 	var imageKeys []string
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("tasks").
 		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
 		Joins("JOIN boards ON boards.id = board_columns.board_id").
@@ -305,7 +302,7 @@ func (r *TaskRepo) CollectWorkspaceKeys(ctx context.Context, workspaceID string)
 
 func (r *TaskRepo) collectAttachmentKeys(ctx context.Context, scope string, args ...interface{}) ([]string, error) {
 	var keys []string
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("task_attachments").
 		Select("task_attachments.object_key").
 		Joins("JOIN tasks ON tasks.id = task_attachments.task_id").

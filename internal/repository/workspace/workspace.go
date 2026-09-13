@@ -18,16 +18,16 @@ import (
 )
 
 type WorkspaceRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewWorkspaceRepo(db *gorm.DB) *WorkspaceRepo {
-	return &WorkspaceRepo{db: db}
+	return &WorkspaceRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *WorkspaceRepo) CreateWorkspace(ctx context.Context, ws *mworkspace.Workspace) error {
 	e := workspaceToEntity(ws)
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
 			return pkgerrors.Wrap(pkgerrors.ErrConflict, err)
@@ -41,31 +41,23 @@ func (r *WorkspaceRepo) CreateWorkspace(ctx context.Context, ws *mworkspace.Work
 
 func (r *WorkspaceRepo) FindWorkspaceByID(ctx context.Context, id string) (*mworkspace.Workspace, error) {
 	var e eworkspace.Workspace
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "id = ?", id); err != nil {
+		return nil, err
 	}
 	return workspaceToDomain(&e), nil
 }
 
 func (r *WorkspaceRepo) FindWorkspaceByInvite(ctx context.Context, token string) (*mworkspace.Workspace, error) {
 	var e eworkspace.Workspace
-	err := r.db.WithContext(ctx).Where("invite_token = ? AND invite_token <> ''", token).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "invite_token = ? AND invite_token <> ''", token); err != nil {
+		return nil, err
 	}
 	return workspaceToDomain(&e), nil
 }
 
 func (r *WorkspaceRepo) UpdateWorkspace(ctx context.Context, ws *mworkspace.Workspace) error {
 	e := workspaceToEntity(ws)
-	err := r.db.WithContext(ctx).Model(&eworkspace.Workspace{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
+	err := r.helper.DB.WithContext(ctx).Model(&eworkspace.Workspace{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
 		"name":         e.Name,
 		"description":  e.Description,
 		"prefix":       e.Prefix,
@@ -79,7 +71,7 @@ func (r *WorkspaceRepo) UpdateWorkspace(ctx context.Context, ws *mworkspace.Work
 }
 
 func (r *WorkspaceRepo) UpdateInvite(ctx context.Context, workspaceID, token string, expiresAt *time.Time) error {
-	res := r.db.WithContext(ctx).Model(&eworkspace.Workspace{}).
+	res := r.helper.DB.WithContext(ctx).Model(&eworkspace.Workspace{}).
 		Where("id = ?", workspaceID).
 		Updates(map[string]interface{}{
 			"invite_token":      token,
@@ -95,7 +87,7 @@ func (r *WorkspaceRepo) UpdateInvite(ctx context.Context, workspaceID, token str
 }
 
 func (r *WorkspaceRepo) DeleteWorkspace(ctx context.Context, id string) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("workspace_id = ?", id).Delete(&eworkspace.WorkspaceMember{}).Error; err != nil {
 			return err
 		}
@@ -140,7 +132,7 @@ func (r *WorkspaceRepo) ListWorkspacesForUser(ctx context.Context, userID string
 		eworkspace.Workspace
 		Role string
 	}
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("workspace_members").
 		Select("workspaces.*, workspace_members.role").
 		Joins("JOIN workspaces ON workspaces.id = workspace_members.workspace_id").
@@ -166,7 +158,7 @@ func (r *WorkspaceRepo) AddMember(ctx context.Context, workspaceID, userID strin
 		UserID:      userID,
 		Role:        string(role),
 	}
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
 			return pkgerrors.Wrap(pkgerrors.ErrConflict, err)
@@ -178,12 +170,8 @@ func (r *WorkspaceRepo) AddMember(ctx context.Context, workspaceID, userID strin
 
 func (r *WorkspaceRepo) FindMember(ctx context.Context, workspaceID, userID string) (*mworkspace.WorkspaceMember, error) {
 	var e eworkspace.WorkspaceMember
-	err := r.db.WithContext(ctx).Where("workspace_id = ? AND user_id = ?", workspaceID, userID).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "workspace_id = ? AND user_id = ?", workspaceID, userID); err != nil {
+		return nil, err
 	}
 	return &mworkspace.WorkspaceMember{
 		WorkspaceID: e.WorkspaceID,
@@ -194,7 +182,7 @@ func (r *WorkspaceRepo) FindMember(ctx context.Context, workspaceID, userID stri
 }
 
 func (r *WorkspaceRepo) RemoveMember(ctx context.Context, workspaceID, userID string) error {
-	res := r.db.WithContext(ctx).Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&eworkspace.WorkspaceMember{})
+	res := r.helper.DB.WithContext(ctx).Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&eworkspace.WorkspaceMember{})
 	if res.Error != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
 	}
@@ -205,7 +193,7 @@ func (r *WorkspaceRepo) RemoveMember(ctx context.Context, workspaceID, userID st
 }
 
 func (r *WorkspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userID string, role mworkspace.WorkspaceRole) error {
-	res := r.db.WithContext(ctx).Model(&eworkspace.WorkspaceMember{}).
+	res := r.helper.DB.WithContext(ctx).Model(&eworkspace.WorkspaceMember{}).
 		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
 		Update("role", string(role))
 	if res.Error != nil {
@@ -219,9 +207,8 @@ func (r *WorkspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userI
 
 func (r *WorkspaceRepo) ListMembers(ctx context.Context, workspaceID string) ([]mworkspace.WorkspaceMember, error) {
 	var es []eworkspace.WorkspaceMember
-	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at ASC").Find(&es).Error
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.List(ctx, &es, "created_at ASC", "workspace_id = ?", workspaceID); err != nil {
+		return nil, err
 	}
 	members := make([]mworkspace.WorkspaceMember, 0, len(es))
 	for i := range es {
@@ -236,7 +223,7 @@ func (r *WorkspaceRepo) ListMembers(ctx context.Context, workspaceID string) ([]
 }
 
 func (r *WorkspaceRepo) DeleteMembersByWorkspace(ctx context.Context, workspaceID string) error {
-	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Delete(&eworkspace.WorkspaceMember{}).Error
+	err := r.helper.DB.WithContext(ctx).Where("workspace_id = ?", workspaceID).Delete(&eworkspace.WorkspaceMember{}).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -244,7 +231,7 @@ func (r *WorkspaceRepo) DeleteMembersByWorkspace(ctx context.Context, workspaceI
 }
 
 func (r *WorkspaceRepo) DeleteMembersByUser(ctx context.Context, userID string) error {
-	err := r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&eworkspace.WorkspaceMember{}).Error
+	err := r.helper.DB.WithContext(ctx).Where("user_id = ?", userID).Delete(&eworkspace.WorkspaceMember{}).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -252,7 +239,7 @@ func (r *WorkspaceRepo) DeleteMembersByUser(ctx context.Context, userID string) 
 }
 
 func (r *WorkspaceRepo) TransferOwnership(ctx context.Context, workspaceID, oldOwnerID, newOwnerID string) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		oldRes := tx.Model(&eworkspace.WorkspaceMember{}).
 			Where("workspace_id = ? AND user_id = ?", workspaceID, oldOwnerID).
 			Update("role", string(mworkspace.RoleEditor))

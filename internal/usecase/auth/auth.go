@@ -2,12 +2,10 @@ package auth
 
 import (
 	"context"
-	"time"
 
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/service"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/usecase/auth/session"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type UseCase interface {
@@ -17,11 +15,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Users      repository.UserRepository
-	Tokens     service.TokenService
-	Hasher     service.PasswordHasher
-	TokenTTL   time.Duration
-	RefreshTTL time.Duration
+	base.Deps
 }
 
 type Service struct {

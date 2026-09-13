@@ -3,16 +3,12 @@ package workspace
 import (
 	"context"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
-	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/workspace/core"
 	"github.com/tandem/tandem/internal/usecase/workspace/crud"
 	"github.com/tandem/tandem/internal/usecase/workspace/invites"
 	"github.com/tandem/tandem/internal/usecase/workspace/members"
-	"go.uber.org/zap"
 )
 
 type UseCase interface {
@@ -32,16 +28,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Workspaces repository.WorkspaceRepository
-	Users      repository.UserRepository
-	Favorites  repository.FavoriteRepository
-	Boards     repository.BoardRepository
-	Columns    repository.ColumnRepository
-	Tasks      repository.TaskRepository
-	Files      *file.Service
-	Hub        ws.Hub
-	Cache      cache.Cache
-	Logger     *zap.Logger
+	base.Deps
 }
 
 type Service struct {

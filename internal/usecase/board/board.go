@@ -3,13 +3,10 @@ package board
 import (
 	"context"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dboard "github.com/tandem/tandem/internal/http/dto/board"
 	"github.com/tandem/tandem/internal/usecase/board/boards"
 	"github.com/tandem/tandem/internal/usecase/board/core"
-	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type UseCase interface {
@@ -23,15 +20,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Boards     repository.BoardRepository
-	Columns    repository.ColumnRepository
-	Tasks      repository.TaskRepository
-	Workspaces repository.WorkspaceRepository
-	Users      repository.UserRepository
-	Favorites  repository.FavoriteRepository
-	Files      *file.Service
-	Hub        ws.Hub
-	Cache      cache.Cache
+	base.Deps
 }
 
 type Service struct {

@@ -3,11 +3,9 @@ package favorite
 import (
 	"context"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/ws"
 	favcore "github.com/tandem/tandem/internal/usecase/favorite/core"
 	"github.com/tandem/tandem/internal/usecase/favorite/crud"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type UseCase interface {
@@ -16,11 +14,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Favorites  repository.FavoriteRepository
-	Workspaces repository.WorkspaceRepository
-	Boards     repository.BoardRepository
-	Hub        ws.Hub
-	Cache      cache.Cache
+	base.Deps
 }
 
 type Service struct {

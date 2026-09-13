@@ -3,9 +3,8 @@ package tree
 import (
 	"context"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/tree/build"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
 	"github.com/tandem/tandem/internal/usecase/tree/query"
@@ -16,13 +15,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Workspaces repository.WorkspaceRepository
-	Boards     repository.BoardRepository
-	Columns    repository.ColumnRepository
-	Tasks      repository.TaskRepository
-	Users      repository.UserRepository
-	Favorites  repository.FavoriteRepository
-	Cache      cache.Cache
+	base.Deps
 }
 
 type Service struct {

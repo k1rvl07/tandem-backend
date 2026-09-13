@@ -2,7 +2,6 @@ package user
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	muser "github.com/tandem/tandem/internal/domain/models/user"
@@ -14,16 +13,16 @@ import (
 )
 
 type UserRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewUserRepo(db *gorm.DB) *UserRepo {
-	return &UserRepo{db: db}
+	return &UserRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *UserRepo) Create(ctx context.Context, user *muser.User) error {
 	e := toEntity(user)
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		if postgres.IsUniqueViolation(err) {
 			return pkgerrors.Wrap(pkgerrors.ErrConflict, err)
@@ -38,41 +37,27 @@ func (r *UserRepo) Create(ctx context.Context, user *muser.User) error {
 
 func (r *UserRepo) FindByID(ctx context.Context, id string) (*muser.User, error) {
 	var e euser.User
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "id = ?", id); err != nil {
+		return nil, err
 	}
 	return toDomain(&e), nil
 }
 
 func (r *UserRepo) FindByLogin(ctx context.Context, login string) (*muser.User, error) {
 	var e euser.User
-	err := r.db.WithContext(ctx).Where("login = ?", login).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "login = ?", login); err != nil {
+		return nil, err
 	}
 	return toDomain(&e), nil
 }
 
 func (r *UserRepo) ExistsByLogin(ctx context.Context, login string) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&euser.User{}).Where("login = ?", login).Count(&count).Error
-	if err != nil {
-		return false, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
-	}
-	return count > 0, nil
+	return r.helper.Exists(ctx, &euser.User{}, "login = ?", login)
 }
 
 func (r *UserRepo) List(ctx context.Context) ([]*muser.User, error) {
 	var es []euser.User
-	err := r.db.WithContext(ctx).Order("created_at ASC").Find(&es).Error
-	if err != nil {
+	if err := r.helper.DB.WithContext(ctx).Order("created_at ASC").Find(&es).Error; err != nil {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 	users := make([]*muser.User, 0, len(es))
@@ -90,14 +75,15 @@ func likePattern(q string) string {
 }
 
 func (r *UserRepo) ListPage(ctx context.Context, query string, limit, offset int) ([]*muser.User, error) {
-	db := r.db.WithContext(ctx)
-	if query != "" {
-		db = db.Where("login ILIKE ? ESCAPE '\\'", likePattern(query))
-	}
 	var es []euser.User
-	err := db.Order("created_at ASC").Limit(limit).Offset(offset).Find(&es).Error
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	args := []interface{}{}
+	where := ""
+	if query != "" {
+		where = "login ILIKE ? ESCAPE '\\'"
+		args = append(args, likePattern(query))
+	}
+	if err := r.helper.Paginate(ctx, &es, where, args, "created_at ASC", limit, offset); err != nil {
+		return nil, err
 	}
 	users := make([]*muser.User, 0, len(es))
 	for i := range es {
@@ -107,20 +93,22 @@ func (r *UserRepo) ListPage(ctx context.Context, query string, limit, offset int
 }
 
 func (r *UserRepo) Count(ctx context.Context, query string) (int, error) {
-	db := r.db.WithContext(ctx).Model(&euser.User{})
+	where := ""
+	args := []interface{}{}
 	if query != "" {
-		db = db.Where("login ILIKE ? ESCAPE '\\'", likePattern(query))
+		where = "login ILIKE ? ESCAPE '\\'"
+		args = append(args, likePattern(query))
 	}
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return 0, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	total, err := r.helper.Count(ctx, &euser.User{}, where, args...)
+	if err != nil {
+		return 0, err
 	}
 	return int(total), nil
 }
 
 func (r *UserRepo) Update(ctx context.Context, user *muser.User) error {
 	e := toEntity(user)
-	err := r.db.WithContext(ctx).Model(&euser.User{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
+	err := r.helper.DB.WithContext(ctx).Model(&euser.User{}).Where("id = ?", e.ID).Updates(map[string]interface{}{
 		"login":         e.Login,
 		"password_hash": e.PasswordHash,
 		"role":          e.Role,
@@ -138,7 +126,7 @@ func (r *UserRepo) Update(ctx context.Context, user *muser.User) error {
 }
 
 func (r *UserRepo) Delete(ctx context.Context, id string) error {
-	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&euser.User{})
+	res := r.helper.DB.WithContext(ctx).Where("id = ?", id).Delete(&euser.User{})
 	if res.Error != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
 	}

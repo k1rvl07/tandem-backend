@@ -2,26 +2,26 @@ package column
 
 import (
 	"context"
-	"errors"
 
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	eboard "github.com/tandem/tandem/internal/repository/entity/board"
+	"github.com/tandem/tandem/internal/repository/postgres"
 	"gorm.io/gorm"
 )
 
 type ColumnRepo struct {
-	db *gorm.DB
+	helper *postgres.Helper
 }
 
 func NewColumnRepo(db *gorm.DB) *ColumnRepo {
-	return &ColumnRepo{db: db}
+	return &ColumnRepo{helper: postgres.NewHelper(db)}
 }
 
 func (r *ColumnRepo) CreateColumn(ctx context.Context, column *mcolumn.Column) error {
 	e := columnToEntity(column)
-	err := r.db.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Create(e).Error
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
@@ -32,21 +32,16 @@ func (r *ColumnRepo) CreateColumn(ctx context.Context, column *mcolumn.Column) e
 
 func (r *ColumnRepo) FindColumnByID(ctx context.Context, id string) (*mcolumn.Column, error) {
 	var e eboard.Column
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, err)
-	}
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.First(ctx, &e, "id = ?", id); err != nil {
+		return nil, err
 	}
 	return columnToDomain(&e), nil
 }
 
 func (r *ColumnRepo) ListColumns(ctx context.Context, boardID string) ([]*mcolumn.Column, error) {
 	var es []eboard.Column
-	err := r.db.WithContext(ctx).Where("board_id = ?", boardID).Order("position ASC, created_at ASC").Find(&es).Error
-	if err != nil {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	if err := r.helper.List(ctx, &es, "position ASC, created_at ASC", "board_id = ?", boardID); err != nil {
+		return nil, err
 	}
 	columns := make([]*mcolumn.Column, 0, len(es))
 	for i := range es {
@@ -57,7 +52,7 @@ func (r *ColumnRepo) ListColumns(ctx context.Context, boardID string) ([]*mcolum
 
 func (r *ColumnRepo) ListColumnsForWorkspace(ctx context.Context, workspaceID string) ([]*mcolumn.Column, error) {
 	var es []eboard.Column
-	err := r.db.WithContext(ctx).
+	err := r.helper.DB.WithContext(ctx).
 		Table("board_columns").
 		Select("board_columns.*").
 		Joins("JOIN boards ON boards.id = board_columns.board_id").

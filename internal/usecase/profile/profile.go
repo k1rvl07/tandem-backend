@@ -3,19 +3,14 @@ package profile
 import (
 	"context"
 	"io"
-	"time"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/service"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
-	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/profile/account"
 	"github.com/tandem/tandem/internal/usecase/profile/avatar"
 	"github.com/tandem/tandem/internal/usecase/profile/core"
 	"github.com/tandem/tandem/internal/usecase/profile/password"
-	"go.uber.org/zap"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type Usecase interface {
@@ -27,14 +22,7 @@ type Usecase interface {
 }
 
 type Deps struct {
-	Users      repository.UserRepository
-	Hasher     service.PasswordHasher
-	Files      *file.Service
-	Cache      cache.Cache
-	Tokens     service.TokenService
-	TokenTTL   time.Duration
-	RefreshTTL time.Duration
-	Logger     *zap.Logger
+	base.Deps
 }
 
 type Service struct {

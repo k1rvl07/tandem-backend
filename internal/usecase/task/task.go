@@ -3,11 +3,8 @@ package task
 import (
 	"context"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
-	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/task/core"
 	"github.com/tandem/tandem/internal/usecase/task/crud"
 )
@@ -21,14 +18,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Tasks      repository.TaskRepository
-	Columns    repository.ColumnRepository
-	Boards     repository.BoardRepository
-	Workspaces repository.WorkspaceRepository
-	Users      repository.UserRepository
-	Files      *file.Service
-	Hub        ws.Hub
-	Cache      cache.Cache
+	base.Deps
 }
 
 type Service struct {

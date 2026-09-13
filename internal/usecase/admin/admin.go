@@ -3,15 +3,12 @@ package admin
 import (
 	"context"
 
-	"github.com/tandem/tandem/internal/domain/ports/cache"
-	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/service"
 	dadmin "github.com/tandem/tandem/internal/http/dto/admin"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/usecase/admin/control"
 	"github.com/tandem/tandem/internal/usecase/admin/core"
 	"github.com/tandem/tandem/internal/usecase/admin/users"
-	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type Actor = core.Actor
@@ -24,13 +21,7 @@ type UseCase interface {
 }
 
 type Deps struct {
-	Users      repository.UserRepository
-	Hasher     service.PasswordHasher
-	Cache      cache.Cache
-	Tokens     service.TokenService
-	Workspaces repository.WorkspaceRepository
-	Favorites  repository.FavoriteRepository
-	Files      *file.Service
+	base.Deps
 }
 
 type Service struct {
