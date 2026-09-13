@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,8 +180,14 @@ func TestTaskRepoMove(t *testing.T) {
 	fx := newTaskFixture(t, 2)
 	tasks := make([]*mtask.Task, 3)
 	for i := range tasks {
-		tasks[i] = &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID, Title: fmt.Sprintf("T%d", i), Position: i}
+		tasks[i] = &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID, Title: fmt.Sprintf("T%d", i)}
+	}
+	for i := range tasks {
 		testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, tasks[i]))
+	}
+	for i, tk := range tasks {
+		tk.Position = i
+		testutil.Must(t, fx.taskRepo.UpdateTask(testutil.TestCtx, tk))
 	}
 
 	t.Run("reorders within the same column", func(t *testing.T) {
@@ -226,6 +233,57 @@ func idsOf(tasks []*mtask.Task) []string {
 		ids = append(ids, t.ID)
 	}
 	return ids
+}
+
+func TestTaskRepoCreateAtomic(t *testing.T) {
+	fx := newTaskFixture(t, 1)
+
+	t.Run("prepends and shifts existing positions", func(t *testing.T) {
+		a := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.column.ID, Title: "A"}
+		b := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.column.ID, Title: "B"}
+		testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, a))
+		testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, b))
+		order, err := fx.taskRepo.ListTasksForColumn(testutil.TestCtx, fx.column.ID)
+		testutil.Must(t, err)
+		if len(order) != 2 || order[0].ID != b.ID || order[1].ID != a.ID {
+			t.Fatalf("expected newest first, got %v", idsOf(order))
+		}
+	})
+
+	t.Run("concurrent creates keep positions unique", func(t *testing.T) {
+		fx2 := newTaskFixture(t, 1)
+		const n = 8
+		var wg sync.WaitGroup
+		errs := make([]error, n)
+		for i := range n {
+			i := i
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				task := &mtask.Task{ID: testutil.NewID(), ColumnID: fx2.column.ID, Title: fmt.Sprintf("C%d", i)}
+				errs[i] = fx2.taskRepo.CreateTask(testutil.TestCtx, task)
+			}()
+		}
+		wg.Wait()
+		for _, err := range errs {
+			testutil.Must(t, err)
+		}
+		order, err := fx2.taskRepo.ListTasksForColumn(testutil.TestCtx, fx2.column.ID)
+		testutil.Must(t, err)
+		if len(order) != n {
+			t.Fatalf("expected %d tasks, got %d", n, len(order))
+		}
+		seen := make(map[int]bool, n)
+		for i, tk := range order {
+			if i != tk.Position {
+				t.Fatalf("unexpected position %d at index %d", tk.Position, i)
+			}
+			if seen[tk.Position] {
+				t.Fatalf("duplicate position %d", tk.Position)
+			}
+			seen[tk.Position] = true
+		}
+	})
 }
 
 func TestTaskRepoCollectKeys(t *testing.T) {

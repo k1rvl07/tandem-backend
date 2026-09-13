@@ -62,16 +62,6 @@ func (s *Ordering) MoveTask(ctx context.Context, task *mtask.Task, targetColumnI
 	return s.Tasks.MoveTask(ctx, task, targetColumnID, position)
 }
 
-func (s *Ordering) ShiftPositions(ctx context.Context, order []*mtask.Task) error {
-	for _, t := range order {
-		t.Position++
-		if err := s.Tasks.UpdateTask(ctx, t); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *Ordering) NormalizePagination(limit, offset int) (int, int) {
 	if limit <= 0 {
 		limit = 200

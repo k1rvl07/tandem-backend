@@ -25,7 +25,25 @@ func NewTaskRepo(db *gorm.DB) *TaskRepo {
 
 func (r *TaskRepo) CreateTask(ctx context.Context, task *mtask.Task) error {
 	e := taskToEntity(task)
-	err := r.helper.DB.WithContext(ctx).Create(e).Error
+	e.Position = 0
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []eboard.Task
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("column_id = ?", e.ColumnID).
+			Order("position ASC, created_at ASC").
+			Find(&rows).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&eboard.Task{}).
+			Where("column_id = ?", e.ColumnID).
+			Update("position", gorm.Expr("position + 1")).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(e).Error; err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}

@@ -447,6 +447,16 @@ func (f *FakeTaskRepo) AddTaskFixture(id, columnID, title string, position int) 
 func (f *FakeTaskRepo) CreateTask(_ context.Context, task *mtask.Task) error {
 	task.CreatedAt = time.Now()
 	task.UpdatedAt = time.Now()
+	shifted := make([]*mtask.Task, 0, len(f.Tasks))
+	for _, t := range f.Tasks {
+		if t.ColumnID == task.ColumnID {
+			shifted = append(shifted, t)
+		}
+	}
+	sortByPosition(shifted)
+	for _, t := range shifted {
+		t.Position++
+	}
 	f.Tasks[task.ID] = task
 	return nil
 }

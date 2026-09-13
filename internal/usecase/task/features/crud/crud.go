@@ -67,13 +67,6 @@ func (s *Crud) Create(ctx context.Context, actorID, workspaceID, boardID string,
 	if err != nil {
 		return nil, err
 	}
-	columnTasks, err := s.Tasks.ListTasksForColumn(ctx, req.ColumnID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.ShiftPositions(ctx, columnTasks); err != nil {
-		return nil, err
-	}
 
 	imageKey := strings.TrimSpace(req.ImageKey)
 	if err := s.Files.ValidateImageKey(imageKey, actorID); err != nil {
