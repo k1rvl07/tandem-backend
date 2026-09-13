@@ -296,7 +296,7 @@ func TestListUsers(t *testing.T) {
 	repo.seed("petrov.ii", muser.RoleUser)
 	svc := newTestService(repo)
 
-	page, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{})
+	page, err := svc.ListUsers(context.Background(), dadmin.AdminListQuery{})
 	require.NoError(t, err)
 	assert.Equal(t, 2, page.Total)
 	assert.Len(t, page.Items, 2)
@@ -311,19 +311,19 @@ func TestListUsersPagination(t *testing.T) {
 	}
 	svc := newTestService(repo)
 
-	page1, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 1, PageSize: 2})
+	page1, err := svc.ListUsers(context.Background(), dadmin.AdminListQuery{Page: 1, PageSize: 2})
 	require.NoError(t, err)
 	require.Equal(t, 5, page1.Total)
 	require.Len(t, page1.Items, 2)
 	assert.Equal(t, "user.01", page1.Items[0].Login)
 	assert.Equal(t, "user.02", page1.Items[1].Login)
 
-	page3, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 3, PageSize: 2})
+	page3, err := svc.ListUsers(context.Background(), dadmin.AdminListQuery{Page: 3, PageSize: 2})
 	require.NoError(t, err)
 	require.Len(t, page3.Items, 1)
 	assert.Equal(t, "user.05", page3.Items[0].Login)
 
-	offPage, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 99, PageSize: 2})
+	offPage, err := svc.ListUsers(context.Background(), dadmin.AdminListQuery{Page: 99, PageSize: 2})
 	require.NoError(t, err)
 	assert.Empty(t, offPage.Items)
 }
@@ -335,7 +335,7 @@ func TestListUsersSearch(t *testing.T) {
 	repo.seed("ivanova.p", muser.RoleUser)
 	svc := newTestService(repo)
 
-	page, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Query: "ivan"})
+	page, err := svc.ListUsers(context.Background(), dadmin.AdminListQuery{Query: "ivan"})
 	require.NoError(t, err)
 	assert.Equal(t, 2, page.Total)
 	got := []string{page.Items[0].Login, page.Items[1].Login}
@@ -349,7 +349,7 @@ func TestListUsersPageSizeCap(t *testing.T) {
 	}
 	svc := newTestService(repo)
 
-	page, err := svc.ListUsers(context.Background(), "actor-id", dadmin.AdminListQuery{Page: 1, PageSize: 5000})
+	page, err := svc.ListUsers(context.Background(), dadmin.AdminListQuery{Page: 1, PageSize: 5000})
 	require.NoError(t, err)
 	assert.Equal(t, 100, page.PageSize)
 	assert.Len(t, page.Items, 100)

@@ -121,8 +121,9 @@ func (rl *RateLimiter) Middleware() gin.HandlerFunc {
 			allowed = memFallback.allow(key, rl.limit, rl.window)
 		}
 		if !allowed {
-			c.Header("Retry-After", strconv.FormatInt(int64(rl.window.Seconds()), 10))
-			c.AbortWithStatusJSON(429, gin.H{"error": "too many requests"})
+			retryAfter := int(rl.window.Seconds())
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+			c.AbortWithStatusJSON(429, gin.H{"error": "too many requests", "retry_after": retryAfter})
 			return
 		}
 		c.Next()

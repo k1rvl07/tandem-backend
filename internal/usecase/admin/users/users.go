@@ -77,7 +77,7 @@ func (s *Users) CreateUser(ctx context.Context, actor core.Actor, req dadmin.Cre
 	return s.UserResponse(user), nil
 }
 
-func (s *Users) ListUsers(ctx context.Context, actorID string, query dadmin.AdminListQuery) (dadmin.AdminPage, error) {
+func (s *Users) ListUsers(ctx context.Context, query dadmin.AdminListQuery) (dadmin.AdminPage, error) {
 	page := query.Page
 	if page < 1 {
 		page = 1

@@ -12,7 +12,9 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
+	"github.com/tandem/tandem/internal/http/handler/common"
 	wsclient "github.com/tandem/tandem/internal/infrastructure/ws"
+	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 )
 
@@ -58,12 +60,12 @@ type presenceMessage struct {
 func (h *WSHandler) Connect(c *gin.Context) {
 	tokenString := tokenFromSubprotocol(c.GetHeader("Sec-WebSocket-Protocol"))
 	if tokenString == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		common.RespondError(c, pkgerrors.ErrUnauthorized)
 		return
 	}
 	userID, err := h.tokens.Parse(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		common.RespondError(c, pkgerrors.ErrUnauthorized)
 		return
 	}
 

@@ -18,7 +18,7 @@ type Actor = core.Actor
 
 type UseCase interface {
 	CreateUser(ctx context.Context, actor Actor, req dadmin.CreateUserRequest) (*dauth.UserResponse, error)
-	ListUsers(ctx context.Context, actorID string, query dadmin.AdminListQuery) (dadmin.AdminPage, error)
+	ListUsers(ctx context.Context, query dadmin.AdminListQuery) (dadmin.AdminPage, error)
 	UpdateUserRole(ctx context.Context, actor Actor, targetID string, req dadmin.UpdateUserRoleRequest) (*dauth.UserResponse, error)
 	DeleteUser(ctx context.Context, actor Actor, targetID string) error
 }

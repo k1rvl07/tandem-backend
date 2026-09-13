@@ -62,7 +62,7 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	if !common.ParseQuery(c, &query, "invalid query parameters") {
 		return
 	}
-	page, err := h.admin.ListUsers(c.Request.Context(), common.CurrentUserID(c), query)
+	page, err := h.admin.ListUsers(c.Request.Context(), query)
 	if err != nil {
 		common.RespondError(c, err)
 		return
