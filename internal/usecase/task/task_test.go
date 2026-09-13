@@ -13,6 +13,8 @@ import (
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/task/core"
+	"github.com/tandem/tandem/internal/usecase/task/mutate"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 	"go.uber.org/zap"
 )
@@ -111,7 +113,7 @@ func TestCreateTask(t *testing.T) {
 	assert.Equal(t, 0, task.Position)
 	require.NotNil(t, task.Assignee)
 	assert.Equal(t, "dev", task.Assignee.Login)
-	assert.Equal(t, eventTaskCreated, e.hub.Messages[0].Type)
+	assert.Equal(t, core.EventTaskCreated, e.hub.Messages[0].Type)
 }
 
 func TestCreateTaskDefaultPosition(t *testing.T) {
@@ -190,7 +192,7 @@ func TestUpdateTaskFields(t *testing.T) {
 	assert.Equal(t, "2026-12-31", updated.DueDate.Format("2006-01-02"))
 	require.NotNil(t, updated.Assignee)
 	assert.Equal(t, assignee.ID, updated.Assignee.ID)
-	assert.Equal(t, eventTaskUpdated, e.hub.Messages[0].Type)
+	assert.Equal(t, core.EventTaskUpdated, e.hub.Messages[0].Type)
 }
 
 func TestUpdateTaskClearDueDateAndAssignee(t *testing.T) {
@@ -319,7 +321,7 @@ func TestDeleteTaskMemberAllowed(t *testing.T) {
 	err := e.svc.Delete(context.Background(), e.actorV, e.wsA, e.boardA, task.ID)
 	require.NoError(t, err)
 	assert.NotContains(t, e.tasks.Tasks, task.ID)
-	assert.Equal(t, eventTaskDeleted, e.hub.Messages[0].Type)
+	assert.Equal(t, core.EventTaskDeleted, e.hub.Messages[0].Type)
 }
 
 func TestDeleteTask(t *testing.T) {
@@ -328,7 +330,7 @@ func TestDeleteTask(t *testing.T) {
 	err := e.svc.Delete(context.Background(), e.actorE, e.wsA, e.boardA, task.ID)
 	require.NoError(t, err)
 	assert.NotContains(t, e.tasks.Tasks, task.ID)
-	assert.Equal(t, eventTaskDeleted, e.hub.Messages[0].Type)
+	assert.Equal(t, core.EventTaskDeleted, e.hub.Messages[0].Type)
 }
 
 func TestDeleteTaskFromOtherBoard(t *testing.T) {
@@ -340,7 +342,7 @@ func TestDeleteTaskFromOtherBoard(t *testing.T) {
 
 func mustDate(t *testing.T, value string) time.Time {
 	t.Helper()
-	parsed, err := parseDueDate(value)
+	parsed, err := new(mutate.Mutate).ParseDueDate(value)
 	if err != nil {
 		t.Fatalf("parse date: %v", err)
 	}
