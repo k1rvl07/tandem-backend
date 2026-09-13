@@ -124,7 +124,7 @@ func (b *routerBuilder) registerWS() {
 	if b.deps.TokenService == nil || b.deps.Hub == nil || b.deps.AuthHandler == nil {
 		return
 	}
-	wsHandler := hws.NewWSHandler(b.deps.Hub, b.deps.TokenService, b.deps.WorkspaceRepository, b.deps.AllowedOrigin)
+	wsHandler := hws.NewWSHandler(b.deps.Hub, b.deps.WorkspaceRepository, b.deps.AllowedOrigin)
 	wsHandlers := []gin.HandlerFunc{mwws.WSIdentity(b.deps.TokenService)}
 	if b.deps.WSLimiter != nil {
 		wsHandlers = append(wsHandlers, b.deps.WSLimiter.Middleware())

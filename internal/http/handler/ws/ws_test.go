@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tandem/tandem/internal/http/middleware/ws_identity"
 	"github.com/tandem/tandem/internal/infrastructure/token"
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
 )
@@ -20,11 +21,11 @@ func newWSTestHarness(t *testing.T) (*WSHandler, *wshub.Hub, *httptest.Server, *
 	t.Helper()
 	manager := token.NewJWTManager("test-secret", nil)
 	hub := wshub.New()
-	h := NewWSHandler(hub, manager, nil, nil)
+	h := NewWSHandler(hub, nil, nil)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/ws", h.Connect)
+	r.GET("/ws", ws_identity.WSIdentity(manager), h.Connect)
 	srv := httptest.NewServer(r)
 	t.Cleanup(func() {
 		srv.Close()

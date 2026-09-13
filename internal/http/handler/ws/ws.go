@@ -5,27 +5,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	"github.com/tandem/tandem/internal/http/handler/common"
 	wsclient "github.com/tandem/tandem/internal/infrastructure/ws"
+	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 )
 
 type WSHandler struct {
 	hub         ws.Hub
-	tokens      service.TokenService
 	workspaces  repository.WorkspaceRepository
 	checkOrigin func(*http.Request) bool
 }
 
-func NewWSHandler(hub ws.Hub, tokens service.TokenService, workspaces repository.WorkspaceRepository, allowedOrigins []string) *WSHandler {
+func NewWSHandler(hub ws.Hub, workspaces repository.WorkspaceRepository, allowedOrigins []string) *WSHandler {
 	allowed := make(map[string]bool, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
 		allowed[origin] = true
@@ -37,7 +37,7 @@ func NewWSHandler(hub ws.Hub, tokens service.TokenService, workspaces repository
 		}
 		return allowed[origin]
 	}
-	return &WSHandler{hub: hub, tokens: tokens, workspaces: workspaces, checkOrigin: checkOrigin}
+	return &WSHandler{hub: hub, workspaces: workspaces, checkOrigin: checkOrigin}
 }
 
 type clientMessage struct {
@@ -58,13 +58,13 @@ type presenceMessage struct {
 // @Failure 401 {object} map[string]string
 // @Router /ws [get]
 func (h *WSHandler) Connect(c *gin.Context) {
-	tokenString := tokenFromSubprotocol(c.GetHeader("Sec-WebSocket-Protocol"))
-	if tokenString == "" {
+	userID, ok := c.Get(ctxkeys.CtxUserID)
+	if !ok {
 		common.RespondError(c, pkgerrors.ErrUnauthorized)
 		return
 	}
-	userID, err := h.tokens.Parse(tokenString)
-	if err != nil {
+	userIDStr, ok := userID.(string)
+	if !ok || userIDStr == "" {
 		common.RespondError(c, pkgerrors.ErrUnauthorized)
 		return
 	}
@@ -83,7 +83,7 @@ func (h *WSHandler) Connect(c *gin.Context) {
 		return
 	}
 
-	client := wsclient.NewClient(conn, uuid.NewString(), userID)
+	client := wsclient.NewClient(conn, uuid.NewString(), userIDStr)
 	client.OnMessage = h.handleMessage
 	client.OnDisconnect = func(cl *wsclient.Client) {
 		for _, room := range cl.Rooms() {
@@ -91,19 +91,6 @@ func (h *WSHandler) Connect(c *gin.Context) {
 		}
 	}
 	h.hub.Register(client)
-}
-
-func tokenFromSubprotocol(header string) string {
-	if !offersTandem(header) {
-		return ""
-	}
-	entries := strings.Split(header, ",")
-	for _, entry := range entries {
-		if token := strings.TrimSpace(entry); token != "" && token != "tandem" {
-			return token
-		}
-	}
-	return ""
 }
 
 func offersTandem(header string) bool {
@@ -158,7 +145,9 @@ func (h *WSHandler) canJoin(userID, room string) bool {
 	if err := validate.UUID(workspaceID); err != nil {
 		return false
 	}
-	_, err := h.workspaces.FindMember(context.Background(), workspaceID, userID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := h.workspaces.FindMember(ctx, workspaceID, userID)
 	return err == nil
 }
 
