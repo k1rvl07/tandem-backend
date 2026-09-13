@@ -73,8 +73,11 @@ func (s *Images) ValidateImageKey(key, ownerID string) error {
 		return nil
 	}
 	parts := strings.Split(key, "/")
-	if len(parts) != 3 || !imageNamespaces[parts[0]] || parts[1] != ownerID {
+	if len(parts) != 3 || !imageNamespaces[parts[0]] {
 		return pkgerrors.NewValidationError("invalid image key")
+	}
+	if parts[1] != ownerID {
+		return pkgerrors.ErrForbidden
 	}
 	ext := strings.ToLower(path.Ext(parts[2]))
 	if _, ok := allowedImageExts[ext]; !ok {

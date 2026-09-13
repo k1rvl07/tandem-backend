@@ -436,7 +436,7 @@ func TestUpdateImageKey(t *testing.T) {
 
 	foreign := "images/" + e.actorO + "/" + testutil.NewUUID() + ".png"
 	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &foreign})
-	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 
 	empty := ""
 	_, err = e.svc.Update(context.Background(), e.actorE, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &empty})

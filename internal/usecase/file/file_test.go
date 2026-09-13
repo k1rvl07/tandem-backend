@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -69,7 +70,16 @@ func TestDeleteImageForbiddenOwner(t *testing.T) {
 	key := "covers/u2/" + uuid.NewString() + ".jpg"
 
 	err := svc.DeleteImage(context.Background(), "u1", key)
-	require.Error(t, err)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+	assert.Empty(t, store.deleted)
+}
+
+func TestDeleteImageRejectsMalformedKey(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+
+	err := svc.DeleteImage(context.Background(), "u1", "covers/")
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 	assert.Empty(t, store.deleted)
 }
 
