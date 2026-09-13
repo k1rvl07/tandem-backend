@@ -5,7 +5,6 @@ import (
 
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
@@ -33,8 +32,18 @@ type Core struct {
 	Logger    *zap.Logger
 }
 
-func New(workspaces repository.WorkspaceRepository, users repository.UserRepository, favorites repository.FavoriteRepository, boards repository.BoardRepository, columns repository.ColumnRepository, tasks repository.TaskRepository, files *file.Service, hub ws.Hub, cache cache.Cache, logger *zap.Logger) *Core {
-	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Users: users, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: hub, Logger: logger}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:      sharedbase.Base{Workspaces: d.Workspaces, Cache: d.Cache},
+		Users:     d.Users,
+		Favorites: d.Favorites,
+		Boards:    d.Boards,
+		Columns:   d.Columns,
+		Tasks:     d.Tasks,
+		Files:     d.Files,
+		Hub:       d.Hub,
+		Logger:    d.Logger,
+	}
 }
 
 func (c *Core) BumpMembers(ctx context.Context, workspaceID string) {

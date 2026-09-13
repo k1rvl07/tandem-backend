@@ -26,7 +26,7 @@ type Service struct {
 }
 
 func NewService(deps Deps) *Service {
-	c := attcore.New(deps.Attachments, deps.Tasks, deps.Columns, deps.Boards, deps.Workspaces, deps.Files, deps.Hub, deps.Cache)
+	c := attcore.New(deps.Deps)
 	return &Service{Crud: crud.New(c)}
 }
 

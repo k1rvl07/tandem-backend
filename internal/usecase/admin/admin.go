@@ -30,7 +30,7 @@ type Service struct {
 }
 
 func NewService(deps Deps) *Service {
-	c := core.New(deps.Users, deps.Hasher, deps.Cache, deps.Tokens, deps.Workspaces, deps.Favorites, deps.Files)
+	c := core.New(deps.Deps)
 	return &Service{
 		Users:   users.New(c),
 		Control: roles.New(c),

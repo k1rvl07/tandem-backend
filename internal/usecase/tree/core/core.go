@@ -5,6 +5,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
+	base "github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
 type TreeBrick struct {
@@ -27,6 +28,14 @@ type Core struct {
 	Cache      cache.Cache
 }
 
-func New(workspaces repository.WorkspaceRepository, boards repository.BoardRepository, columns repository.ColumnRepository, tasks repository.TaskRepository, users repository.UserRepository, favorites repository.FavoriteRepository, cache cache.Cache) *Core {
-	return &Core{Workspaces: workspaces, Boards: boards, Columns: columns, Tasks: tasks, Users: users, Favorites: favorites, Cache: cache}
+func New(d base.Deps) *Core {
+	return &Core{
+		Workspaces: d.Workspaces,
+		Boards:     d.Boards,
+		Columns:    d.Columns,
+		Tasks:      d.Tasks,
+		Users:      d.Users,
+		Favorites:  d.Favorites,
+		Cache:      d.Cache,
+	}
 }

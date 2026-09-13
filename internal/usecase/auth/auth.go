@@ -23,7 +23,7 @@ type Service struct {
 }
 
 func NewService(deps Deps) *Service {
-	return &Service{Session: session.New(deps.Users, deps.Tokens, deps.Hasher, deps.TokenTTL, deps.RefreshTTL)}
+	return &Service{Session: session.New(deps.Deps)}
 }
 
 var _ UseCase = (*Service)(nil)

@@ -5,7 +5,6 @@ import (
 
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
@@ -30,8 +29,16 @@ type Core struct {
 	Hub         ws.Hub
 }
 
-func New(attachments repository.AttachmentRepository, tasks repository.TaskRepository, columns repository.ColumnRepository, boards repository.BoardRepository, workspaces repository.WorkspaceRepository, files *file.Service, hub ws.Hub, cache cache.Cache) *Core {
-	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Attachments: attachments, Tasks: tasks, Columns: columns, Boards: boards, Files: files, Hub: hub}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:        sharedbase.Base{Workspaces: d.Workspaces, Cache: d.Cache},
+		Attachments: d.Attachments,
+		Tasks:       d.Tasks,
+		Columns:     d.Columns,
+		Boards:      d.Boards,
+		Files:       d.Files,
+		Hub:         d.Hub,
+	}
 }
 
 func (c *Core) WorkspaceTask(ctx context.Context, workspaceID, taskID string) (*mtask.Task, error) {

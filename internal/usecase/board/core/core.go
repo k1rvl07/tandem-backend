@@ -5,7 +5,6 @@ import (
 
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
@@ -33,8 +32,17 @@ type Core struct {
 	Hub       ws.Hub
 }
 
-func New(boards repository.BoardRepository, columns repository.ColumnRepository, tasks repository.TaskRepository, workspaces repository.WorkspaceRepository, users repository.UserRepository, favorites repository.FavoriteRepository, files *file.Service, hub ws.Hub, cache cache.Cache) *Core {
-	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Boards: boards, Columns: columns, Tasks: tasks, Users: users, Favorites: favorites, Files: files, Hub: hub}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:      sharedbase.Base{Workspaces: d.Workspaces, Cache: d.Cache},
+		Boards:    d.Boards,
+		Columns:   d.Columns,
+		Tasks:     d.Tasks,
+		Users:     d.Users,
+		Favorites: d.Favorites,
+		Files:     d.Files,
+		Hub:       d.Hub,
+	}
 }
 
 func (c *Core) BoardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {

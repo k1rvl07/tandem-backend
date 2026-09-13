@@ -4,7 +4,6 @@ import (
 	"context"
 
 	muser "github.com/tandem/tandem/internal/domain/models/user"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
@@ -28,8 +27,15 @@ type Core struct {
 	Files     *file.Service
 }
 
-func New(users repository.UserRepository, hasher service.PasswordHasher, cache cache.Cache, tokens service.TokenService, workspaces repository.WorkspaceRepository, favorites repository.FavoriteRepository, files *file.Service) *Core {
-	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Users: users, Hasher: hasher, Tokens: tokens, Favorites: favorites, Files: files}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:      sharedbase.Base{Workspaces: d.Workspaces, Cache: d.Cache},
+		Users:     d.Users,
+		Hasher:    d.Hasher,
+		Tokens:    d.Tokens,
+		Favorites: d.Favorites,
+		Files:     d.Files,
+	}
 }
 
 func (c *Core) BumpUsers(ctx context.Context) {

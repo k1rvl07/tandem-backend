@@ -22,7 +22,7 @@ type Service struct {
 }
 
 func NewService(deps Deps) *Service {
-	c := favcore.New(deps.Favorites, deps.Workspaces, deps.Boards, deps.Hub, deps.Cache)
+	c := favcore.New(deps.Deps)
 	return &Service{Crud: crud.New(c)}
 }
 

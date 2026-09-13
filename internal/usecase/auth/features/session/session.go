@@ -9,6 +9,7 @@ import (
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
+	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 
@@ -20,8 +21,8 @@ type Session struct {
 	refreshTTL time.Duration
 }
 
-func New(users repository.UserRepository, tokens service.TokenService, hasher service.PasswordHasher, tokenTTL, refreshTTL time.Duration) *Session {
-	return &Session{users: users, tokens: tokens, hasher: hasher, tokenTTL: tokenTTL, refreshTTL: refreshTTL}
+func New(d base.Deps) *Session {
+	return &Session{users: d.Users, tokens: d.Tokens, hasher: d.Hasher, tokenTTL: d.TokenTTL, refreshTTL: d.RefreshTTL}
 }
 
 func (s *Session) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.LoginResponse, error) {

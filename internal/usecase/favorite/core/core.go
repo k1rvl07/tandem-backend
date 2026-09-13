@@ -1,7 +1,6 @@
 package core
 
 import (
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
@@ -16,8 +15,13 @@ type Core struct {
 	Hub       ws.Hub
 }
 
-func New(favorites repository.FavoriteRepository, workspaces repository.WorkspaceRepository, boards repository.BoardRepository, hub ws.Hub, cache cache.Cache) *Core {
-	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Favorites: favorites, Boards: boards, Hub: hub}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:      sharedbase.Base{Workspaces: d.Workspaces, Cache: d.Cache},
+		Favorites: d.Favorites,
+		Boards:    d.Boards,
+		Hub:       d.Hub,
+	}
 }
 
 func (c *Core) BroadcastUpdated(actorID, targetType, targetID string) {

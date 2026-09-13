@@ -32,7 +32,7 @@ type Service struct {
 }
 
 func NewService(deps Deps) *Service {
-	c := core.New(deps.Users, deps.Hasher, deps.Files, deps.Cache, deps.Tokens, deps.TokenTTL, deps.RefreshTTL, deps.Logger)
+	c := core.New(deps.Deps)
 	return &Service{
 		Account:  account.New(c),
 		Password: password.New(c),

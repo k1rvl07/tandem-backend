@@ -7,7 +7,6 @@ import (
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
@@ -34,8 +33,16 @@ type Core struct {
 	Hub     ws.Hub
 }
 
-func New(tasks repository.TaskRepository, columns repository.ColumnRepository, boards repository.BoardRepository, workspaces repository.WorkspaceRepository, users repository.UserRepository, files *file.Service, hub ws.Hub, cache cache.Cache) *Core {
-	return &Core{Base: sharedbase.Base{Workspaces: workspaces, Cache: cache}, Tasks: tasks, Columns: columns, Boards: boards, Users: users, Files: files, Hub: hub}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:    sharedbase.Base{Workspaces: d.Workspaces, Cache: d.Cache},
+		Tasks:   d.Tasks,
+		Columns: d.Columns,
+		Boards:  d.Boards,
+		Users:   d.Users,
+		Files:   d.Files,
+		Hub:     d.Hub,
+	}
 }
 
 type WorkspaceColumn struct {

@@ -4,7 +4,6 @@ import (
 	"time"
 
 	muser "github.com/tandem/tandem/internal/domain/models/user"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
@@ -25,8 +24,17 @@ type Core struct {
 	Logger     *zap.Logger
 }
 
-func New(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache, tokens service.TokenService, tokenTTL, refreshTTL time.Duration, logger *zap.Logger) *Core {
-	return &Core{Base: sharedbase.Base{Cache: cache}, Users: users, Hasher: hasher, Files: files, Tokens: tokens, TokenTTL: tokenTTL, RefreshTTL: refreshTTL, Logger: logger}
+func New(d sharedbase.Deps) *Core {
+	return &Core{
+		Base:       sharedbase.Base{Cache: d.Cache},
+		Users:      d.Users,
+		Hasher:     d.Hasher,
+		Files:      d.Files,
+		Tokens:     d.Tokens,
+		TokenTTL:   d.TokenTTL,
+		RefreshTTL: d.RefreshTTL,
+		Logger:     d.Logger,
+	}
 }
 
 func (c *Core) UserResponse(u *muser.User) *dauth.UserResponse {
