@@ -500,9 +500,7 @@ func (f *FakeTaskRepo) MoveTask(_ context.Context, task *mtask.Task, targetColum
 			target = append(target, t)
 		}
 	}
-	if targetColumnID != moved.ColumnID {
-		sortByPosition(target)
-	}
+	sortByPosition(target)
 	for i, t := range source {
 		t.Position = i
 	}
