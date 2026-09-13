@@ -96,36 +96,48 @@ func (h *Hub) RoomMembers(room string) []string {
 	return ids
 }
 
-func (h *Hub) BroadcastToRoom(room string, msg *ws.Message) {
+func (h *Hub) snapshotRoom(room string) []ws.Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if h.closed {
-		return
+		return nil
 	}
+	members := h.rooms[room]
+	conns := make([]ws.Client, 0, len(members))
+	for conn := range members {
+		conns = append(conns, conn)
+	}
+	return conns
+}
+
+func (h *Hub) snapshotClients() []ws.Client {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.closed {
+		return nil
+	}
+	conns := make([]ws.Client, 0, len(h.clients))
+	for conn := range h.clients {
+		conns = append(conns, conn)
+	}
+	return conns
+}
+
+func (h *Hub) BroadcastToRoom(room string, msg *ws.Message) {
 	msg.Room = room
-	for conn := range h.rooms[room] {
+	for _, conn := range h.snapshotRoom(room) {
 		conn.Send(msg)
 	}
 }
 
 func (h *Hub) Broadcast(msg *ws.Message) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	if h.closed {
-		return
-	}
-	for conn := range h.clients {
+	for _, conn := range h.snapshotClients() {
 		conn.Send(msg)
 	}
 }
 
 func (h *Hub) SendToUser(userID string, msg *ws.Message) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	if h.closed {
-		return
-	}
-	for conn := range h.clients {
+	for _, conn := range h.snapshotClients() {
 		if conn.UserID() == userID {
 			conn.Send(msg)
 		}
