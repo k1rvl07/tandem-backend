@@ -8,6 +8,7 @@ import (
 	"github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/http/handler/common"
 	"github.com/tandem/tandem/internal/pkg/ctxkeys"
+	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	pauth "github.com/tandem/tandem/internal/usecase/auth"
 )
 
@@ -51,18 +52,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Produce json
 // @Param request body auth.RefreshRequest false "Refresh payload (fallback when cookie is missing)"
 // @Success 200 {object} auth.RefreshResponse
-// @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/v1/auth/refresh [post]
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	refreshToken, err := c.Cookie(common.RefreshCookieName)
-	if err != nil && refreshToken == "" {
+	if err != nil || refreshToken == "" {
 		var req auth.RefreshRequest
-		if !common.ParseJSON(c, &req) {
-			return
-		}
+		_ = c.ShouldBindJSON(&req)
 		refreshToken = req.RefreshToken
+	}
+	if refreshToken == "" {
+		common.RespondError(c, pkgerrors.ErrUnauthorized)
+		return
 	}
 	resp, err := h.auth.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
