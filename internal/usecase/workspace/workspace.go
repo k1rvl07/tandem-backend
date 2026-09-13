@@ -618,6 +618,17 @@ func (s *Service) resolveOwner(ctx context.Context, workspaceID string) (*dworks
 	if err != nil {
 		return nil, err
 	}
+	user, idx, err := s.findOwnerUser(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+	if idx < 0 {
+		return nil, nil
+	}
+	return memberToResponse(user, members[idx].Role), nil
+}
+
+func (s *Service) findOwnerUser(ctx context.Context, members []mworkspace.WorkspaceMember) (*muser.User, int, error) {
 	for i := range members {
 		if members[i].Role == mworkspace.RoleOwner {
 			user, err := s.users.FindByID(ctx, members[i].UserID)
@@ -625,12 +636,12 @@ func (s *Service) resolveOwner(ctx context.Context, workspaceID string) (*dworks
 				if common.IsNotFound(err) {
 					continue
 				}
-				return nil, err
+				return nil, -1, err
 			}
-			return memberToResponse(user, members[i].Role), nil
+			return user, i, nil
 		}
 	}
-	return nil, nil
+	return nil, -1, nil
 }
 
 func validateWorkspacePayload(name, description string) error {
@@ -646,16 +657,7 @@ func validateWorkspacePayload(name, description string) error {
 func normalizePrefix(prefix, name string) (string, error) {
 	prefix = strings.ToUpper(strings.TrimSpace(prefix))
 	if prefix == "" {
-		var b strings.Builder
-		for _, r := range strings.ToUpper(name) {
-			if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-				b.WriteRune(r)
-				if b.Len() == 3 {
-					break
-				}
-			}
-		}
-		prefix = b.String()
+		prefix = derivePrefixFromName(name)
 	}
 	if prefix == "" {
 		prefix = "WS"
@@ -664,6 +666,19 @@ func normalizePrefix(prefix, name string) (string, error) {
 		return "", err
 	}
 	return prefix, nil
+}
+
+func derivePrefixFromName(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(name) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			if b.Len() == 3 {
+				break
+			}
+		}
+	}
+	return b.String()
 }
 
 func workspaceToResponse(ws *mworkspace.Workspace, role mworkspace.WorkspaceRole, isFavorite bool) *dworkspace.WorkspaceResponse {

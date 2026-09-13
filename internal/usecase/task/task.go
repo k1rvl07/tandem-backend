@@ -476,34 +476,40 @@ func (s *Service) filterTasks(tasks []*mtask.Task, columnInfo map[string]workspa
 		if !ok {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(task.Title), strings.ToLower(query.Q)) {
-			continue
+		if matchesTaskQuery(task, info, query, actorID) {
+			filtered = append(filtered, task)
 		}
-		if query.BoardID != "" && info.boardID != query.BoardID {
-			continue
-		}
-		if query.AssigneeID != "" && task.AssigneeID != query.AssigneeID {
-			continue
-		}
-		if query.Status != "" && !strings.EqualFold(strings.TrimSpace(query.Status), info.name) {
-			continue
-		}
-		if query.ExcludeSubtasks && task.ParentID != "" {
-			continue
-		}
-		switch query.Only {
-		case "mine":
-			if task.AuthorID != actorID && task.CuratorID != actorID && task.AssigneeID != actorID {
-				continue
-			}
-		case "for_me":
-			if task.AssigneeID != actorID {
-				continue
-			}
-		}
-		filtered = append(filtered, task)
 	}
 	return filtered
+}
+
+func matchesTaskQuery(task *mtask.Task, info workspaceColumn, query dtask.ListWorkspaceTasksQuery, actorID string) bool {
+	if !strings.Contains(strings.ToLower(task.Title), strings.ToLower(query.Q)) {
+		return false
+	}
+	if query.BoardID != "" && info.boardID != query.BoardID {
+		return false
+	}
+	if query.AssigneeID != "" && task.AssigneeID != query.AssigneeID {
+		return false
+	}
+	if query.Status != "" && !strings.EqualFold(strings.TrimSpace(query.Status), info.name) {
+		return false
+	}
+	if query.ExcludeSubtasks && task.ParentID != "" {
+		return false
+	}
+	switch query.Only {
+	case "mine":
+		if task.AuthorID != actorID && task.CuratorID != actorID && task.AssigneeID != actorID {
+			return false
+		}
+	case "for_me":
+		if task.AssigneeID != actorID {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) moveTask(ctx context.Context, task *mtask.Task, targetColumnID string, position int) error {
