@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,20 +9,24 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tandem/tandem/internal/domain/ports/repository"
+	"github.com/tandem/tandem/internal/domain/ports/ws"
 	"github.com/tandem/tandem/internal/http/middleware/ws_identity"
 	"github.com/tandem/tandem/internal/infrastructure/token"
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
+	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 
-func newWSTestHarness(t *testing.T) (*WSHandler, *wshub.Hub, *httptest.Server, *token.JWTManager) {
+func newWSTestHarness(t *testing.T, workspaces repository.WorkspaceRepository) (*WSHandler, *wshub.Hub, *httptest.Server, *token.JWTManager) {
 	t.Helper()
 	manager := token.NewJWTManager("test-secret", nil)
 	hub := wshub.New()
-	h := NewWSHandler(hub, nil, nil)
+	h := NewWSHandler(hub, workspaces, nil)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -49,7 +54,7 @@ func wsDial(t *testing.T, srv *httptest.Server, subprotocols []string, query str
 }
 
 func TestWSConnectSubprotocol(t *testing.T) {
-	_, _, srv, manager := newWSTestHarness(t)
+	_, _, srv, manager := newWSTestHarness(t, nil)
 	valid, err := manager.Generate("user-1", time.Hour)
 	require.NoError(t, err)
 
@@ -62,7 +67,7 @@ func TestWSConnectSubprotocol(t *testing.T) {
 }
 
 func TestWSConnectQueryTokenRejected(t *testing.T) {
-	_, _, srv, manager := newWSTestHarness(t)
+	_, _, srv, manager := newWSTestHarness(t, nil)
 	valid, err := manager.Generate("user-1", time.Hour)
 	require.NoError(t, err)
 
@@ -72,7 +77,7 @@ func TestWSConnectQueryTokenRejected(t *testing.T) {
 }
 
 func TestWSConnectInvalidToken(t *testing.T) {
-	_, _, srv, _ := newWSTestHarness(t)
+	_, _, srv, _ := newWSTestHarness(t, nil)
 
 	_, status, err := wsDial(t, srv, []string{"tandem", "bogus-token"}, "")
 	require.Error(t, err)
@@ -80,7 +85,7 @@ func TestWSConnectInvalidToken(t *testing.T) {
 }
 
 func TestWSConnectMissingToken(t *testing.T) {
-	_, _, srv, _ := newWSTestHarness(t)
+	_, _, srv, _ := newWSTestHarness(t, nil)
 
 	_, status, err := wsDial(t, srv, nil, "")
 	require.Error(t, err)
@@ -88,9 +93,60 @@ func TestWSConnectMissingToken(t *testing.T) {
 }
 
 func TestWSConnectTandemWithoutToken(t *testing.T) {
-	_, _, srv, _ := newWSTestHarness(t)
+	_, _, srv, _ := newWSTestHarness(t, nil)
 
 	_, status, err := wsDial(t, srv, []string{"tandem"}, "")
 	require.Error(t, err)
 	assert.Equal(t, http.StatusUnauthorized, status)
+}
+
+func TestWSJoinDeniedForNonMember(t *testing.T) {
+	repo := testutil.NewFakeWorkspaceRepo()
+	workspaceID := uuid.NewString()
+	repo.AddWorkspaceFixture(workspaceID, "Workspace")
+	_, _, srv, manager := newWSTestHarness(t, repo)
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	conn, _, err := wsDial(t, srv, []string{"tandem", valid}, "")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"workspace:`+workspaceID+`"}`)))
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var msg ws.Message
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, eventJoinDenied, msg.Type)
+	assert.Equal(t, "workspace:"+workspaceID, msg.Room)
+}
+
+func TestWSJoinAllowsMemberAndBroadcastsPresence(t *testing.T) {
+	repo := testutil.NewFakeWorkspaceRepo()
+	workspaceID := uuid.NewString()
+	repo.AddWorkspaceFixture(workspaceID, "Workspace")
+	repo.AddMemberFixture(workspaceID, "user-1", "editor")
+	_, _, srv, manager := newWSTestHarness(t, repo)
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	conn, _, err := wsDial(t, srv, []string{"tandem", valid}, "")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"workspace:`+workspaceID+`"}`)))
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var msg ws.Message
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, "presence", msg.Type)
+	assert.Equal(t, "workspace:"+workspaceID, msg.Room)
+	rawData, err := json.Marshal(msg.Data)
+	require.NoError(t, err)
+	var presence presenceMessage
+	require.NoError(t, json.Unmarshal(rawData, &presence))
+	assert.Equal(t, "workspace:"+workspaceID, presence.Room)
+	assert.ElementsMatch(t, []string{"user-1"}, presence.Members)
 }

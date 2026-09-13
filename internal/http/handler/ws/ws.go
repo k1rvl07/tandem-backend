@@ -40,6 +40,8 @@ func NewWSHandler(hub ws.Hub, workspaces repository.WorkspaceRepository, allowed
 	return &WSHandler{hub: hub, workspaces: workspaces, checkOrigin: checkOrigin}
 }
 
+const eventJoinDenied = "workspace.join_denied"
+
 type clientMessage struct {
 	Type string          `json:"type"`
 	Room string          `json:"room,omitempty"`
@@ -114,6 +116,7 @@ func (h *WSHandler) handleMessage(cl *wsclient.Client, data []byte) {
 	switch msg.Type {
 	case "join":
 		if !h.canJoin(cl.UserID(), msg.Room) {
+			cl.Send(joinDeniedMessage(msg.Room, cl.UserID()))
 			return
 		}
 		h.hub.JoinRoom(msg.Room, cl)
@@ -135,6 +138,17 @@ func validWorkspaceRoom(room string) bool {
 	}
 	workspaceID := strings.TrimPrefix(room, "workspace:")
 	return validate.UUID(workspaceID) == nil
+}
+
+func joinDeniedMessage(room, userID string) *ws.Message {
+	return &ws.Message{
+		Type: eventJoinDenied,
+		Room: room,
+		Data: map[string]string{
+			"workspace_id": strings.TrimPrefix(room, "workspace:"),
+			"user_id":      userID,
+		},
+	}
 }
 
 func (h *WSHandler) canJoin(userID, room string) bool {
