@@ -14,7 +14,7 @@ func TestAddAndRemoveFavorite(t *testing.T) {
 	favorites := testutil.NewFakeFavoriteRepo()
 	ws := testutil.NewFakeWorkspaceRepo()
 	boards := testutil.NewFakeBoardRepo()
-	svc := NewService(favorites, ws, boards, testutil.NewFakeHub(), testutil.NewFakeCache())
+	svc := NewService(Deps{Favorites: favorites, Workspaces: ws, Boards: boards, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
 
 	user := testutil.NewUUID()
 	wsID := testutil.NewUUID()
@@ -39,7 +39,7 @@ func TestAddFavoriteNonMember(t *testing.T) {
 	favorites := testutil.NewFakeFavoriteRepo()
 	ws := testutil.NewFakeWorkspaceRepo()
 	boards := testutil.NewFakeBoardRepo()
-	svc := NewService(favorites, ws, boards, testutil.NewFakeHub(), testutil.NewFakeCache())
+	svc := NewService(Deps{Favorites: favorites, Workspaces: ws, Boards: boards, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
 
 	user := testutil.NewUUID()
 	wsID := testutil.NewUUID()
@@ -50,7 +50,7 @@ func TestAddFavoriteNonMember(t *testing.T) {
 
 func TestAddFavoriteInvalidTarget(t *testing.T) {
 	favorites := testutil.NewFakeFavoriteRepo()
-	svc := NewService(favorites, testutil.NewFakeWorkspaceRepo(), testutil.NewFakeBoardRepo(), testutil.NewFakeHub(), testutil.NewFakeCache())
+	svc := NewService(Deps{Favorites: favorites, Workspaces: testutil.NewFakeWorkspaceRepo(), Boards: testutil.NewFakeBoardRepo(), Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
 	err := svc.Add(context.Background(), testutil.NewUUID(), "unknown", testutil.NewUUID())
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }

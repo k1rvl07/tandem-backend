@@ -40,16 +40,18 @@ type Service struct {
 	files      *file.Service
 }
 
-func NewService(
-	users repository.UserRepository,
-	hasher service.PasswordHasher,
-	cache cache.Cache,
-	tokens service.TokenService,
-	workspaces repository.WorkspaceRepository,
-	favorites repository.FavoriteRepository,
-	files *file.Service,
-) *Service {
-	return &Service{users: users, hasher: hasher, cache: cache, tokens: tokens, workspaces: workspaces, favorites: favorites, files: files}
+type Deps struct {
+	Users      repository.UserRepository
+	Hasher     service.PasswordHasher
+	Cache      cache.Cache
+	Tokens     service.TokenService
+	Workspaces repository.WorkspaceRepository
+	Favorites  repository.FavoriteRepository
+	Files      *file.Service
+}
+
+func NewService(deps Deps) *Service {
+	return &Service{users: deps.Users, hasher: deps.Hasher, cache: deps.Cache, tokens: deps.Tokens, workspaces: deps.Workspaces, favorites: deps.Favorites, files: deps.Files}
 }
 
 func (s *Service) bumpUsers(ctx context.Context) {

@@ -29,19 +29,21 @@ type Service struct {
 	cache      cache.Cache
 }
 
-func NewService(
-	favorites repository.FavoriteRepository,
-	workspaces repository.WorkspaceRepository,
-	boards repository.BoardRepository,
-	hub ws.Hub,
-	cache cache.Cache,
-) *Service {
+type Deps struct {
+	Favorites  repository.FavoriteRepository
+	Workspaces repository.WorkspaceRepository
+	Boards     repository.BoardRepository
+	Hub        ws.Hub
+	Cache      cache.Cache
+}
+
+func NewService(deps Deps) *Service {
 	return &Service{
-		favorites:  favorites,
-		workspaces: workspaces,
-		boards:     boards,
-		hub:        hub,
-		cache:      cache,
+		favorites:  deps.Favorites,
+		workspaces: deps.Workspaces,
+		boards:     deps.Boards,
+		hub:        deps.Hub,
+		cache:      deps.Cache,
 	}
 }
 

@@ -77,7 +77,7 @@ func newEnv(t *testing.T) *env {
 	tasks.RegisterColumn(colC, boardB)
 
 	return &env{
-		svc:    NewService(tasks, cols, boards, ws, users, file.NewService(noopStore{}, zap.NewNop()), hub, testutil.NewFakeCache()),
+		svc:    NewService(Deps{Tasks: tasks, Columns: cols, Boards: boards, Workspaces: ws, Users: users, Files: file.NewService(noopStore{}, zap.NewNop()), Hub: hub, Cache: testutil.NewFakeCache()}),
 		tasks:  tasks,
 		cols:   cols,
 		ws:     ws,

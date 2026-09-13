@@ -26,8 +26,16 @@ type Service struct {
 	refreshTTL time.Duration
 }
 
-func NewService(users repository.UserRepository, tokens service.TokenService, hasher service.PasswordHasher, tokenTTL, refreshTTL time.Duration) *Service {
-	return &Service{users: users, tokens: tokens, hasher: hasher, tokenTTL: tokenTTL, refreshTTL: refreshTTL}
+type Deps struct {
+	Users      repository.UserRepository
+	Tokens     service.TokenService
+	Hasher     service.PasswordHasher
+	TokenTTL   time.Duration
+	RefreshTTL time.Duration
+}
+
+func NewService(deps Deps) *Service {
+	return &Service{users: deps.Users, tokens: deps.Tokens, hasher: deps.Hasher, tokenTTL: deps.TokenTTL, refreshTTL: deps.RefreshTTL}
 }
 
 func (s *Service) Login(ctx context.Context, req dauth.LoginRequest) (*dauth.LoginResponse, error) {

@@ -47,8 +47,19 @@ type Service struct {
 	logger     *zap.Logger
 }
 
-func NewService(users repository.UserRepository, hasher service.PasswordHasher, files *file.Service, cache cache.Cache, tokens service.TokenService, tokenTTL, refreshTTL time.Duration, logger *zap.Logger) *Service {
-	return &Service{users: users, hasher: hasher, files: files, cache: cache, tokens: tokens, tokenTTL: tokenTTL, refreshTTL: refreshTTL, logger: logger}
+type Deps struct {
+	Users      repository.UserRepository
+	Hasher     service.PasswordHasher
+	Files      *file.Service
+	Cache      cache.Cache
+	Tokens     service.TokenService
+	TokenTTL   time.Duration
+	RefreshTTL time.Duration
+	Logger     *zap.Logger
+}
+
+func NewService(deps Deps) *Service {
+	return &Service{users: deps.Users, hasher: deps.Hasher, files: deps.Files, cache: deps.Cache, tokens: deps.Tokens, tokenTTL: deps.TokenTTL, refreshTTL: deps.RefreshTTL, logger: deps.Logger}
 }
 
 func (s *Service) Get(ctx context.Context, userID string) (*dauth.UserResponse, error) {

@@ -238,7 +238,7 @@ func newTestEnv() *testEnv {
 	tasks := testutil.NewFakeTaskRepo()
 	files := file.NewService(noopWorkspaceStore{}, zap.NewNop())
 	return &testEnv{
-		svc:      NewService(wsRepo, userRepo, favorites, boards, columns, tasks, files, testutil.NewFakeHub(), testutil.NewFakeCache(), zap.NewNop()),
+		svc:      NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache(), Logger: zap.NewNop()}),
 		wsRepo:   wsRepo,
 		userRepo: userRepo,
 		boards:   boards,

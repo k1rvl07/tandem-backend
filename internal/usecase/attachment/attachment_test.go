@@ -72,7 +72,7 @@ func TestCreateRollsBackObjectOnUploadFailure(t *testing.T) {
 	workspaces.AddWorkspaceFixture("ws-1", "WS")
 	workspaces.AddMemberFixture("ws-1", "u1", mworkspace.RoleMember)
 
-	svc := NewService(attachments, tasks, columns, boards, workspaces, file.NewService(store, zap.NewNop()), hub, cache)
+	svc := NewService(Deps{Attachments: attachments, Tasks: tasks, Columns: columns, Boards: boards, Workspaces: workspaces, Files: file.NewService(store, zap.NewNop()), Hub: hub, Cache: cache})
 
 	_, err := svc.Create(context.Background(), "u1", "ws-1", "t-1", "doc.pdf", "application/pdf", bytes.NewReader([]byte("data")), 4)
 	require.Error(t, err)

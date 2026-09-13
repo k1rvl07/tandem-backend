@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
@@ -73,4 +74,62 @@ func DisplayID(prefix, taskID string) string {
 
 func IsNotFound(err error) bool {
 	return errors.Is(err, pkgerrors.ErrNotFound)
+}
+
+func RequireEditor(role mworkspace.WorkspaceRole) error {
+	if role != mworkspace.RoleOwner && role != mworkspace.RoleEditor {
+		return pkgerrors.ErrForbidden
+	}
+	return nil
+}
+
+func RequireOwner(role mworkspace.WorkspaceRole) error {
+	if role != mworkspace.RoleOwner {
+		return pkgerrors.ErrForbidden
+	}
+	return nil
+}
+
+func BoardInWorkspace(ctx context.Context, boards repository.BoardRepository, workspaceID, boardID string) (*mboard.Board, error) {
+	board, err := boards.FindBoardByID(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+	if board.WorkspaceID != workspaceID {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("board not in workspace"))
+	}
+	return board, nil
+}
+
+type TaskResponseCtx struct {
+	WorkspaceID string
+	BoardID     string
+	BoardName   string
+	ColumnName  string
+	DisplayID   string
+}
+
+func BuildTaskResponse(task *mtask.Task, users map[string]*dtask.TaskUserResponse, ctx TaskResponseCtx) dtask.TaskResponse {
+	return dtask.TaskResponse{
+		ID:          task.ID,
+		DisplayID:   ctx.DisplayID,
+		WorkspaceID: ctx.WorkspaceID,
+		BoardID:     ctx.BoardID,
+		BoardName:   ctx.BoardName,
+		ColumnID:    task.ColumnID,
+		ColumnName:  ctx.ColumnName,
+		Title:       task.Title,
+		Description: task.Description,
+		Author:      users[task.AuthorID],
+		Assignee:    users[task.AssigneeID],
+		Curator:     users[task.CuratorID],
+		ParentID:    task.ParentID,
+		DueDate:     task.DueDate,
+		Position:    task.Position,
+		IsUrgent:    task.IsUrgent,
+		IsHidden:    task.IsHidden,
+		ImageKey:    task.ImageKey,
+		CreatedAt:   task.CreatedAt,
+		UpdatedAt:   task.UpdatedAt,
+	}
 }

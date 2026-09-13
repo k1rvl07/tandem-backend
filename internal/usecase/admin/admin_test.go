@@ -126,7 +126,7 @@ func (f *fakeRepo) seed(login, role string) string {
 
 func newTestService(repo repository.UserRepository) *Service {
 	store := filestore.FileStore(noopStore{})
-	return NewService(repo, password.NewBCryptHasher(12), testutil.NewFakeCache(), fakeTokenService{}, testutil.NewFakeWorkspaceRepo(), testutil.NewFakeFavoriteRepo(), file.NewService(store, zap.NewNop()))
+	return NewService(Deps{Users: repo, Hasher: password.NewBCryptHasher(12), Cache: testutil.NewFakeCache(), Tokens: fakeTokenService{}, Workspaces: testutil.NewFakeWorkspaceRepo(), Favorites: testutil.NewFakeFavoriteRepo(), Files: file.NewService(store, zap.NewNop())})
 }
 
 type noopStore struct{}

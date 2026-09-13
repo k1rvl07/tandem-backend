@@ -2,7 +2,6 @@ package board
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -55,27 +54,29 @@ type Service struct {
 	cache      cache.Cache
 }
 
-func NewService(
-	boards repository.BoardRepository,
-	columns repository.ColumnRepository,
-	tasks repository.TaskRepository,
-	workspaces repository.WorkspaceRepository,
-	users repository.UserRepository,
-	favorites repository.FavoriteRepository,
-	files *file.Service,
-	hub ws.Hub,
-	cache cache.Cache,
-) *Service {
+type Deps struct {
+	Boards     repository.BoardRepository
+	Columns    repository.ColumnRepository
+	Tasks      repository.TaskRepository
+	Workspaces repository.WorkspaceRepository
+	Users      repository.UserRepository
+	Favorites  repository.FavoriteRepository
+	Files      *file.Service
+	Hub        ws.Hub
+	Cache      cache.Cache
+}
+
+func NewService(deps Deps) *Service {
 	return &Service{
-		boards:     boards,
-		columns:    columns,
-		tasks:      tasks,
-		workspaces: workspaces,
-		users:      users,
-		favorites:  favorites,
-		files:      files,
-		hub:        hub,
-		cache:      cache,
+		boards:     deps.Boards,
+		columns:    deps.Columns,
+		tasks:      deps.Tasks,
+		workspaces: deps.Workspaces,
+		users:      deps.Users,
+		favorites:  deps.Favorites,
+		files:      deps.Files,
+		hub:        deps.Hub,
+		cache:      deps.Cache,
 	}
 }
 
@@ -298,8 +299,8 @@ func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID str
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != mworkspace.RoleOwner {
-		return nil, pkgerrors.ErrForbidden
+	if err := common.RequireOwner(member.Role); err != nil {
+		return nil, err
 	}
 	board, err := s.boardInWorkspace(ctx, workspaceID, boardID)
 	if err != nil {
@@ -354,21 +355,11 @@ func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*m
 }
 
 func (s *Service) requireEditor(role mworkspace.WorkspaceRole) error {
-	if role != mworkspace.RoleOwner && role != mworkspace.RoleEditor {
-		return pkgerrors.ErrForbidden
-	}
-	return nil
+	return common.RequireEditor(role)
 }
 
 func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
-	board, err := s.boards.FindBoardByID(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	if board.WorkspaceID != workspaceID {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("board not in workspace"))
-	}
-	return board, nil
+	return common.BoardInWorkspace(ctx, s.boards, workspaceID, boardID)
 }
 
 func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
@@ -456,34 +447,12 @@ func boardToResponse(board *mboard.Board) *dboard.BoardResponse {
 }
 
 func taskToResponse(task *mtask.Task, users map[string]*dtask.TaskUserResponse, prefix, boardID, boardName, columnName string) dtask.TaskResponse {
-	short := task.ID
-	if len(short) > 8 {
-		short = short[:8]
-	}
-	if prefix == "" {
-		prefix = "T"
-	}
-	return dtask.TaskResponse{
-		ID:          task.ID,
-		DisplayID:   prefix + "-" + short,
-		BoardID:     boardID,
-		BoardName:   boardName,
-		ColumnID:    task.ColumnID,
-		ColumnName:  columnName,
-		Title:       task.Title,
-		Description: task.Description,
-		Author:      users[task.AuthorID],
-		Assignee:    users[task.AssigneeID],
-		Curator:     users[task.CuratorID],
-		ParentID:    task.ParentID,
-		DueDate:     task.DueDate,
-		Position:    task.Position,
-		IsUrgent:    task.IsUrgent,
-		IsHidden:    task.IsHidden,
-		ImageKey:    task.ImageKey,
-		CreatedAt:   task.CreatedAt,
-		UpdatedAt:   task.UpdatedAt,
-	}
+	return common.BuildTaskResponse(task, users, common.TaskResponseCtx{
+		BoardID:    boardID,
+		BoardName:  boardName,
+		ColumnName: columnName,
+		DisplayID:  common.DisplayID(prefix, task.ID),
+	})
 }
 
 var _ UseCase = (*Service)(nil)

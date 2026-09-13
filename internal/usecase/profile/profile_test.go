@@ -128,7 +128,7 @@ func (s *fakeStore) PresignGet(_ context.Context, key string, _ time.Duration) (
 func newTestService(repo *fakeRepo, store filestore.FileStore) (*Service, *testutil.FakeTokenService) {
 	hasher := password.NewBCryptHasher(12)
 	tokens := &testutil.FakeTokenService{}
-	return NewService(repo, hasher, file.NewService(store, zap.NewNop()), testutil.NewFakeCache(), tokens, time.Hour, 7*24*time.Hour, zap.NewNop()), tokens
+	return NewService(Deps{Users: repo, Hasher: hasher, Files: file.NewService(store, zap.NewNop()), Cache: testutil.NewFakeCache(), Tokens: tokens, TokenTTL: time.Hour, RefreshTTL: 7 * 24 * time.Hour, Logger: zap.NewNop()}), tokens
 }
 
 func TestGetProfile(t *testing.T) {

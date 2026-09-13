@@ -62,19 +62,21 @@ type Service struct {
 	logger     *zap.Logger
 }
 
-func NewService(
-	workspaces repository.WorkspaceRepository,
-	users repository.UserRepository,
-	favorites repository.FavoriteRepository,
-	boards repository.BoardRepository,
-	columns repository.ColumnRepository,
-	tasks repository.TaskRepository,
-	files *file.Service,
-	hub ws.Hub,
-	cache cache.Cache,
-	logger *zap.Logger,
-) *Service {
-	return &Service{workspaces: workspaces, users: users, favorites: favorites, boards: boards, columns: columns, tasks: tasks, files: files, hub: hub, cache: cache, logger: logger}
+type Deps struct {
+	Workspaces repository.WorkspaceRepository
+	Users      repository.UserRepository
+	Favorites  repository.FavoriteRepository
+	Boards     repository.BoardRepository
+	Columns    repository.ColumnRepository
+	Tasks      repository.TaskRepository
+	Files      *file.Service
+	Hub        ws.Hub
+	Cache      cache.Cache
+	Logger     *zap.Logger
+}
+
+func NewService(deps Deps) *Service {
+	return &Service{workspaces: deps.Workspaces, users: deps.Users, favorites: deps.Favorites, boards: deps.Boards, columns: deps.Columns, tasks: deps.Tasks, files: deps.Files, hub: deps.Hub, cache: deps.Cache, logger: deps.Logger}
 }
 
 func (s *Service) Create(ctx context.Context, actorID string, req dworkspace.CreateWorkspaceRequest) (*dworkspace.WorkspaceResponse, error) {
@@ -249,8 +251,8 @@ func (s *Service) Update(ctx context.Context, actorID, workspaceID string, req d
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
-		return nil, pkgerrors.ErrForbidden
+	if err := s.requireEditor(member.Role); err != nil {
+		return nil, err
 	}
 	if err := validateWorkspacePayload(req.Name, req.Description); err != nil {
 		return nil, err
@@ -288,8 +290,8 @@ func (s *Service) SetTheme(ctx context.Context, actorID, workspaceID, theme stri
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
-		return nil, pkgerrors.ErrForbidden
+	if err := s.requireEditor(member.Role); err != nil {
+		return nil, err
 	}
 	wsModel, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
@@ -314,8 +316,8 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID string) error
 	if err != nil {
 		return err
 	}
-	if member.Role != mworkspace.RoleOwner {
-		return pkgerrors.ErrForbidden
+	if err := s.requireOwner(member.Role); err != nil {
+		return err
 	}
 	s.bumpMembers(ctx, workspaceID)
 	keys, err := s.tasks.CollectWorkspaceKeys(ctx, workspaceID)
@@ -342,8 +344,8 @@ func (s *Service) AddMember(ctx context.Context, actorID, workspaceID string, re
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != mworkspace.RoleOwner {
-		return nil, pkgerrors.ErrForbidden
+	if err := s.requireOwner(member.Role); err != nil {
+		return nil, err
 	}
 
 	role, err := normalizeMemberRole(mworkspace.WorkspaceRole(req.Role))
@@ -408,8 +410,8 @@ func (s *Service) UpdateRole(ctx context.Context, actorID, workspaceID, targetID
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != mworkspace.RoleOwner {
-		return nil, pkgerrors.ErrForbidden
+	if err := s.requireOwner(member.Role); err != nil {
+		return nil, err
 	}
 	role := mworkspace.WorkspaceRole(req.Role)
 	if role != mworkspace.RoleEditor && role != mworkspace.RoleMember {
@@ -446,8 +448,8 @@ func (s *Service) RemoveMember(ctx context.Context, actorID, workspaceID, target
 	if err != nil {
 		return err
 	}
-	if member.Role != mworkspace.RoleOwner {
-		return pkgerrors.ErrForbidden
+	if err := s.requireOwner(member.Role); err != nil {
+		return err
 	}
 	target, err := s.workspaces.FindMember(ctx, workspaceID, targetID)
 	if err != nil {
@@ -480,8 +482,8 @@ func (s *Service) TransferOwner(ctx context.Context, actorID, workspaceID string
 	if err != nil {
 		return err
 	}
-	if member.Role != mworkspace.RoleOwner {
-		return pkgerrors.ErrForbidden
+	if err := s.requireOwner(member.Role); err != nil {
+		return err
 	}
 	if req.UserID == actorID {
 		return pkgerrors.NewValidationError("already the owner")
@@ -508,8 +510,8 @@ func (s *Service) GetInvite(ctx context.Context, actorID, workspaceID string) (*
 	if err != nil {
 		return nil, err
 	}
-	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
-		return nil, pkgerrors.ErrForbidden
+	if err := s.requireEditor(member.Role); err != nil {
+		return nil, err
 	}
 	ws, err := s.workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
@@ -534,8 +536,8 @@ func (s *Service) DisableInvite(ctx context.Context, actorID, workspaceID string
 	if err != nil {
 		return err
 	}
-	if member.Role != mworkspace.RoleOwner && member.Role != mworkspace.RoleEditor {
-		return pkgerrors.ErrForbidden
+	if err := s.requireEditor(member.Role); err != nil {
+		return err
 	}
 	if err := s.workspaces.UpdateInvite(ctx, workspaceID, "", nil); err != nil {
 		return err
@@ -593,6 +595,14 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
 	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
+}
+
+func (s *Service) requireOwner(role mworkspace.WorkspaceRole) error {
+	return common.RequireOwner(role)
+}
+
+func (s *Service) requireEditor(role mworkspace.WorkspaceRole) error {
+	return common.RequireEditor(role)
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {

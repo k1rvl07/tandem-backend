@@ -29,7 +29,7 @@ func TestTreeAllTasks(t *testing.T) {
 	tasks.RegisterColumnWorkspace(col.ID, wsID)
 	tasks.AddTaskFixture(testutil.NewUUID(), col.ID, "Alpha", 0)
 
-	svc := NewService(ws, boards, cols, tasks, users, favorites, testutil.NewFakeCache())
+	svc := NewService(Deps{Workspaces: ws, Boards: boards, Columns: cols, Tasks: tasks, Users: users, Favorites: favorites, Cache: testutil.NewFakeCache()})
 	resp, err := svc.List(context.Background(), user, dtree.TreeQuery{Tasks: "all"})
 	require.NoError(t, err)
 	require.Len(t, resp, 1)
@@ -60,7 +60,7 @@ func TestTreeMineExcludesOtherTasks(t *testing.T) {
 	mine.AssigneeID = me
 	tasks.AddTaskFixture(testutil.NewUUID(), col.ID, "Other", 1).AssigneeID = other
 
-	svc := NewService(ws, boards, cols, tasks, users, favorites, testutil.NewFakeCache())
+	svc := NewService(Deps{Workspaces: ws, Boards: boards, Columns: cols, Tasks: tasks, Users: users, Favorites: favorites, Cache: testutil.NewFakeCache()})
 	resp, err := svc.List(context.Background(), me, dtree.TreeQuery{Tasks: "for_me"})
 	require.NoError(t, err)
 	got := resp[0].Boards[0].Tasks

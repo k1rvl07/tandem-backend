@@ -52,25 +52,27 @@ type Service struct {
 	cache      cache.Cache
 }
 
-func NewService(
-	tasks repository.TaskRepository,
-	columns repository.ColumnRepository,
-	boards repository.BoardRepository,
-	workspaces repository.WorkspaceRepository,
-	users repository.UserRepository,
-	files *file.Service,
-	hub ws.Hub,
-	cache cache.Cache,
-) *Service {
+type Deps struct {
+	Tasks      repository.TaskRepository
+	Columns    repository.ColumnRepository
+	Boards     repository.BoardRepository
+	Workspaces repository.WorkspaceRepository
+	Users      repository.UserRepository
+	Files      *file.Service
+	Hub        ws.Hub
+	Cache      cache.Cache
+}
+
+func NewService(deps Deps) *Service {
 	return &Service{
-		tasks:      tasks,
-		columns:    columns,
-		boards:     boards,
-		workspaces: workspaces,
-		users:      users,
-		files:      files,
-		hub:        hub,
-		cache:      cache,
+		tasks:      deps.Tasks,
+		columns:    deps.Columns,
+		boards:     deps.Boards,
+		workspaces: deps.Workspaces,
+		users:      deps.Users,
+		files:      deps.Files,
+		hub:        deps.Hub,
+		cache:      deps.Cache,
 	}
 }
 
@@ -639,14 +641,7 @@ func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*m
 }
 
 func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
-	board, err := s.boards.FindBoardByID(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	if board.WorkspaceID != workspaceID {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("board not in workspace"))
-	}
-	return board, nil
+	return common.BoardInWorkspace(ctx, s.boards, workspaceID, boardID)
 }
 
 func (s *Service) columnInBoard(ctx context.Context, boardID, columnID string) (*mcolumn.Column, error) {
@@ -736,28 +731,13 @@ func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []
 		if !ok {
 			info = workspaceColumn{boardID: ""}
 		}
-		responses = append(responses, dtask.TaskResponse{
-			ID:          task.ID,
-			DisplayID:   displayID(workspace.Prefix, task.ID),
+		responses = append(responses, common.BuildTaskResponse(task, users, common.TaskResponseCtx{
 			WorkspaceID: workspaceID,
 			BoardID:     info.boardID,
 			BoardName:   info.boardName,
-			ColumnID:    task.ColumnID,
 			ColumnName:  info.name,
-			Title:       task.Title,
-			Description: task.Description,
-			Author:      users[task.AuthorID],
-			Assignee:    users[task.AssigneeID],
-			Curator:     users[task.CuratorID],
-			ParentID:    task.ParentID,
-			DueDate:     task.DueDate,
-			Position:    task.Position,
-			IsUrgent:    task.IsUrgent,
-			IsHidden:    task.IsHidden,
-			ImageKey:    task.ImageKey,
-			CreatedAt:   task.CreatedAt,
-			UpdatedAt:   task.UpdatedAt,
-		})
+			DisplayID:   displayID(workspace.Prefix, task.ID),
+		}))
 	}
 	return responses, nil
 }

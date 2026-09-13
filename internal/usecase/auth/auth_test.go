@@ -107,7 +107,7 @@ func (f *fakeUserRepo) Delete(_ context.Context, id string) error {
 func newTestService(repo repository.UserRepository) *Service {
 	tokens := token.NewJWTManager("test-secret", nil)
 	hasher := password.NewBCryptHasher(12)
-	return NewService(repo, tokens, hasher, 24*time.Hour, 7*24*time.Hour)
+	return NewService(Deps{Users: repo, Tokens: tokens, Hasher: hasher, TokenTTL: 24 * time.Hour, RefreshTTL: 7 * 24 * time.Hour})
 }
 
 func TestLoginSuccess(t *testing.T) {
@@ -141,7 +141,7 @@ func TestRefreshRotatesTokens(t *testing.T) {
 	err := repo.Create(context.Background(), &muser.User{ID: uuid.New().String(), Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser})
 	require.NoError(t, err)
 	tokens := token.NewJWTManager("test-secret", testutil.NewFakeCache())
-	svc := NewService(repo, tokens, hasher, time.Hour, 7*24*time.Hour)
+	svc := NewService(Deps{Users: repo, Tokens: tokens, Hasher: hasher, TokenTTL: time.Hour, RefreshTTL: 7 * 24 * time.Hour})
 
 	login, err := svc.Login(context.Background(), dauth.LoginRequest{Login: "ivanov.ii", Password: "password123"})
 	require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestRefreshRevokedByLogout(t *testing.T) {
 	err := repo.Create(context.Background(), &muser.User{ID: userID, Login: "ivanov.ii", PasswordHash: hash, Role: muser.RoleUser})
 	require.NoError(t, err)
 	tokens := token.NewJWTManager("test-secret", testutil.NewFakeCache())
-	svc := NewService(repo, tokens, hasher, time.Hour, 7*24*time.Hour)
+	svc := NewService(Deps{Users: repo, Tokens: tokens, Hasher: hasher, TokenTTL: time.Hour, RefreshTTL: 7 * 24 * time.Hour})
 
 	login, err := svc.Login(context.Background(), dauth.LoginRequest{Login: "ivanov.ii", Password: "password123"})
 	require.NoError(t, err)
@@ -273,7 +273,7 @@ func (r *recordingTokens) Revoke(_ context.Context, subject string) error {
 
 func TestLogoutRevokesToken(t *testing.T) {
 	tokens := &recordingTokens{}
-	svc := NewService(newFakeUserRepo(), tokens, password.NewBCryptHasher(12), time.Hour, 7*24*time.Hour)
+	svc := NewService(Deps{Users: newFakeUserRepo(), Tokens: tokens, Hasher: password.NewBCryptHasher(12), TokenTTL: time.Hour, RefreshTTL: 7 * 24 * time.Hour})
 
 	err := svc.Logout(context.Background(), "u1")
 	require.NoError(t, err)
