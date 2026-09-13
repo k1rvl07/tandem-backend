@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"

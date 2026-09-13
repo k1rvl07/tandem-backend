@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
-	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
+	dprofile "github.com/tandem/tandem/internal/contracts/profile"
 	"github.com/tandem/tandem/internal/usecase/profile/core"
 	"github.com/tandem/tandem/internal/usecase/profile/features/account"
 	"github.com/tandem/tandem/internal/usecase/profile/features/avatar"

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mpattachment "github.com/tandem/tandem/internal/http/mapping/attachment"
 	pattachment "github.com/tandem/tandem/internal/usecase/attachment"
 )
 
@@ -55,7 +56,7 @@ func (h *AttachmentHandler) Create(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, mpattachment.ToWireAttachment(*resp))
 }
 
 // @Summary List task attachments
@@ -76,7 +77,7 @@ func (h *AttachmentHandler) List(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpattachment.ToWireAttachments(resp))
 }
 
 // @Summary Download a task attachment

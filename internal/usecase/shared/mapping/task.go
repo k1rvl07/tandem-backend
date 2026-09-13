@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 )
 

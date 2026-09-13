@@ -1,11 +1,11 @@
 package mapping
 
 import (
+	dboard "github.com/tandem/tandem/internal/contracts/board"
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	dboard "github.com/tandem/tandem/internal/http/dto/board"
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	sharedmap "github.com/tandem/tandem/internal/usecase/shared/mapping"
 )
 

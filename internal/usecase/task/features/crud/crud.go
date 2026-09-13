@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"

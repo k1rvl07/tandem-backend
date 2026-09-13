@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/tree"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mptree "github.com/tandem/tandem/internal/http/mapping/tree"
 	ptree "github.com/tandem/tandem/internal/usecase/tree"
 )
 
@@ -33,10 +34,10 @@ func (h *TreeHandler) List(c *gin.Context) {
 	if !common.ParseQuery(c, &query, "invalid query") {
 		return
 	}
-	resp, err := h.tree.List(c.Request.Context(), common.CurrentUserID(c), query)
+	resp, err := h.tree.List(c.Request.Context(), common.CurrentUserID(c), mptree.ToContractQuery(query))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mptree.ToWireWorkspaces(resp))
 }

@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 
+	dattachment "github.com/tandem/tandem/internal/contracts/attachment"
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
 	"github.com/tandem/tandem/internal/usecase/attachment/mapping"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"

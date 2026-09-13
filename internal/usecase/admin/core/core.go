@@ -3,10 +3,10 @@ package core
 import (
 	"context"
 
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"

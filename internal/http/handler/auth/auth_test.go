@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	"github.com/tandem/tandem/internal/http/handler/common"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 )

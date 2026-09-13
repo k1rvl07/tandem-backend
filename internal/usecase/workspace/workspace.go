@@ -3,7 +3,7 @@ package workspace
 import (
 	"context"
 
-	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
+	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/workspace/core"
 	"github.com/tandem/tandem/internal/usecase/workspace/features/crud"

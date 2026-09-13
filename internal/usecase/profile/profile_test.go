@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	dprofile "github.com/tandem/tandem/internal/contracts/profile"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
-	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"

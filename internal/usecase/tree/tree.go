@@ -3,7 +3,7 @@ package tree
 import (
 	"context"
 
-	dtree "github.com/tandem/tandem/internal/http/dto/tree"
+	dtree "github.com/tandem/tandem/internal/contracts/tree"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/tree/core"
 	"github.com/tandem/tandem/internal/usecase/tree/features/build"

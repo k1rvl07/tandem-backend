@@ -3,7 +3,7 @@ package board
 import (
 	"context"
 
-	dboard "github.com/tandem/tandem/internal/http/dto/board"
+	dboard "github.com/tandem/tandem/internal/contracts/board"
 	"github.com/tandem/tandem/internal/usecase/board/core"
 	"github.com/tandem/tandem/internal/usecase/board/features/crud"
 	"github.com/tandem/tandem/internal/usecase/shared/base"

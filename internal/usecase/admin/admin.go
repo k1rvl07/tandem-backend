@@ -3,8 +3,8 @@ package admin
 import (
 	"context"
 
-	dadmin "github.com/tandem/tandem/internal/http/dto/admin"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
+	dadmin "github.com/tandem/tandem/internal/contracts/admin"
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	"github.com/tandem/tandem/internal/usecase/admin/core"
 	"github.com/tandem/tandem/internal/usecase/admin/features/roles"
 	"github.com/tandem/tandem/internal/usecase/admin/features/users"

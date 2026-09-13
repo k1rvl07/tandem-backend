@@ -6,11 +6,11 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	dboard "github.com/tandem/tandem/internal/contracts/board"
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dboard "github.com/tandem/tandem/internal/http/dto/board"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/board/core"

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
-	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
+	dprofile "github.com/tandem/tandem/internal/contracts/profile"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/profile/core"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"

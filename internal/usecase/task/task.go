@@ -3,7 +3,7 @@ package task
 import (
 	"context"
 
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/task/core"
 	"github.com/tandem/tandem/internal/usecase/task/features/crud"

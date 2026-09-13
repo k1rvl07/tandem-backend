@@ -3,8 +3,8 @@ package ordering
 import (
 	"context"
 
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/task/core"

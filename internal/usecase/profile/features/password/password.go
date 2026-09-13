@@ -3,7 +3,7 @@ package password
 import (
 	"context"
 
-	dprofile "github.com/tandem/tandem/internal/http/dto/profile"
+	dprofile "github.com/tandem/tandem/internal/contracts/profile"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/profile/core"

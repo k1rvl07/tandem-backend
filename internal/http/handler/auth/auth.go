@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mp "github.com/tandem/tandem/internal/http/mapping/auth"
 	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	pauth "github.com/tandem/tandem/internal/usecase/auth"
@@ -37,13 +38,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.auth.Login(c.Request.Context(), req)
+	resp, err := h.auth.Login(c.Request.Context(), mp.ToContractLogin(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
 	common.SetRefreshCookie(c.Writer, resp.RefreshToken, h.refreshTTL, h.cookieSecure)
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mp.ToWireLogin(*resp))
 }
 
 // @Summary Refresh access token
@@ -72,7 +73,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 	common.SetRefreshCookie(c.Writer, resp.RefreshToken, h.refreshTTL, h.cookieSecure)
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mp.ToWireRefresh(*resp))
 }
 
 // @Summary Log out current user

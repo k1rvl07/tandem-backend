@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/shared/base"

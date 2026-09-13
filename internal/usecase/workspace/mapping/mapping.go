@@ -1,9 +1,9 @@
 package mapping
 
 import (
+	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 )
 
 func WorkspaceResponse(ws *mworkspace.Workspace, role mworkspace.WorkspaceRole, isFavorite bool) *dworkspace.WorkspaceResponse {

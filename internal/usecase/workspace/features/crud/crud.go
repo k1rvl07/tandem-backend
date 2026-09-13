@@ -7,12 +7,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"

@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	dboard "github.com/tandem/tandem/internal/contracts/board"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	dboard "github.com/tandem/tandem/internal/http/dto/board"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/board/core"
 	file "github.com/tandem/tandem/internal/usecase/file"

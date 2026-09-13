@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"

@@ -7,6 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/profile"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mpauth "github.com/tandem/tandem/internal/http/mapping/auth"
+	mpprofile "github.com/tandem/tandem/internal/http/mapping/profile"
 	pprofile "github.com/tandem/tandem/internal/usecase/profile"
 )
 
@@ -37,7 +39,7 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpauth.ToWireUser(*resp))
 }
 
 // @Summary Update current user's profile
@@ -57,12 +59,12 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 	userID := common.CurrentUserID(c)
-	resp, err := h.profiles.UpdateProfile(c.Request.Context(), userID, req)
+	resp, err := h.profiles.UpdateProfile(c.Request.Context(), userID, mpprofile.ToContractUpdateProfile(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpauth.ToWireUser(*resp))
 }
 
 // @Summary Upload current user's avatar
@@ -89,7 +91,7 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpauth.ToWireUser(*resp))
 }
 
 // @Summary Delete current user's avatar
@@ -106,7 +108,7 @@ func (h *ProfileHandler) DeleteAvatar(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpauth.ToWireUser(*resp))
 }
 
 // @Summary Change current user's password
@@ -125,7 +127,7 @@ func (h *ProfileHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	userID := common.CurrentUserID(c)
-	resp, err := h.profiles.ChangePassword(c.Request.Context(), userID, req)
+	resp, err := h.profiles.ChangePassword(c.Request.Context(), userID, mpprofile.ToContractChangePassword(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return

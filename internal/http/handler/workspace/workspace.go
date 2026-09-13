@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/workspace"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mpworkspace "github.com/tandem/tandem/internal/http/mapping/workspace"
 	pworkspace "github.com/tandem/tandem/internal/usecase/workspace"
 )
 
@@ -32,12 +33,12 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.workspaces.Create(c.Request.Context(), common.CurrentUserID(c), req)
+	resp, err := h.workspaces.Create(c.Request.Context(), common.CurrentUserID(c), mpworkspace.ToContractCreate(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, mpworkspace.ToWireWorkspace(*resp))
 }
 
 // @Summary List workspaces
@@ -53,7 +54,7 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireWorkspaces(resp))
 }
 
 // @Summary Get a workspace
@@ -73,7 +74,7 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireDetail(*resp))
 }
 
 // @Summary Update a workspace
@@ -94,12 +95,12 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.workspaces.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
+	resp, err := h.workspaces.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), mpworkspace.ToContractUpdate(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireWorkspace(*resp))
 }
 
 // @Summary Delete a workspace
@@ -144,7 +145,7 @@ func (h *WorkspaceHandler) SetTheme(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireWorkspace(*resp))
 }
 
 // @Summary Add a workspace member
@@ -166,12 +167,12 @@ func (h *WorkspaceHandler) AddMember(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.workspaces.AddMember(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
+	resp, err := h.workspaces.AddMember(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), mpworkspace.ToContractAddMember(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, mpworkspace.ToWireMember(*resp))
 }
 
 // @Summary Get a workspace invite token
@@ -191,7 +192,7 @@ func (h *WorkspaceHandler) GetInvite(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireInvite(*resp))
 }
 
 // @Summary Disable a workspace invite
@@ -229,7 +230,7 @@ func (h *WorkspaceHandler) JoinByInvite(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireWorkspace(*resp))
 }
 
 // @Summary Change a member's role
@@ -251,12 +252,12 @@ func (h *WorkspaceHandler) UpdateRole(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.workspaces.UpdateRole(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("userId"), req)
+	resp, err := h.workspaces.UpdateRole(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("userId"), mpworkspace.ToContractUpdateMemberRole(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpworkspace.ToWireMember(*resp))
 }
 
 // @Summary Remove a workspace member
@@ -297,7 +298,7 @@ func (h *WorkspaceHandler) TransferOwner(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	if err := h.workspaces.TransferOwner(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req); err != nil {
+	if err := h.workspaces.TransferOwner(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), mpworkspace.ToContractTransferOwner(req)); err != nil {
 		common.RespondError(c, err)
 		return
 	}

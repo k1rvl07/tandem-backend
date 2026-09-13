@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 
+	dtask "github.com/tandem/tandem/internal/contracts/task"
 	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"

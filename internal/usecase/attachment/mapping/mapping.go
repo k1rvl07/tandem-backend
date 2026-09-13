@@ -1,8 +1,8 @@
 package mapping
 
 import (
+	dattachment "github.com/tandem/tandem/internal/contracts/attachment"
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
-	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
 )
 
 func AttachmentResponse(attachment *mattachment.TaskAttachment, workspaceID, taskID string) *dattachment.AttachmentResponse {

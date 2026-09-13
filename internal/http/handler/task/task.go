@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/task"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mptask "github.com/tandem/tandem/internal/http/mapping/task"
 	ptask "github.com/tandem/tandem/internal/usecase/task"
 )
 
@@ -36,12 +37,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.tasks.Create(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), req)
+	resp, err := h.tasks.Create(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), mptask.ToContractCreate(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, mptask.ToWireTask(*resp))
 }
 
 // @Summary Update a task
@@ -64,12 +65,12 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.tasks.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), c.Param("taskId"), req)
+	resp, err := h.tasks.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), c.Param("taskId"), mptask.ToContractUpdate(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mptask.ToWireTask(*resp))
 }
 
 // @Summary Get a task
@@ -90,7 +91,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mptask.ToWireDetail(*resp))
 }
 
 // @Summary List workspace tasks
@@ -114,12 +115,12 @@ func (h *TaskHandler) List(c *gin.Context) {
 	if !common.ParseQuery(c, &query, "invalid query") {
 		return
 	}
-	resp, err := h.tasks.List(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), query)
+	resp, err := h.tasks.List(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), mptask.ToContractListQuery(query))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mptask.ToWireTasks(resp))
 }
 
 // @Summary Delete a task

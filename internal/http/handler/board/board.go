@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/board"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mpboard "github.com/tandem/tandem/internal/http/mapping/board"
 	pboard "github.com/tandem/tandem/internal/usecase/board"
 )
 
@@ -33,7 +34,7 @@ func (h *BoardHandler) List(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpboard.ToWireBoards(resp))
 }
 
 // @Summary Create a board
@@ -53,12 +54,12 @@ func (h *BoardHandler) Create(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.boards.Create(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
+	resp, err := h.boards.Create(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), mpboard.ToContractCreate(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, mpboard.ToWireBoard(*resp))
 }
 
 // @Summary Get a board
@@ -79,7 +80,7 @@ func (h *BoardHandler) Get(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpboard.ToWireDetail(*resp))
 }
 
 // @Summary Set main board
@@ -100,7 +101,7 @@ func (h *BoardHandler) SetMain(c *gin.Context) {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpboard.ToWireBoard(*resp))
 }
 
 // @Summary Reorder boards
@@ -120,12 +121,12 @@ func (h *BoardHandler) Reorder(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.boards.Reorder(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), req)
+	resp, err := h.boards.Reorder(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), mpboard.ToContractReorder(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpboard.ToWireBoards(resp))
 }
 
 // @Summary Update a board
@@ -147,12 +148,12 @@ func (h *BoardHandler) Update(c *gin.Context) {
 	if !common.ParseJSON(c, &req) {
 		return
 	}
-	resp, err := h.boards.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), req)
+	resp, err := h.boards.Update(c.Request.Context(), common.CurrentUserID(c), c.Param("id"), c.Param("boardId"), mpboard.ToContractUpdate(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpboard.ToWireBoard(*resp))
 }
 
 // @Summary Delete a board

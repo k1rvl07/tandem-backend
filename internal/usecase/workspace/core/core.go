@@ -3,11 +3,11 @@ package core
 import (
 	"context"
 
+	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	"github.com/tandem/tandem/internal/usecase/shared/errutil"

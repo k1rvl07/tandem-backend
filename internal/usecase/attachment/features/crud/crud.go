@@ -7,9 +7,9 @@ import (
 	"io"
 
 	"github.com/google/uuid"
+	dattachment "github.com/tandem/tandem/internal/contracts/attachment"
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
-	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	attcore "github.com/tandem/tandem/internal/usecase/attachment/core"

@@ -3,9 +3,9 @@ package roles
 import (
 	"context"
 
+	dadmin "github.com/tandem/tandem/internal/contracts/admin"
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
-	dadmin "github.com/tandem/tandem/internal/http/dto/admin"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/admin/core"

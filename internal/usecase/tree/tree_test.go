@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	dtree "github.com/tandem/tandem/internal/contracts/tree"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 

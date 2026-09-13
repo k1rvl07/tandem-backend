@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	dtree "github.com/tandem/tandem/internal/contracts/tree"
 	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/tree/core"

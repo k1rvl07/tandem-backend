@@ -5,8 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/tandem/tandem/internal/http/dto/admin"
-	"github.com/tandem/tandem/internal/http/dto/auth"
 	"github.com/tandem/tandem/internal/http/handler/common"
+	mpadmin "github.com/tandem/tandem/internal/http/mapping/admin"
+	mpauth "github.com/tandem/tandem/internal/http/mapping/auth"
 	mwstaff "github.com/tandem/tandem/internal/http/middleware/require_staff"
 	padmin "github.com/tandem/tandem/internal/usecase/admin"
 )
@@ -37,13 +38,12 @@ func (h *AdminHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	actor := padmin.Actor{ID: common.CurrentUserID(c), Role: c.GetString(mwstaff.CtxUserRole)}
-	var resp *auth.UserResponse
-	resp, err := h.admin.CreateUser(c.Request.Context(), actor, req)
+	resp, err := h.admin.CreateUser(c.Request.Context(), actor, mpadmin.ToContractCreateUser(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, resp)
+	c.JSON(http.StatusCreated, mpauth.ToWireUser(*resp))
 }
 
 // @Summary List users
@@ -62,12 +62,12 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	if !common.ParseQuery(c, &query, "invalid query parameters") {
 		return
 	}
-	page, err := h.admin.ListUsers(c.Request.Context(), query)
+	page, err := h.admin.ListUsers(c.Request.Context(), mpadmin.ToContractListQuery(query))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, page)
+	c.JSON(http.StatusOK, mpadmin.ToWirePage(page))
 }
 
 // @Summary Delete a user
@@ -109,10 +109,10 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 		return
 	}
 	actor := padmin.Actor{ID: common.CurrentUserID(c), Role: c.GetString(mwstaff.CtxUserRole)}
-	resp, err := h.admin.UpdateUserRole(c.Request.Context(), actor, c.Param("id"), req)
+	resp, err := h.admin.UpdateUserRole(c.Request.Context(), actor, c.Param("id"), mpadmin.ToContractUpdateRole(req))
 	if err != nil {
 		common.RespondError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, mpauth.ToWireUser(*resp))
 }

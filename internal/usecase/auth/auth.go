@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	"github.com/tandem/tandem/internal/usecase/auth/features/session"
 	"github.com/tandem/tandem/internal/usecase/shared/base"
 )

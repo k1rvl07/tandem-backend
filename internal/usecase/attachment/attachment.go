@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
+	dattachment "github.com/tandem/tandem/internal/contracts/attachment"
 	attcore "github.com/tandem/tandem/internal/usecase/attachment/core"
 	"github.com/tandem/tandem/internal/usecase/attachment/features/crud"
 	"github.com/tandem/tandem/internal/usecase/shared/base"

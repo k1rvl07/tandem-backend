@@ -1,8 +1,8 @@
 package mapping
 
 import (
+	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
-	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 )
 
 func UserResponse(u *muser.User) *dauth.UserResponse {

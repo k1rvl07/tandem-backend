@@ -1,10 +1,10 @@
 package core
 
 import (
+	dtree "github.com/tandem/tandem/internal/contracts/tree"
+	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
-	dtree "github.com/tandem/tandem/internal/http/dto/tree"
-	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	base "github.com/tandem/tandem/internal/usecase/shared/base"
 )
 
