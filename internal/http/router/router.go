@@ -22,6 +22,7 @@ import (
 	hworkspace "github.com/tandem/tandem/internal/http/handler/workspace"
 	hws "github.com/tandem/tandem/internal/http/handler/ws"
 	mwauth "github.com/tandem/tandem/internal/http/middleware/auth"
+	mwbody "github.com/tandem/tandem/internal/http/middleware/bodylimit"
 	mwcors "github.com/tandem/tandem/internal/http/middleware/cors"
 	mwlog "github.com/tandem/tandem/internal/http/middleware/logger"
 	mwstaff "github.com/tandem/tandem/internal/http/middleware/require_staff"
@@ -99,6 +100,7 @@ func (b *routerBuilder) setup() {
 	})
 
 	b.api = b.r.Group("/api/v1")
+	b.api.Use(mwbody.LimitBody(1 << 20))
 	b.registerAuth()
 	b.registerWS()
 	b.registerAuthed()
