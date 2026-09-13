@@ -12,6 +12,7 @@ import (
 	file "github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/access"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
+	"go.uber.org/zap"
 )
 
 const (
@@ -27,6 +28,7 @@ type Core struct {
 	Boards      repository.BoardRepository
 	Files       *file.Service
 	Hub         ws.Hub
+	Logger      *zap.Logger
 }
 
 func New(d sharedbase.Deps) *Core {
@@ -38,6 +40,7 @@ func New(d sharedbase.Deps) *Core {
 		Boards:      d.Boards,
 		Files:       d.Files,
 		Hub:         d.Hub,
+		Logger:      d.Logger,
 	}
 }
 

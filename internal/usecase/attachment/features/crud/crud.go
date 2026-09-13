@@ -14,6 +14,7 @@ import (
 	"github.com/tandem/tandem/internal/pkg/validate"
 	attcore "github.com/tandem/tandem/internal/usecase/attachment/core"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	"go.uber.org/zap"
 )
 
 type Crud struct {
@@ -54,7 +55,9 @@ func (s *Crud) Create(ctx context.Context, actorID, workspaceID, taskID, filenam
 		return nil, err
 	}
 	if err := s.Files.PutAttachment(ctx, key, reader, size, contentType); err != nil {
-		_ = s.Attachments.DeleteAttachment(ctx, attachment.ID)
+		if delErr := s.Attachments.DeleteAttachment(ctx, attachment.ID); delErr != nil {
+			s.Logger.Warn("rollback attachment create failed", zap.Error(delErr))
+		}
 		s.Files.RemoveMany(ctx, []string{key})
 		return nil, err
 	}

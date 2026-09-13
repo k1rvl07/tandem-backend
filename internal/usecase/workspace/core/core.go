@@ -49,6 +49,7 @@ func New(d sharedbase.Deps) *Core {
 func (c *Core) BumpMembers(ctx context.Context, workspaceID string) {
 	members, err := c.Workspaces.ListMembers(ctx, workspaceID)
 	if err != nil {
+		c.Logger.Warn("list members for bump failed", zap.String("workspace_id", workspaceID), zap.Error(err))
 		return
 	}
 	for i := range members {

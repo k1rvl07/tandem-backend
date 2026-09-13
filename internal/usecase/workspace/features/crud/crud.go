@@ -17,6 +17,7 @@ import (
 	"github.com/tandem/tandem/internal/pkg/validate"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/workspace/core"
+	"go.uber.org/zap"
 )
 
 const maxDescriptionLen = 400
@@ -49,15 +50,21 @@ func (s *Crud) Create(ctx context.Context, actorID string, req dworkspace.Create
 		return nil, err
 	}
 	if err := s.Workspaces.AddMember(ctx, ws.ID, actorID, mworkspace.RoleOwner); err != nil {
-		_ = s.Workspaces.DeleteWorkspace(ctx, ws.ID)
+		if delErr := s.Workspaces.DeleteWorkspace(ctx, ws.ID); delErr != nil {
+			s.Logger.Warn("rollback workspace create failed", zap.Error(delErr))
+		}
 		return nil, err
 	}
 	board, err := s.createMainBoard(ctx, ws.ID)
 	if err != nil {
 		if board != nil {
-			_ = s.Boards.DeleteBoard(ctx, board.ID)
+			if delErr := s.Boards.DeleteBoard(ctx, board.ID); delErr != nil {
+				s.Logger.Warn("rollback board create failed", zap.Error(delErr))
+			}
 		}
-		_ = s.Workspaces.DeleteWorkspace(ctx, ws.ID)
+		if delErr := s.Workspaces.DeleteWorkspace(ctx, ws.ID); delErr != nil {
+			s.Logger.Warn("rollback workspace create failed", zap.Error(delErr))
+		}
 		return nil, err
 	}
 	ownerUser, err := s.Users.FindByID(ctx, actorID)

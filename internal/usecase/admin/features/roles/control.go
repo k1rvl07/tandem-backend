@@ -9,6 +9,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/admin/core"
+	"go.uber.org/zap"
 )
 
 type Control struct {
@@ -79,7 +80,9 @@ func (s *Control) DeleteUser(ctx context.Context, actor core.Actor, targetID str
 	if err := s.Users.Delete(ctx, targetID); err != nil {
 		return err
 	}
-	_ = s.Tokens.Revoke(ctx, targetID)
+	if err := s.Tokens.Revoke(ctx, targetID); err != nil {
+		s.Logger.Warn("revoke tokens after user delete failed", zap.String("user_id", targetID), zap.Error(err))
+	}
 	s.BumpUsers(ctx)
 	return nil
 }

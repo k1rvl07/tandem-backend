@@ -11,6 +11,7 @@ import (
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
 	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/shared/mapping"
+	"go.uber.org/zap"
 )
 
 type Actor struct {
@@ -25,6 +26,7 @@ type Core struct {
 	Tokens    service.TokenService
 	Favorites repository.FavoriteRepository
 	Files     *file.Service
+	Logger    *zap.Logger
 }
 
 func New(d sharedbase.Deps) *Core {
@@ -35,6 +37,7 @@ func New(d sharedbase.Deps) *Core {
 		Tokens:    d.Tokens,
 		Favorites: d.Favorites,
 		Files:     d.Files,
+		Logger:    d.Logger,
 	}
 }
 
