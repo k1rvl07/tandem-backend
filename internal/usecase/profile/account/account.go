@@ -27,7 +27,7 @@ func New(c *core.Core) *Account {
 }
 
 func (s *Account) Get(ctx context.Context, userID string) (*dauth.UserResponse, error) {
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+userID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, userID)
 	profileKey := fmt.Sprintf("u:%s:t:v1:profile:%s", userID, uver)
 	var cached dauth.UserResponse
 	if cacheutil.Load(ctx, s.Cache, profileKey, &cached) {

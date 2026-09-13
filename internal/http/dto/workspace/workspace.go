@@ -54,16 +54,8 @@ type WorkspaceMemberResponse struct {
 }
 
 type WorkspaceDetailResponse struct {
-	ID          string                    `json:"id"`
-	Name        string                    `json:"name"`
-	Description string                    `json:"description"`
-	Prefix      string                    `json:"prefix"`
-	Theme       string                    `json:"theme"`
-	Role        string                    `json:"role"`
-	IsFavorite  bool                      `json:"is_favorite"`
-	CreatedAt   time.Time                 `json:"created_at"`
-	UpdatedAt   time.Time                 `json:"updated_at"`
-	Members     []WorkspaceMemberResponse `json:"members"`
+	WorkspaceResponse
+	Members []WorkspaceMemberResponse `json:"members"`
 }
 
 type WorkspaceInviteResponse struct {

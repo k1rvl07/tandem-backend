@@ -203,8 +203,8 @@ func (s *Crud) Get(ctx context.Context, actorID, workspaceID, taskID string) (*d
 	if _, err := s.WorkspaceTask(ctx, workspaceID, taskID); err != nil {
 		return nil, err
 	}
-	wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	detailKey := fmt.Sprintf("u:%s:t:v1:task:%s:%s:%s", actorID, taskID, wsver, uver)
 	var cached dtask.TaskDetailResponse
 	if cacheutil.Load(ctx, s.Cache, detailKey, &cached) {
@@ -257,8 +257,8 @@ func (s *Crud) List(ctx context.Context, actorID, workspaceID string, query dtas
 	if _, err := s.MemberOf(ctx, actorID, workspaceID); err != nil {
 		return nil, err
 	}
-	wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	limit, offset := s.NormalizePagination(query.Limit, query.Offset)
 	queryHash := cacheutil.QueryHash(query.Q, query.BoardID, query.AssigneeID, query.Status, query.Only, strconv.FormatBool(query.ExcludeSubtasks), strconv.Itoa(limit), strconv.Itoa(offset))
 	listKey := fmt.Sprintf("u:%s:t:v1:tasks:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, queryHash)

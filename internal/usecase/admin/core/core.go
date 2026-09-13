@@ -33,7 +33,7 @@ func New(users repository.UserRepository, hasher service.PasswordHasher, cache c
 }
 
 func (c *Core) BumpUsers(ctx context.Context) {
-	cacheutil.Bump(ctx, c.Cache, cacheutil.UsersVerKey)
+	cacheutil.BumpUsers(ctx, c.Cache)
 }
 
 func (c *Core) UserResponse(u *muser.User) *dauth.UserResponse {

@@ -81,8 +81,8 @@ func (s *Boards) List(ctx context.Context, actorID, workspaceID string) ([]dboar
 	if err != nil {
 		return nil, err
 	}
-	wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s", actorID, workspaceID, wsver, uver)
 	var cached []dboard.BoardResponse
 	if cacheutil.Load(ctx, s.Cache, listKey, &cached) {
@@ -125,8 +125,8 @@ func (s *Boards) Get(ctx context.Context, actorID, workspaceID, boardID string) 
 	if err != nil {
 		return nil, err
 	}
-	wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s", actorID, boardID, wsver, uver)
 	var cached dboard.BoardDetailResponse
 	if cacheutil.Load(ctx, s.Cache, detailKey, &cached) {

@@ -77,8 +77,8 @@ func (s *Crud) List(ctx context.Context, actorID, workspaceID, taskID string) ([
 	if _, err := s.WorkspaceTask(ctx, workspaceID, taskID); err != nil {
 		return nil, err
 	}
-	wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	listKey := fmt.Sprintf("u:%s:t:v1:attach:%s:%s:%s", actorID, taskID, wsver, uver)
 	var cached []dattachment.AttachmentResponse
 	if cacheutil.Load(ctx, s.Cache, listKey, &cached) {

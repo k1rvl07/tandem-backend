@@ -18,7 +18,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type UserCase interface {
+type Usecase interface {
 	Get(ctx context.Context, userID string) (*dauth.UserResponse, error)
 	UpdateProfile(ctx context.Context, userID string, req dprofile.UpdateProfileRequest) (*dauth.UserResponse, error)
 	ChangePassword(ctx context.Context, userID string, req dprofile.ChangePasswordRequest) (*dprofile.ChangePasswordResponse, error)
@@ -52,4 +52,4 @@ func NewService(deps Deps) *Service {
 	}
 }
 
-var _ UserCase = (*Service)(nil)
+var _ Usecase = (*Service)(nil)

@@ -42,7 +42,7 @@ func (s *Query) List(ctx context.Context, actorID string, query dtree.TreeQuery)
 	favWsOnly := query.Workspaces == "fav"
 	favBoardOnly := query.Boards == "fav"
 
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	fav, err := s.loadFavFragment(ctx, actorID, uver)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (s *Query) loadFavFragment(ctx context.Context, actorID, uver string) (core
 func (s *Query) brickKeys(ctx context.Context, memberships []mworkspace.WorkspaceMembership, actorID, uver, tasksFilter string) []string {
 	keys := make([]string, len(memberships))
 	for i := range memberships {
-		wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+memberships[i].Workspace.ID)
+		wsver := cacheutil.VersionWorkspace(ctx, s.Cache, memberships[i].Workspace.ID)
 		keys[i] = fmt.Sprintf("u:%s:t:v1:tree:%s:%s:%s:%s", actorID, memberships[i].Workspace.ID, wsver, uver, tasksFilter)
 	}
 	return keys

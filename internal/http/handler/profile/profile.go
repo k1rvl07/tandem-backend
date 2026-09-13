@@ -12,14 +12,14 @@ import (
 )
 
 type ProfileHandler struct {
-	profiles     pprofile.UserCase
+	profiles     pprofile.Usecase
 	cookieSecure bool
 	refreshTTL   time.Duration
 }
 
 const maxImageSize = 5 << 20
 
-func NewProfileHandler(uc pprofile.UserCase, cookieSecure bool, refreshTTL time.Duration) *ProfileHandler {
+func NewProfileHandler(uc pprofile.Usecase, cookieSecure bool, refreshTTL time.Duration) *ProfileHandler {
 	return &ProfileHandler{profiles: uc, cookieSecure: cookieSecure, refreshTTL: refreshTTL}
 }
 

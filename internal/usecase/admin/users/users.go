@@ -91,7 +91,7 @@ func (s *Users) ListUsers(ctx context.Context, query dadmin.AdminListQuery) (dad
 	}
 	search := strings.TrimSpace(query.Query)
 
-	usersver := cacheutil.Version(ctx, s.Cache, cacheutil.UsersVerKey)
+	usersver := cacheutil.VersionUsers(ctx, s.Cache)
 	searchKey := cacheutil.QueryHash("q", search)
 
 	totalKey := fmt.Sprintf("adminusers:total:v2:%s:%s", usersver, searchKey)

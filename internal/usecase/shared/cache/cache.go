@@ -30,6 +30,26 @@ func Version(ctx context.Context, c cache.Cache, key string) string {
 	return v
 }
 
+func WorkspaceVersionKey(workspaceID string) string {
+	return WSVerKey + workspaceID
+}
+
+func UserVersionKey(userID string) string {
+	return UVerKey + userID
+}
+
+func VersionWorkspace(ctx context.Context, c cache.Cache, workspaceID string) string {
+	return Version(ctx, c, WorkspaceVersionKey(workspaceID))
+}
+
+func VersionUser(ctx context.Context, c cache.Cache, userID string) string {
+	return Version(ctx, c, UserVersionKey(userID))
+}
+
+func VersionUsers(ctx context.Context, c cache.Cache) string {
+	return Version(ctx, c, UsersVerKey)
+}
+
 func Bump(ctx context.Context, c cache.Cache, key string) {
 	if c == nil {
 		return
@@ -41,11 +61,15 @@ func Bump(ctx context.Context, c cache.Cache, key string) {
 }
 
 func BumpWorkspace(ctx context.Context, c cache.Cache, workspaceID string) {
-	Bump(ctx, c, WSVerKey+workspaceID)
+	Bump(ctx, c, WorkspaceVersionKey(workspaceID))
 }
 
 func BumpUser(ctx context.Context, c cache.Cache, userID string) {
-	Bump(ctx, c, UVerKey+userID)
+	Bump(ctx, c, UserVersionKey(userID))
+}
+
+func BumpUsers(ctx context.Context, c cache.Cache) {
+	Bump(ctx, c, UsersVerKey)
 }
 
 func Load(ctx context.Context, c cache.Cache, key string, dst any) bool {

@@ -66,7 +66,7 @@ func (s *Crud) Create(ctx context.Context, actorID string, req dworkspace.Create
 	}
 	resp := s.WorkspaceResponse(ws, mworkspace.RoleOwner, false)
 	resp.Owner = s.MemberResponse(ownerUser, mworkspace.RoleOwner)
-	cacheutil.Bump(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	cacheutil.BumpUser(ctx, s.Cache, actorID)
 	return resp, nil
 }
 
@@ -96,7 +96,7 @@ func (s *Crud) createMainBoard(ctx context.Context, workspaceID string) (*mboard
 }
 
 func (s *Crud) List(ctx context.Context, actorID string) ([]dworkspace.WorkspaceResponse, error) {
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	listKey := fmt.Sprintf("u:%s:t:v1:wslist:%s", actorID, uver)
 	var cached []dworkspace.WorkspaceResponse
 	if cacheutil.Load(ctx, s.Cache, listKey, &cached) {
@@ -128,8 +128,8 @@ func (s *Crud) Get(ctx context.Context, actorID, workspaceID string) (*dworkspac
 	if err := validate.UUID(workspaceID); err != nil {
 		return nil, err
 	}
-	wsver := cacheutil.Version(ctx, s.Cache, cacheutil.WSVerKey+workspaceID)
-	uver := cacheutil.Version(ctx, s.Cache, cacheutil.UVerKey+actorID)
+	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
+	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
 	detailKey := fmt.Sprintf("u:%s:t:v1:ws:%s:%s:%s", actorID, workspaceID, wsver, uver)
 	var cached dworkspace.WorkspaceDetailResponse
 	if cacheutil.Load(ctx, s.Cache, detailKey, &cached) {
@@ -156,16 +156,18 @@ func (s *Crud) Get(ctx context.Context, actorID, workspaceID string) (*dworkspac
 		return nil, err
 	}
 	detail := &dworkspace.WorkspaceDetailResponse{
-		ID:          ws.ID,
-		Name:        ws.Name,
-		Description: ws.Description,
-		Prefix:      ws.Prefix,
-		Theme:       ws.Theme,
-		Role:        string(member.Role),
-		IsFavorite:  isFavorite,
-		CreatedAt:   ws.CreatedAt,
-		UpdatedAt:   ws.UpdatedAt,
-		Members:     memberResponses,
+		WorkspaceResponse: dworkspace.WorkspaceResponse{
+			ID:          ws.ID,
+			Name:        ws.Name,
+			Description: ws.Description,
+			Prefix:      ws.Prefix,
+			Theme:       ws.Theme,
+			Role:        string(member.Role),
+			IsFavorite:  isFavorite,
+			CreatedAt:   ws.CreatedAt,
+			UpdatedAt:   ws.UpdatedAt,
+		},
+		Members: memberResponses,
 	}
 	cacheutil.Store(ctx, s.Cache, detailKey, detail, cacheutil.TTL)
 	return detail, nil
