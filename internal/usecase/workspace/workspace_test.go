@@ -19,6 +19,7 @@ import (
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/testutil"
+	"github.com/tandem/tandem/internal/usecase/workspace/invites"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -629,7 +630,7 @@ func TestGetInviteSetsExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp.ExpiresAt)
 	require.False(t, resp.ExpiresAt.Before(time.Now()))
-	require.False(t, resp.ExpiresAt.After(time.Now().Add(inviteTTL+time.Second)))
+	require.False(t, resp.ExpiresAt.After(time.Now().Add(invites.InviteTTL+time.Second)))
 }
 
 func TestJoinByInviteExpired(t *testing.T) {
