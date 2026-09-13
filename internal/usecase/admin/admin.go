@@ -14,8 +14,8 @@ import (
 	dauth "github.com/tandem/tandem/internal/http/dto/auth"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 )
 
 type Actor struct {

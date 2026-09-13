@@ -1,33 +1,14 @@
-package common
+package taskmap
 
 import (
 	"context"
 	"errors"
 
-	mboard "github.com/tandem/tandem/internal/domain/models/board"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
-	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
 )
-
-func BumpWorkspace(ctx context.Context, c cache.Cache, workspaceID string) {
-	cacheutil.Bump(ctx, c, cacheutil.WSVerKey+workspaceID)
-}
-
-func MemberOrForbidden(ctx context.Context, repo repository.WorkspaceRepository, workspaceID, actorID string) (*mworkspace.WorkspaceMember, error) {
-	member, err := repo.FindMember(ctx, workspaceID, actorID)
-	if err != nil {
-		if errors.Is(err, pkgerrors.ErrNotFound) {
-			return nil, pkgerrors.ErrForbidden
-		}
-		return nil, err
-	}
-	return member, nil
-}
 
 func ResolveUsers(ctx context.Context, repo repository.UserRepository, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
 	ids := make(map[string]bool)
@@ -70,35 +51,6 @@ func DisplayID(prefix, taskID string) string {
 		short = short[:8]
 	}
 	return prefix + "-" + short
-}
-
-func IsNotFound(err error) bool {
-	return errors.Is(err, pkgerrors.ErrNotFound)
-}
-
-func RequireEditor(role mworkspace.WorkspaceRole) error {
-	if role != mworkspace.RoleOwner && role != mworkspace.RoleEditor {
-		return pkgerrors.ErrForbidden
-	}
-	return nil
-}
-
-func RequireOwner(role mworkspace.WorkspaceRole) error {
-	if role != mworkspace.RoleOwner {
-		return pkgerrors.ErrForbidden
-	}
-	return nil
-}
-
-func BoardInWorkspace(ctx context.Context, boards repository.BoardRepository, workspaceID, boardID string) (*mboard.Board, error) {
-	board, err := boards.FindBoardByID(ctx, boardID)
-	if err != nil {
-		return nil, err
-	}
-	if board.WorkspaceID != workspaceID {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("board not in workspace"))
-	}
-	return board, nil
 }
 
 type TaskResponseCtx struct {

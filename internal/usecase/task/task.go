@@ -20,9 +20,11 @@ import (
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
-	"github.com/tandem/tandem/internal/usecase/common"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/access"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	"github.com/tandem/tandem/internal/usecase/shared/errutil"
+	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 )
 
 const (
@@ -77,7 +79,7 @@ func NewService(deps Deps) *Service {
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	common.BumpWorkspace(ctx, s.cache, workspaceID)
+	cacheutil.BumpWorkspace(ctx, s.cache, workspaceID)
 }
 
 func (s *Service) Create(ctx context.Context, actorID, workspaceID, boardID string, req dtask.CreateTaskRequest) (*dtask.TaskResponse, error) {
@@ -390,7 +392,7 @@ func (s *Service) Get(ctx context.Context, actorID, workspaceID, taskID string) 
 	if task.ParentID != "" {
 		parent, err := s.tasks.FindTaskByID(ctx, task.ParentID)
 		if err != nil {
-			if !common.IsNotFound(err) {
+			if !errutil.IsNotFound(err) {
 				return nil, err
 			}
 		} else if parent != nil {
@@ -580,7 +582,7 @@ func (s *Service) validateAssignee(ctx context.Context, workspaceID, assigneeID 
 		return "", err
 	}
 	if _, err := s.workspaces.FindMember(ctx, workspaceID, assigneeID); err != nil {
-		if common.IsNotFound(err) {
+		if errutil.IsNotFound(err) {
 			return "", pkgerrors.NewValidationError("assignee must be a workspace member")
 		}
 		return "", err
@@ -596,7 +598,7 @@ func (s *Service) validateCurator(ctx context.Context, workspaceID, curatorID st
 		return "", err
 	}
 	if _, err := s.workspaces.FindMember(ctx, workspaceID, curatorID); err != nil {
-		if common.IsNotFound(err) {
+		if errutil.IsNotFound(err) {
 			return "", pkgerrors.NewValidationError("curator must be a workspace member")
 		}
 		return "", err
@@ -637,11 +639,11 @@ func (s *Service) validateParent(ctx context.Context, workspaceID, parentID, sel
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
+	return access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
 }
 
 func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
-	return common.BoardInWorkspace(ctx, s.boards, workspaceID, boardID)
+	return access.BoardInWorkspace(ctx, s.boards, workspaceID, boardID)
 }
 
 func (s *Service) columnInBoard(ctx context.Context, boardID, columnID string) (*mcolumn.Column, error) {
@@ -671,22 +673,7 @@ func (s *Service) taskInBoard(ctx context.Context, boardID, taskID string) (*mta
 }
 
 func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*mtask.Task, error) {
-	task, err := s.tasks.FindTaskByID(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	column, err := s.columns.FindColumnByID(ctx, task.ColumnID)
-	if err != nil {
-		return nil, err
-	}
-	board, err := s.boards.FindBoardByID(ctx, column.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	if board.WorkspaceID != workspaceID {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("task not in workspace"))
-	}
-	return task, nil
+	return access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID)
 }
 
 func (s *Service) responseFor(ctx context.Context, workspaceID string, task *mtask.Task) (*dtask.TaskResponse, error) {
@@ -731,7 +718,7 @@ func (s *Service) responsesFor(ctx context.Context, workspaceID string, tasks []
 		if !ok {
 			info = workspaceColumn{boardID: ""}
 		}
-		responses = append(responses, common.BuildTaskResponse(task, users, common.TaskResponseCtx{
+		responses = append(responses, taskmap.BuildTaskResponse(task, users, taskmap.TaskResponseCtx{
 			WorkspaceID: workspaceID,
 			BoardID:     info.boardID,
 			BoardName:   info.boardName,
@@ -770,7 +757,7 @@ func (s *Service) taskReference(ctx context.Context, task *mtask.Task) (*dtask.T
 }
 
 func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
-	return common.ResolveUsers(ctx, s.users, tasks)
+	return taskmap.ResolveUsers(ctx, s.users, tasks)
 }
 
 type workspaceColumn struct {
@@ -780,7 +767,7 @@ type workspaceColumn struct {
 }
 
 func displayID(prefix, taskID string) string {
-	return common.DisplayID(prefix, taskID)
+	return taskmap.DisplayID(prefix, taskID)
 }
 
 func removeTask(tasks []*mtask.Task, id string) []*mtask.Task {

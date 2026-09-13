@@ -19,9 +19,10 @@ import (
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
-	"github.com/tandem/tandem/internal/usecase/common"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/access"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	"github.com/tandem/tandem/internal/usecase/shared/errutil"
 	"go.uber.org/zap"
 )
 
@@ -226,7 +227,7 @@ func (s *Service) buildMemberResponses(ctx context.Context, members []mworkspace
 	for i := range members {
 		user, err := s.users.FindByID(ctx, members[i].UserID)
 		if err != nil {
-			if common.IsNotFound(err) {
+			if errutil.IsNotFound(err) {
 				continue
 			}
 			return nil, err
@@ -377,7 +378,7 @@ func (s *Service) findUserForAdd(ctx context.Context, workspaceID, login string)
 	}
 	if _, err := s.workspaces.FindMember(ctx, workspaceID, target.ID); err == nil {
 		return nil, pkgerrors.ErrConflict
-	} else if !common.IsNotFound(err) {
+	} else if !errutil.IsNotFound(err) {
 		return nil, err
 	}
 	return target, nil
@@ -561,7 +562,7 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 	}
 	member, findErr := s.workspaces.FindMember(ctx, ws.ID, actorID)
 	if findErr != nil {
-		if !common.IsNotFound(findErr) {
+		if !errutil.IsNotFound(findErr) {
 			return nil, findErr
 		}
 		member = nil
@@ -594,19 +595,19 @@ func (s *Service) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
+	return access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
 }
 
 func (s *Service) requireOwner(role mworkspace.WorkspaceRole) error {
-	return common.RequireOwner(role)
+	return access.RequireOwner(role)
 }
 
 func (s *Service) requireEditor(role mworkspace.WorkspaceRole) error {
-	return common.RequireEditor(role)
+	return access.RequireEditor(role)
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	common.BumpWorkspace(ctx, s.cache, workspaceID)
+	cacheutil.BumpWorkspace(ctx, s.cache, workspaceID)
 }
 
 func (s *Service) bumpUser(ctx context.Context, userID string) {
@@ -643,7 +644,7 @@ func (s *Service) findOwnerUser(ctx context.Context, members []mworkspace.Worksp
 		if members[i].Role == mworkspace.RoleOwner {
 			user, err := s.users.FindByID(ctx, members[i].UserID)
 			if err != nil {
-				if common.IsNotFound(err) {
+				if errutil.IsNotFound(err) {
 					continue
 				}
 				return nil, -1, err

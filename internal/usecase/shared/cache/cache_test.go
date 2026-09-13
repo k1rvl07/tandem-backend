@@ -1,4 +1,4 @@
-package cacheutil_test
+package cache_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 
@@ -59,6 +59,20 @@ func TestBump(t *testing.T) {
 		cacheutil.Bump(ctx, c, key)
 		if got := cacheutil.Version(ctx, c, key); got != "2" {
 			t.Fatalf("Version after 2 bumps = %q, want %q", got, "2")
+		}
+	})
+}
+
+func TestBumpWorkspace(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("bumps workspace version key", func(t *testing.T) {
+		t.Parallel()
+		c := testutil.NewFakeCache()
+		cacheutil.BumpWorkspace(ctx, c, "ws1")
+		if got := cacheutil.Version(ctx, c, cacheutil.WSVerKey+"ws1"); got != "1" {
+			t.Fatalf("Version after BumpWorkspace = %q, want %q", got, "1")
 		}
 	})
 }

@@ -18,9 +18,10 @@ import (
 	dtask "github.com/tandem/tandem/internal/http/dto/task"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
-	"github.com/tandem/tandem/internal/usecase/common"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/access"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 )
 
 const (
@@ -81,7 +82,7 @@ func NewService(deps Deps) *Service {
 }
 
 func (s *Service) bumpWorkspace(ctx context.Context, workspaceID string) {
-	common.BumpWorkspace(ctx, s.cache, workspaceID)
+	cacheutil.BumpWorkspace(ctx, s.cache, workspaceID)
 }
 
 func (s *Service) Create(ctx context.Context, actorID, workspaceID string, req dboard.CreateBoardRequest) (*dboard.BoardResponse, error) {
@@ -299,7 +300,7 @@ func (s *Service) SetMain(ctx context.Context, actorID, workspaceID, boardID str
 	if err != nil {
 		return nil, err
 	}
-	if err := common.RequireOwner(member.Role); err != nil {
+	if err := access.RequireOwner(member.Role); err != nil {
 		return nil, err
 	}
 	board, err := s.boardInWorkspace(ctx, workspaceID, boardID)
@@ -351,19 +352,19 @@ func (s *Service) Reorder(ctx context.Context, actorID, workspaceID string, req 
 }
 
 func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	return common.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
+	return access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID)
 }
 
 func (s *Service) requireEditor(role mworkspace.WorkspaceRole) error {
-	return common.RequireEditor(role)
+	return access.RequireEditor(role)
 }
 
 func (s *Service) boardInWorkspace(ctx context.Context, workspaceID, boardID string) (*mboard.Board, error) {
-	return common.BoardInWorkspace(ctx, s.boards, workspaceID, boardID)
+	return access.BoardInWorkspace(ctx, s.boards, workspaceID, boardID)
 }
 
 func (s *Service) resolveUsers(ctx context.Context, tasks []*mtask.Task) (map[string]*dtask.TaskUserResponse, error) {
-	return common.ResolveUsers(ctx, s.users, tasks)
+	return taskmap.ResolveUsers(ctx, s.users, tasks)
 }
 
 func boardRoom(workspaceID string) string {
@@ -447,11 +448,11 @@ func boardToResponse(board *mboard.Board) *dboard.BoardResponse {
 }
 
 func taskToResponse(task *mtask.Task, users map[string]*dtask.TaskUserResponse, prefix, boardID, boardName, columnName string) dtask.TaskResponse {
-	return common.BuildTaskResponse(task, users, common.TaskResponseCtx{
+	return taskmap.BuildTaskResponse(task, users, taskmap.TaskResponseCtx{
 		BoardID:    boardID,
 		BoardName:  boardName,
 		ColumnName: columnName,
-		DisplayID:  common.DisplayID(prefix, task.ID),
+		DisplayID:  taskmap.DisplayID(prefix, task.ID),
 	})
 }
 

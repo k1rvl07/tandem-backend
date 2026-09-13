@@ -2,7 +2,6 @@ package favorite
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
@@ -11,7 +10,8 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
+	"github.com/tandem/tandem/internal/usecase/shared/access"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 )
 
 const eventFavoritesUpdated = "favorites.updated"
@@ -57,10 +57,7 @@ func (s *Service) Add(ctx context.Context, actorID, targetType, targetID string)
 	}
 	switch targetType {
 	case mfavorite.FavoriteWorkspace:
-		if _, err := s.workspaces.FindMember(ctx, targetID, actorID); err != nil {
-			if errors.Is(err, pkgerrors.ErrNotFound) {
-				return pkgerrors.ErrForbidden
-			}
+		if _, err := access.MemberOrForbidden(ctx, s.workspaces, targetID, actorID); err != nil {
 			return err
 		}
 	case mfavorite.FavoriteBoard:
@@ -68,10 +65,7 @@ func (s *Service) Add(ctx context.Context, actorID, targetType, targetID string)
 		if err != nil {
 			return err
 		}
-		if _, err := s.workspaces.FindMember(ctx, board.WorkspaceID, actorID); err != nil {
-			if errors.Is(err, pkgerrors.ErrNotFound) {
-				return pkgerrors.ErrForbidden
-			}
+		if _, err := access.MemberOrForbidden(ctx, s.workspaces, board.WorkspaceID, actorID); err != nil {
 			return err
 		}
 	default:

@@ -1,4 +1,4 @@
-package cacheutil
+package cache
 
 import (
 	"context"
@@ -38,6 +38,10 @@ func Bump(ctx context.Context, c cache.Cache, key string) {
 		return
 	}
 	_ = c.Expire(ctx, key, versionTTL)
+}
+
+func BumpWorkspace(ctx context.Context, c cache.Cache, workspaceID string) {
+	Bump(ctx, c, WSVerKey+workspaceID)
 }
 
 func Load(ctx context.Context, c cache.Cache, key string, dst any) bool {

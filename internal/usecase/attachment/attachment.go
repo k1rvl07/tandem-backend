@@ -8,16 +8,15 @@ import (
 
 	"github.com/google/uuid"
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
-	mtask "github.com/tandem/tandem/internal/domain/models/task"
-	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/cache"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
 	dattachment "github.com/tandem/tandem/internal/http/dto/attachment"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
 	file "github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/access"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 )
 
 const (
@@ -78,10 +77,10 @@ func (s *Service) Create(ctx context.Context, actorID, workspaceID, taskID, file
 	if err := validate.UUID(taskID); err != nil {
 		return nil, err
 	}
-	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
+	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
 		return nil, err
 	}
-	if _, err := s.workspaceTask(ctx, workspaceID, taskID); err != nil {
+	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
 		return nil, err
 	}
 	key, err := s.files.PrepareAttachment(workspaceID, actorID, filename, size)
@@ -118,10 +117,10 @@ func (s *Service) List(ctx context.Context, actorID, workspaceID, taskID string)
 	if err := validate.UUID(taskID); err != nil {
 		return nil, err
 	}
-	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
+	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
 		return nil, err
 	}
-	if _, err := s.workspaceTask(ctx, workspaceID, taskID); err != nil {
+	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
 		return nil, err
 	}
 	wsver := cacheutil.Version(ctx, s.cache, cacheutil.WSVerKey+workspaceID)
@@ -153,10 +152,10 @@ func (s *Service) Download(ctx context.Context, actorID, workspaceID, taskID, at
 	if err := validate.UUID(attachmentID); err != nil {
 		return nil, nil, err
 	}
-	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
+	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
 		return nil, nil, err
 	}
-	if _, err := s.workspaceTask(ctx, workspaceID, taskID); err != nil {
+	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
 		return nil, nil, err
 	}
 	attachment, err := s.attachments.FindAttachmentByID(ctx, attachmentID)
@@ -183,10 +182,10 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, taskID, atta
 	if err := validate.UUID(attachmentID); err != nil {
 		return err
 	}
-	if _, err := s.memberOf(ctx, actorID, workspaceID); err != nil {
+	if _, err := access.MemberOrForbidden(ctx, s.workspaces, workspaceID, actorID); err != nil {
 		return err
 	}
-	if _, err := s.workspaceTask(ctx, workspaceID, taskID); err != nil {
+	if _, err := access.TaskInWorkspace(ctx, s.tasks, s.columns, s.boards, workspaceID, taskID); err != nil {
 		return err
 	}
 	attachment, err := s.attachments.FindAttachmentByID(ctx, attachmentID)
@@ -206,36 +205,6 @@ func (s *Service) Delete(ctx context.Context, actorID, workspaceID, taskID, atta
 		Data: map[string]string{"id": attachment.ID},
 	})
 	return nil
-}
-
-func (s *Service) memberOf(ctx context.Context, actorID, workspaceID string) (*mworkspace.WorkspaceMember, error) {
-	member, err := s.workspaces.FindMember(ctx, workspaceID, actorID)
-	if err != nil {
-		if errors.Is(err, pkgerrors.ErrNotFound) {
-			return nil, pkgerrors.ErrForbidden
-		}
-		return nil, err
-	}
-	return member, nil
-}
-
-func (s *Service) workspaceTask(ctx context.Context, workspaceID, taskID string) (*mtask.Task, error) {
-	task, err := s.tasks.FindTaskByID(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	column, err := s.columns.FindColumnByID(ctx, task.ColumnID)
-	if err != nil {
-		return nil, err
-	}
-	board, err := s.boards.FindBoardByID(ctx, column.BoardID)
-	if err != nil {
-		return nil, err
-	}
-	if board.WorkspaceID != workspaceID {
-		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, errors.New("task not in workspace"))
-	}
-	return task, nil
 }
 
 func attachmentToResponse(attachment *mattachment.TaskAttachment, workspaceID, taskID string) *dattachment.AttachmentResponse {

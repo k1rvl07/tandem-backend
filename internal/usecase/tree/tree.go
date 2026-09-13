@@ -16,8 +16,9 @@ import (
 	dtree "github.com/tandem/tandem/internal/http/dto/tree"
 	dworkspace "github.com/tandem/tandem/internal/http/dto/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
-	"github.com/tandem/tandem/internal/usecase/cacheutil"
-	"github.com/tandem/tandem/internal/usecase/common"
+	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
+	"github.com/tandem/tandem/internal/usecase/shared/errutil"
+	"github.com/tandem/tandem/internal/usecase/shared/taskmap"
 )
 
 const taskFilterAll = "all"
@@ -293,7 +294,7 @@ func (s *Service) taskResponses(ctx context.Context, workspace *mworkspace.Works
 	for id := range ids {
 		user, err := s.users.FindByID(ctx, id)
 		if err != nil {
-			if common.IsNotFound(err) {
+			if errutil.IsNotFound(err) {
 				continue
 			}
 			return nil, err
@@ -334,7 +335,7 @@ func (s *Service) taskResponses(ctx context.Context, workspace *mworkspace.Works
 }
 
 func displayID(prefix, taskID string) string {
-	return common.DisplayID(prefix, taskID)
+	return taskmap.DisplayID(prefix, taskID)
 }
 
 var _ UseCase = (*Service)(nil)
