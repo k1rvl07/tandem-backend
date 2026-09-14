@@ -84,15 +84,17 @@ repository, infrastructure → domain/ports
 
 Принципы:
 
-- кеш-инвалидация версионная (`usecase/cacheutil`): ключи `t:wsver:`,
+- кеш-инвалидация версионная (`usecase/shared/cache`): ключи `t:wsver:`,
   `t:uver:`, `t:usersver`; при изменении сущности инкремент версии;
 - rate limit (sliding window в Redis, префикс `rl:sw:`): `/auth/login` — по IP
-  (15/5 мин), read/write/upload/ws — по пользователю (300/120/20/30 в минуту);
+  (15/5 мин), по пользователю — read 1200/мин, write 400/мин, upload 120/мин,
+  ws 300/5 мин;
 - файлы: загрузка через `POST /files/images`, отдача — только presigned URL
   (`GET /files/sign`, TTL 1 ч); прямого стрима `/files/{key}` нет;
 - WS-аутентификация — subprotocol `tandem, <JWT>`;
-- миграции: GORM `AutoMigrate` при старте + точечные data-миграции
-  (в `internal/app/app.go`).
+- миграции: версионированные SQL-миграции (`internal/pkg/migrations`, embed
+  `sql/*.sql`, таблица `schema_migrations`) применяются перед GORM
+  `AutoMigrate`; legacy-чистки — разовые guarded-миграции.
 
 ## API
 
