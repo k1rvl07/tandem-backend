@@ -303,8 +303,8 @@ func TestE2EWorkspaceInvitesAndMembers(t *testing.T) {
 		InviteToken string `json:"invite_token"`
 		ExpiresAt   string `json:"expires_at"`
 	}
-	status, body = h.do(t, http.MethodGet, "/api/v1/workspaces/"+ws.ID+"/invite", owner.Token, "")
-	require.Equal(t, http.StatusOK, status, "get invite failed: %s", body)
+	status, body = h.do(t, http.MethodPost, "/api/v1/workspaces/"+ws.ID+"/invite", owner.Token, "")
+	require.Equal(t, http.StatusOK, status, "generate invite failed: %s", body)
 	require.NoError(t, json.Unmarshal(body, &invite))
 	require.NotEmpty(t, invite.InviteToken)
 	require.NotEmpty(t, invite.ExpiresAt)
@@ -323,7 +323,7 @@ func TestE2EWorkspaceInvitesAndMembers(t *testing.T) {
 
 	status, _ = h.do(t, http.MethodDelete, "/api/v1/workspaces/"+ws.ID+"/invite", owner.Token, "")
 	require.Equal(t, http.StatusOK, status, "disable invite failed")
-	status, body = h.do(t, http.MethodGet, "/api/v1/workspaces/"+ws.ID+"/invite", owner.Token, "")
+	status, body = h.do(t, http.MethodPost, "/api/v1/workspaces/"+ws.ID+"/invite", owner.Token, "")
 	require.Equal(t, http.StatusOK, status, "invite must be re-enabled after disable")
 	var renewed struct {
 		InviteToken string `json:"invite_token"`
