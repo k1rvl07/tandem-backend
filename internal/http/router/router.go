@@ -202,6 +202,7 @@ func (b *routerBuilder) registerWorkspace() {
 	b.write.DELETE("/workspaces/:id/members/:userId", b.deps.WorkspaceHandler.RemoveMember)
 	b.write.POST("/workspaces/:id/owner", b.deps.WorkspaceHandler.TransferOwner)
 	b.read.GET("/workspaces/:id/invite", b.deps.WorkspaceHandler.GetInvite)
+	b.write.POST("/workspaces/:id/invite", b.deps.WorkspaceHandler.GenerateInvite)
 	b.write.DELETE("/workspaces/:id/invite", b.deps.WorkspaceHandler.DisableInvite)
 	b.write.POST("/invite/:token/join", b.deps.WorkspaceHandler.JoinByInvite)
 }

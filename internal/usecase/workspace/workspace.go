@@ -23,6 +23,7 @@ type UseCase interface {
 	RemoveMember(ctx context.Context, actorID, workspaceID, targetID string) error
 	TransferOwner(ctx context.Context, actorID, workspaceID string, req dworkspace.TransferOwnerRequest) error
 	GetInvite(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceInviteResponse, error)
+	GenerateInvite(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceInviteResponse, error)
 	DisableInvite(ctx context.Context, actorID, workspaceID string) error
 	JoinByInvite(ctx context.Context, actorID, token string) (*dworkspace.WorkspaceResponse, error)
 }

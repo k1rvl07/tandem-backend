@@ -195,6 +195,26 @@ func (h *WorkspaceHandler) GetInvite(c *gin.Context) {
 	c.JSON(http.StatusOK, mpworkspace.ToWireInvite(*resp))
 }
 
+// @Summary Generate a workspace invite token
+// @Tags workspaces
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Workspace ID"
+// @Success 200 {object} workspace.WorkspaceInviteResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workspaces/{id}/invite [post]
+func (h *WorkspaceHandler) GenerateInvite(c *gin.Context) {
+	resp, err := h.workspaces.GenerateInvite(c.Request.Context(), common.CurrentUserID(c), c.Param("id"))
+	if err != nil {
+		common.RespondError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, mpworkspace.ToWireInvite(*resp))
+}
+
 // @Summary Disable a workspace invite
 // @Tags workspaces
 // @Produce json

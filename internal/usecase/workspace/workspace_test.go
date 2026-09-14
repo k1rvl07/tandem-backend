@@ -534,7 +534,20 @@ func TestSetThemePermissions(t *testing.T) {
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
-func TestGetInviteGeneratesToken(t *testing.T) {
+func TestGetInviteIsReadOnly(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+
+	resp, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	assert.Nil(t, resp.InviteToken)
+	assert.Nil(t, resp.ExpiresAt)
+	assert.Empty(t, e.wsRepo.workspaces[wsID].InviteToken)
+}
+
+func TestGenerateInviteCreatesAndRotatesToken(t *testing.T) {
 	ctx := context.Background()
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.invite")
@@ -542,17 +555,28 @@ func TestGetInviteGeneratesToken(t *testing.T) {
 	member := e.userRepo.seedUser("member.invite")
 	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
 
-	resp, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	resp, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	require.NotNil(t, resp.InviteToken)
-	assert.NotEmpty(t, *resp.InviteToken)
-	second, err := e.svc.GetInvite(ctx, editor.ID, wsID)
+	require.NotEmpty(t, *resp.InviteToken)
+	require.NotNil(t, resp.ExpiresAt)
+
+	stored := e.wsRepo.workspaces[wsID]
+	assert.Equal(t, *resp.InviteToken, stored.InviteToken)
+	assert.Equal(t, *resp.ExpiresAt, *stored.InviteExpiresAt)
+
+	second, err := e.svc.GenerateInvite(ctx, editor.ID, wsID)
 	require.NoError(t, err)
 	require.NotNil(t, second.InviteToken)
-	assert.Equal(t, *resp.InviteToken, *second.InviteToken)
-	_, err = e.svc.GetInvite(ctx, member.ID, wsID)
+	assert.NotEqual(t, *resp.InviteToken, *second.InviteToken)
+
+	readBack, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	assert.Equal(t, *second.InviteToken, *readBack.InviteToken)
+
+	_, err = e.svc.GenerateInvite(ctx, member.ID, wsID)
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
-	_, err = e.svc.GetInvite(ctx, uuid.NewString(), wsID)
+	_, err = e.svc.GenerateInvite(ctx, uuid.NewString(), wsID)
 	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }
 
@@ -563,13 +587,13 @@ func TestDisableInvite(t *testing.T) {
 	member := e.userRepo.seedUser("member.invite")
 	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), member.ID)
 
-	_, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	_, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	err = e.svc.DisableInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	ws := e.wsRepo.workspaces[wsID]
 	assert.Empty(t, ws.InviteToken)
-	regenerated, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	regenerated, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	require.NotNil(t, regenerated.InviteToken)
 	assert.NotEmpty(t, *regenerated.InviteToken)
@@ -585,7 +609,7 @@ func TestJoinByInvite(t *testing.T) {
 	newbie := e.userRepo.seedUser("newbie.invite")
 	wsID := e.seedWorkspace(owner.ID, owner.ID, member.ID)
 
-	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	invite, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	token := *invite.InviteToken
 	require.NotEmpty(t, token)
@@ -610,7 +634,7 @@ func TestJoinByInviteDisabled(t *testing.T) {
 	newbie := e.userRepo.seedUser("newbie.invite")
 	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
 
-	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	invite, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	token := *invite.InviteToken
 	require.NotEmpty(t, token)
@@ -620,13 +644,13 @@ func TestJoinByInviteDisabled(t *testing.T) {
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
-func TestGetInviteSetsExpiry(t *testing.T) {
+func TestGenerateInviteSetsExpiry(t *testing.T) {
 	ctx := context.Background()
 	e := newTestEnv()
 	owner := e.userRepo.seedUser("owner.invite")
 	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
 
-	resp, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	resp, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	require.NotNil(t, resp.ExpiresAt)
 	require.False(t, resp.ExpiresAt.Before(time.Now()))
@@ -640,7 +664,7 @@ func TestJoinByInviteExpired(t *testing.T) {
 	newbie := e.userRepo.seedUser("newbie.invite")
 	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
 
-	invite, err := e.svc.GetInvite(ctx, owner.ID, wsID)
+	invite, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
 	require.NoError(t, err)
 	token := *invite.InviteToken
 	past := time.Now().Add(-time.Hour)

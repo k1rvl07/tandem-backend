@@ -25,29 +25,47 @@ func New(c *core.Core) *Invites {
 }
 
 func (s *Invites) GetInvite(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceInviteResponse, error) {
-	if err := validate.UUID(workspaceID); err != nil {
-		return nil, err
-	}
-	member, err := s.MemberOf(ctx, actorID, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.RequireEditor(member.Role); err != nil {
+	if err := s.requireInviteAccess(ctx, actorID, workspaceID); err != nil {
 		return nil, err
 	}
 	ws, err := s.Workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	if ws.InviteToken == "" || ws.InviteExpiresAt == nil || ws.InviteExpiresAt.Before(time.Now()) {
-		ws.InviteToken = uuid.New().String()
-		expiresAt := time.Now().Add(InviteTTL)
-		ws.InviteExpiresAt = &expiresAt
-		if err := s.Workspaces.UpdateInvite(ctx, ws.ID, ws.InviteToken, ws.InviteExpiresAt); err != nil {
-			return nil, err
-		}
+	if ws.InviteToken == "" {
+		return &dworkspace.WorkspaceInviteResponse{ExpiresAt: ws.InviteExpiresAt}, nil
 	}
-	return &dworkspace.WorkspaceInviteResponse{InviteToken: &ws.InviteToken, ExpiresAt: ws.InviteExpiresAt}, nil
+	token := ws.InviteToken
+	return &dworkspace.WorkspaceInviteResponse{InviteToken: &token, ExpiresAt: ws.InviteExpiresAt}, nil
+}
+
+func (s *Invites) GenerateInvite(ctx context.Context, actorID, workspaceID string) (*dworkspace.WorkspaceInviteResponse, error) {
+	if err := s.requireInviteAccess(ctx, actorID, workspaceID); err != nil {
+		return nil, err
+	}
+	ws, err := s.Workspaces.FindWorkspaceByID(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	ws.InviteToken = uuid.New().String()
+	expiresAt := time.Now().Add(InviteTTL)
+	ws.InviteExpiresAt = &expiresAt
+	if err := s.Workspaces.UpdateInvite(ctx, ws.ID, ws.InviteToken, ws.InviteExpiresAt); err != nil {
+		return nil, err
+	}
+	token := ws.InviteToken
+	return &dworkspace.WorkspaceInviteResponse{InviteToken: &token, ExpiresAt: ws.InviteExpiresAt}, nil
+}
+
+func (s *Invites) requireInviteAccess(ctx context.Context, actorID, workspaceID string) error {
+	if err := validate.UUID(workspaceID); err != nil {
+		return err
+	}
+	member, err := s.MemberOf(ctx, actorID, workspaceID)
+	if err != nil {
+		return err
+	}
+	return s.RequireEditor(member.Role)
 }
 
 func (s *Invites) DisableInvite(ctx context.Context, actorID, workspaceID string) error {
