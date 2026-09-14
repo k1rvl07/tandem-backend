@@ -126,15 +126,16 @@ func TestLoadDevAllowsDefaultMinIOSecret(t *testing.T) {
 
 func TestLoadProdValidConfig(t *testing.T) {
 	setEnv(t, map[string]string{
-		"APP_ENV":             "production",
-		"JWT_SECRET":          "hex-0123456789abcdef",
-		"POSTGRES_PASSWORD":   "real-pg",
-		"REDIS_PASSWORD":      "real-redis",
-		"MINIO_ROOT_PASSWORD": "real-minio",
-		"ADMIN_PASSWORD":      "real-admin",
-		"ADMIN_SEED_ENABLED":  "true",
-		"COOKIE_SECURE":       "true",
-		"SWAGGER_ENABLED":     "false",
+		"APP_ENV":              "production",
+		"JWT_SECRET":           "hex-0123456789abcdef",
+		"POSTGRES_PASSWORD":    "real-pg",
+		"REDIS_PASSWORD":       "real-redis",
+		"MINIO_ROOT_PASSWORD":  "real-minio",
+		"ADMIN_PASSWORD":       "real-admin",
+		"ADMIN_SEED_ENABLED":   "true",
+		"COOKIE_SECURE":        "true",
+		"SWAGGER_ENABLED":      "false",
+		"CORS_ALLOWED_ORIGINS": "",
 	})
 	cfg, err := Load("")
 	require.NoError(t, err)
@@ -179,19 +180,24 @@ func TestLoadSwaggerEnabled(t *testing.T) {
 
 func TestLoadAllowedOrigins(t *testing.T) {
 	t.Run("dev defaults", func(t *testing.T) {
-		setEnv(t, map[string]string{"JWT_SECRET": "test-secret", "APP_ENV": "dev"})
+		setEnv(t, map[string]string{
+			"JWT_SECRET":           "test-secret",
+			"APP_ENV":              "dev",
+			"CORS_ALLOWED_ORIGINS": "",
+		})
 		cfg, err := Load("")
 		require.NoError(t, err)
 		require.Equal(t, []string{"http://localhost:5173", "http://127.0.0.1:5173"}, cfg.App.AllowedOrigins)
 	})
 	t.Run("prod stays empty without override", func(t *testing.T) {
 		setEnv(t, map[string]string{
-			"JWT_SECRET":          "test-secret",
-			"APP_ENV":             "production",
-			"POSTGRES_PASSWORD":   "real-pg",
-			"REDIS_PASSWORD":      "real-redis",
-			"MINIO_ROOT_PASSWORD": "real-minio",
-			"ADMIN_PASSWORD":      "real-admin",
+			"JWT_SECRET":           "test-secret",
+			"APP_ENV":              "production",
+			"POSTGRES_PASSWORD":    "real-pg",
+			"REDIS_PASSWORD":       "real-redis",
+			"MINIO_ROOT_PASSWORD":  "real-minio",
+			"ADMIN_PASSWORD":       "real-admin",
+			"CORS_ALLOWED_ORIGINS": "",
 		})
 		cfg, err := Load("")
 		require.NoError(t, err)
@@ -222,10 +228,7 @@ func TestLoadPasswordCost(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := map[string]string{"JWT_SECRET": "test-secret"}
-			if tt.raw != "" {
-				env["BCRYPT_COST"] = tt.raw
-			}
+			env := map[string]string{"JWT_SECRET": "test-secret", "BCRYPT_COST": tt.raw}
 			setEnv(t, env)
 			cfg, err := Load("")
 			require.NoError(t, err)
@@ -247,10 +250,7 @@ func TestLoadAuthRateLimit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := map[string]string{"JWT_SECRET": "test-secret"}
-			if tt.raw != "" {
-				env["AUTH_RATE_LIMIT"] = tt.raw
-			}
+			env := map[string]string{"JWT_SECRET": "test-secret", "AUTH_RATE_LIMIT": tt.raw}
 			setEnv(t, env)
 			cfg, err := Load("")
 			require.NoError(t, err)
