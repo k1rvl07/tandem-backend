@@ -150,3 +150,77 @@ func TestWSJoinAllowsMemberAndBroadcastsPresence(t *testing.T) {
 	assert.Equal(t, "workspace:"+workspaceID, presence.Room)
 	assert.ElementsMatch(t, []string{"user-1"}, presence.Members)
 }
+
+func newWSOriginHarness(t *testing.T, origins []string) (*httptest.Server, *token.JWTManager) {
+	t.Helper()
+	manager := token.NewJWTManager("test-secret", nil)
+	hub := wshub.New()
+	h := NewWSHandler(hub, nil, origins)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/ws", ws_identity.WSIdentity(manager), h.Connect)
+	srv := httptest.NewServer(r)
+	t.Cleanup(func() {
+		srv.Close()
+		hub.Close()
+	})
+	return srv, manager
+}
+
+func wsDialOrigin(t *testing.T, srv *httptest.Server, origin, token string) (*websocket.Conn, error) {
+	t.Helper()
+	headers := make(http.Header)
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	u := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	d := websocket.Dialer{Subprotocols: []string{"tandem", token}, HandshakeTimeout: 2 * time.Second}
+	conn, _, err := d.Dial(u, headers)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+func TestWSConnectRejectsMissingOriginWithAllowlist(t *testing.T) {
+	srv, manager := newWSOriginHarness(t, []string{"http://localhost:5173"})
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	conn, err := wsDialOrigin(t, srv, "", valid)
+	require.Error(t, err)
+	assert.Nil(t, conn)
+}
+
+func TestWSConnectRejectsForeignOrigin(t *testing.T) {
+	srv, manager := newWSOriginHarness(t, []string{"http://localhost:5173"})
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	conn, err := wsDialOrigin(t, srv, "http://evil.example", valid)
+	require.Error(t, err)
+	assert.Nil(t, conn)
+}
+
+func TestWSConnectAcceptsMatchingOrigin(t *testing.T) {
+	srv, manager := newWSOriginHarness(t, []string{"http://localhost:5173"})
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	conn, err := wsDialOrigin(t, srv, "http://localhost:5173", valid)
+	require.NoError(t, err)
+	assert.NotNil(t, conn)
+	conn.Close()
+}
+
+func TestWSConnectAcceptsAnyOriginWithoutAllowlist(t *testing.T) {
+	srv, manager := newWSOriginHarness(t, nil)
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	conn, err := wsDialOrigin(t, srv, "http://anything.example", valid)
+	require.NoError(t, err)
+	assert.NotNil(t, conn)
+	conn.Close()
+}

@@ -31,11 +31,10 @@ func NewWSHandler(hub ws.Hub, workspaces repository.WorkspaceRepository, allowed
 		allowed[origin] = true
 	}
 	checkOrigin := func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" || len(allowed) == 0 {
+		if len(allowed) == 0 {
 			return true
 		}
-		return allowed[origin]
+		return allowed[r.Header.Get("Origin")]
 	}
 	return &WSHandler{hub: hub, workspaces: workspaces, checkOrigin: checkOrigin}
 }

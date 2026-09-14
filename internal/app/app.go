@@ -192,6 +192,7 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 }
 
 func (a *App) Run() error {
+	defer a.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -228,7 +229,6 @@ func (a *App) Run() error {
 		return err
 	}
 
-	a.Close()
 	a.logger.Info("server stopped gracefully")
 	return nil
 }
@@ -246,6 +246,7 @@ func (a *App) Postgres() *gorm.DB {
 
 func (a *App) Close() {
 	a.hub.Close()
+	a.hub.Wait()
 	if err := a.redis.Close(); err != nil {
 		a.logger.Warn("close redis", zap.Error(err))
 	}

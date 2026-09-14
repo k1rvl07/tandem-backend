@@ -9,10 +9,13 @@ import (
 )
 
 const (
-	sendQueueSize = 1024
-	writeWait     = 10 * time.Second
-	pongWait      = 60 * time.Second
-	pingPeriod    = (pongWait * 9) / 10
+	sendQueueSize     = 1024
+	writeWait         = 10 * time.Second
+	pongWait          = 60 * time.Second
+	pingPeriod        = (pongWait * 9) / 10
+	maxConnsPerUser   = 5
+	maxClientMessages = 240
+	msgThrottleWindow = time.Minute
 )
 
 type Hub struct {
@@ -20,6 +23,7 @@ type Hub struct {
 	clients map[ws.Client]struct{}
 	rooms   map[string]map[ws.Client]struct{}
 	closed  bool
+	wg      sync.WaitGroup
 }
 
 func New() *Hub {
@@ -36,12 +40,27 @@ func (h *Hub) Register(conn ws.Client) {
 		conn.Close()
 		return
 	}
+	if h.connsPerUser(conn.UserID()) >= maxConnsPerUser {
+		conn.Close()
+		return
+	}
 	h.clients[conn] = struct{}{}
 	if c, ok := conn.(*Client); ok {
 		c.setHub(h)
+		h.wg.Add(1)
 		go c.writePump()
 		go c.readPump()
 	}
+}
+
+func (h *Hub) connsPerUser(userID string) int {
+	count := 0
+	for conn := range h.clients {
+		if conn.UserID() == userID {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *Hub) Unregister(conn ws.Client) {
@@ -143,6 +162,8 @@ func (h *Hub) SendToUser(userID string, msg *ws.Message) {
 		}
 	}
 }
+
+func (h *Hub) Wait() { h.wg.Wait() }
 
 func (h *Hub) Close() {
 	h.mu.Lock()
@@ -263,9 +284,13 @@ func (c *Client) readPump() {
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
+	throttle := newMessageThrottle(maxClientMessages, msgThrottleWindow)
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
+			return
+		}
+		if !throttle.Allow() {
 			return
 		}
 		if c.OnMessage != nil {
@@ -277,11 +302,43 @@ func (c *Client) readPump() {
 func (c *Client) unregisterAndClose() {
 	if c.hub != nil {
 		c.hub.Unregister(c)
+		c.hub.wg.Done()
 	}
 	if c.OnDisconnect != nil {
 		c.OnDisconnect(c)
 	}
 	c.Close()
+}
+
+type messageThrottle struct {
+	mu     sync.Mutex
+	limit  int
+	window time.Duration
+	points []time.Time
+	now    func() time.Time
+}
+
+func newMessageThrottle(limit int, window time.Duration) *messageThrottle {
+	return &messageThrottle{limit: limit, window: window, now: time.Now}
+}
+
+func (t *messageThrottle) Allow() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	min := now.Add(-t.window)
+	kept := t.points[:0]
+	for _, p := range t.points {
+		if p.After(min) {
+			kept = append(kept, p)
+		}
+	}
+	t.points = kept
+	if len(t.points) >= t.limit {
+		return false
+	}
+	t.points = append(t.points, now)
+	return true
 }
 
 var _ ws.Client = (*Client)(nil)
