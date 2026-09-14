@@ -31,23 +31,23 @@ type ReorderBoardsRequest struct {
 }
 
 type ColumnDetailResponse struct {
-	ID        string
-	BoardID   string
-	Name      string
-	Position  int
-	TaskCount int
-	Tasks     []taskcontracts.TaskResponse
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        string                       `json:"id"`
+	BoardID   string                       `json:"board_id"`
+	Name      string                       `json:"name"`
+	Position  int                          `json:"position"`
+	TaskCount int                          `json:"task_count"`
+	Tasks     []taskcontracts.TaskResponse `json:"tasks"`
+	CreatedAt time.Time                    `json:"created_at"`
+	UpdatedAt time.Time                    `json:"updated_at"`
 }
 
 type BoardDetailResponse struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	Position    int
-	IsMain      bool
-	Columns     []ColumnDetailResponse
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string                 `json:"id"`
+	WorkspaceID string                 `json:"workspace_id"`
+	Name        string                 `json:"name"`
+	Position    int                    `json:"position"`
+	IsMain      bool                   `json:"is_main"`
+	Columns     []ColumnDetailResponse `json:"columns"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }

@@ -7,13 +7,13 @@ import (
 )
 
 type TreeBoardResponse struct {
-	Board boardcontracts.BoardResponse
-	Tasks []taskcontracts.TaskResponse
+	Board boardcontracts.BoardResponse `json:"board"`
+	Tasks []taskcontracts.TaskResponse `json:"tasks"`
 }
 
 type TreeWorkspaceResponse struct {
-	Workspace workspacecontracts.WorkspaceResponse
-	Boards    []TreeBoardResponse
+	Workspace workspacecontracts.WorkspaceResponse `json:"workspace"`
+	Boards    []TreeBoardResponse                  `json:"boards"`
 }
 
 type TreeQuery struct {

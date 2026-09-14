@@ -61,22 +61,22 @@ type TaskResponse struct {
 }
 
 type TaskReference struct {
-	ID          string
-	DisplayID   string
-	Title       string
-	WorkspaceID string
-	BoardID     string
-	BoardName   string
-	ColumnID    string
-	ColumnName  string
-	IsUrgent    bool
-	IsHidden    bool
+	ID          string `json:"id"`
+	DisplayID   string `json:"display_id"`
+	Title       string `json:"title"`
+	WorkspaceID string `json:"workspace_id"`
+	BoardID     string `json:"board_id"`
+	BoardName   string `json:"board_name"`
+	ColumnID    string `json:"column_id"`
+	ColumnName  string `json:"column_name"`
+	IsUrgent    bool   `json:"is_urgent"`
+	IsHidden    bool   `json:"is_hidden"`
 }
 
 type TaskDetailResponse struct {
 	TaskResponse
-	Parent   *TaskReference
-	Subtasks []TaskReference
+	Parent   *TaskReference  `json:"parent"`
+	Subtasks []TaskReference `json:"subtasks"`
 }
 
 type ListWorkspaceTasksQuery struct {

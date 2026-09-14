@@ -20,8 +20,8 @@ type AdminListQuery struct {
 }
 
 type AdminPage struct {
-	Items    []authcontracts.UserResponse
-	Total    int
-	Page     int
-	PageSize int
+	Items    []authcontracts.UserResponse `json:"items"`
+	Total    int                          `json:"total"`
+	Page     int                          `json:"page"`
+	PageSize int                          `json:"page_size"`
 }
