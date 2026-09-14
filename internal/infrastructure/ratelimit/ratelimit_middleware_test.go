@@ -115,3 +115,32 @@ func TestRateLimitMiddleware_differentIPsIndependent(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, mk("2.2.2.2").Code)
 	require.NotNil(t, mk("3.3.3.3"))
 }
+
+func TestRateLimitMiddleware_memFallbackWhenRedisDown(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	rl := &RateLimiter{client: rdb, limit: 2, window: time.Minute,
+		resolveKey: func(c *gin.Context) string { return "ip:" + c.ClientIP() },
+		mem:        &memSlidingWindow{points: make(map[string][]memEntry)},
+		now:        time.Now,
+	}
+
+	router := gin.New()
+	router.Use(testGinMiddleware(rl))
+	router.GET("/ping", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	_ = rdb.Close()
+	mr.Close()
+
+	mk := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+		req.RemoteAddr = "7.7.7.7:1234"
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	assert.Equal(t, http.StatusOK, mk().Code)
+	assert.Equal(t, http.StatusOK, mk().Code)
+	assert.Equal(t, http.StatusTooManyRequests, mk().Code)
+}

@@ -2,6 +2,10 @@ package token
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,9 +14,61 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tandem/tandem/internal/domain/ports/cache"
 	rediscache "github.com/tandem/tandem/internal/infrastructure/redis"
 	"github.com/tandem/tandem/internal/pkg/config"
+	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 )
+
+type failingCache struct {
+	cache.Cache
+	failGet       bool
+	failSet       bool
+	failGetDel    bool
+	failIncr      bool
+	failSetPrefix string
+}
+
+func (f *failingCache) Get(ctx context.Context, key string) (string, error) {
+	if f.failGet {
+		return "", errors.New("get failed")
+	}
+	return f.Cache.Get(ctx, key)
+}
+
+func (f *failingCache) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	if f.failSet || (f.failSetPrefix != "" && strings.HasPrefix(key, f.failSetPrefix)) {
+		return errors.New("set failed")
+	}
+	return f.Cache.Set(ctx, key, value, ttl)
+}
+
+func (f *failingCache) GetDel(ctx context.Context, key string) (string, error) {
+	if f.failGetDel {
+		return "", errors.New("getdel failed")
+	}
+	return f.Cache.GetDel(ctx, key)
+}
+
+func (f *failingCache) Incr(ctx context.Context, key string) (int64, error) {
+	if f.failIncr {
+		return 0, errors.New("incr failed")
+	}
+	return f.Cache.Incr(ctx, key)
+}
+
+func newFailingManager(t *testing.T) (*JWTManager, *failingCache, *miniredis.Miniredis) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rc, err := rediscache.New(config.RedisConfig{Addr: mr.Addr()})
+	require.NoError(t, err)
+	fc := &failingCache{Cache: rc}
+	t.Cleanup(func() {
+		_ = rc.Close()
+		mr.Close()
+	})
+	return NewJWTManager("test-secret", fc), fc, mr
+}
 
 func newManagerWithCache(t *testing.T) (*JWTManager, *miniredis.Miniredis) {
 	t.Helper()
@@ -273,4 +329,222 @@ func TestRefreshRevokedByVersion(t *testing.T) {
 
 	_, err = manager.ParseRefresh(refresh)
 	assert.Error(t, err)
+}
+
+func TestGenerateRefreshNilCache(t *testing.T) {
+	manager := NewJWTManager("test-secret", nil)
+	refresh, err := manager.GenerateRefresh("user-1", time.Hour)
+	require.NoError(t, err)
+	subject, err := manager.ParseRefresh(refresh)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", subject)
+}
+
+func TestGenerateRefreshSetError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	fc.failSet = true
+	_, err := manager.GenerateRefresh("user-1", time.Hour)
+	assert.Error(t, err)
+}
+
+func TestRotateRefreshNilCacheRejected(t *testing.T) {
+	manager := NewJWTManager("test-secret", nil)
+	refresh, err := manager.GenerateRefresh("user-1", time.Hour)
+	require.NoError(t, err)
+
+	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, time.Hour)
+	assert.ErrorIs(t, err, pkgerrors.ErrUnauthorized)
+}
+
+func TestRotateRefreshGetDelError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	refresh, err := manager.GenerateRefresh("user-1", time.Hour)
+	require.NoError(t, err)
+
+	fc.failGetDel = true
+	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, time.Hour)
+	assert.Error(t, err)
+}
+
+func TestRotateRefreshMintPairRefreshWriteError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	refresh, err := manager.GenerateRefresh("user-1", time.Hour)
+	require.NoError(t, err)
+	_, err = manager.ParseRefresh(refresh)
+	require.NoError(t, err)
+
+	fc.failSetPrefix = refreshPrefix
+	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, time.Hour)
+	assert.Error(t, err)
+}
+
+func TestRevokeInitializesVersionKey(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+	require.NoError(t, manager.cache.Delete(context.Background(), versionPrefix+"user-1"))
+	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
+	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
+}
+
+func TestRevokeIncrError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	_, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	fc.failIncr = true
+	err = manager.Revoke(context.Background(), "user-1")
+	assert.Error(t, err)
+}
+
+func TestRevokeInitializeSetError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	require.NoError(t, manager.cache.Delete(context.Background(), versionPrefix+"user-1"))
+
+	fc.failSet = true
+	err := manager.Revoke(context.Background(), "user-1")
+	assert.Error(t, err)
+}
+
+func TestRotateRefreshMintPairAccessWriteError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	refresh, err := manager.GenerateRefresh("user-1", time.Hour)
+	require.NoError(t, err)
+	_, err = manager.ParseRefresh(refresh)
+	require.NoError(t, err)
+
+	fc.failSetPrefix = versionPrefix
+	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, time.Hour)
+	assert.Error(t, err)
+}
+
+func TestCurrentVersionGetErrorFallsBackToMem(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	first, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	fc.failGet = true
+	second, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	require.NotEmpty(t, second)
+
+	subj, err := manager.Parse(first)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", subj)
+}
+
+func TestVersionValidGetErrorWithoutMemRejects(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	fc.failGet = true
+
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
+		Ver:              1,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-unknown", Issuer: "tandem", Audience: jwt.ClaimStrings{"tandem"}},
+	}).SignedString(manager.secret)
+	require.NoError(t, err)
+
+	_, err = manager.Parse(signed)
+	assert.Error(t, err)
+}
+
+func TestParseRejectsNonHMACSignature(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, Claims{
+		Ver:              1,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1", Issuer: "tandem", Audience: jwt.ClaimStrings{"tandem"}},
+	}).SignedString(rsaKey)
+	require.NoError(t, err)
+
+	_, err = manager.Parse(signed)
+	assert.Error(t, err)
+}
+
+func TestCurrentVersionSetError(t *testing.T) {
+	manager, fc, _ := newFailingManager(t)
+	fc.failSet = true
+	_, err := manager.Generate("user-1", time.Hour)
+	assert.Error(t, err)
+}
+
+func TestVersionValidRejectsGarbageValue(t *testing.T) {
+	manager, mr := newManagerWithCache(t)
+	token, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	require.NoError(t, mr.Set(versionPrefix+"user-1", "abc"))
+
+	_, err = manager.Parse(token)
+	assert.Error(t, err)
+}
+
+func TestParseRejectsHS384Signature(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+	bad, err := jwt.NewWithClaims(jwt.SigningMethodHS384, Claims{
+		Ver:              1,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1", Issuer: "tandem", Audience: jwt.ClaimStrings{"tandem"}},
+	}).SignedString(manager.secret)
+	require.NoError(t, err)
+
+	_, err = manager.Parse(bad)
+	assert.Error(t, err)
+}
+
+func TestParseFailsOnWrongIssuer(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+	bad, err := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
+		Ver:              1,
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1", Issuer: "other", Audience: jwt.ClaimStrings{"tandem"}},
+	}).SignedString(manager.secret)
+	require.NoError(t, err)
+
+	_, err = manager.Parse(bad)
+	assert.Error(t, err)
+}
+
+func TestParseFailsOnMissingSubject(t *testing.T) {
+	manager, _ := newManagerWithCache(t)
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
+		Ver:              1,
+		RegisteredClaims: jwt.RegisteredClaims{Issuer: "tandem", Audience: jwt.ClaimStrings{"tandem"}},
+	}).SignedString(manager.secret)
+	require.NoError(t, err)
+
+	_, err = manager.Parse(signed)
+	assert.Error(t, err)
+}
+
+func TestRandomJTI(t *testing.T) {
+	a, err := randomJTI()
+	require.NoError(t, err)
+	b, err := randomJTI()
+	require.NoError(t, err)
+	require.Len(t, a, 32)
+	require.NotEqual(t, a, b)
+}
+
+func TestManagerMemExpiry(t *testing.T) {
+	manager := NewJWTManager("test-secret", nil)
+	manager.memPut("u", 3)
+	got, ok := manager.memGet("u")
+	require.True(t, ok)
+	assert.Equal(t, int64(3), got)
+
+	manager.mem["u"] = memVersion{ver: 9, at: time.Now().Add(-11 * time.Minute)}
+	_, ok = manager.memGet("u")
+	assert.False(t, ok)
+
+	manager.mem["u"] = memVersion{ver: 0, at: time.Now()}
+	got, ok = manager.memGet("u")
+	assert.True(t, ok)
+	assert.Equal(t, int64(0), got)
+}
+
+func TestMemBump(t *testing.T) {
+	manager := NewJWTManager("test-secret", nil)
+	assert.Equal(t, int64(2), manager.memBump("u"))
+	assert.Equal(t, int64(3), manager.memBump("u"))
+
+	manager.mem["u"] = memVersion{ver: 0, at: time.Now()}
+	assert.Equal(t, int64(2), manager.memBump("u"))
+	manager.mem["u"] = memVersion{ver: 5, at: time.Now().Add(-11 * time.Minute)}
+	assert.Equal(t, int64(2), manager.memBump("u"))
 }

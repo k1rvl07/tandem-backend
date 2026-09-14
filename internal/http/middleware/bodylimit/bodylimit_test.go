@@ -1,6 +1,7 @@
 package bodylimit
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -57,4 +58,39 @@ func TestLimitBodySkipsMultipart(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, w.Body.String(), 1024)
+}
+
+func TestLimitBodyNilBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/echo", LimitBody(1024), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	req, err := http.NewRequest(http.MethodPost, "/echo", nil)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, errors.New("read failed")
+}
+
+func TestLimitBodyReadError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/echo", LimitBody(1024), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	req := httptest.NewRequest(http.MethodPost, "/echo", errReader{})
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
 }

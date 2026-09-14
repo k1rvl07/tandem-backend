@@ -19,6 +19,7 @@ import (
 	"github.com/tandem/tandem/internal/http/middleware/ws_identity"
 	"github.com/tandem/tandem/internal/infrastructure/token"
 	wshub "github.com/tandem/tandem/internal/infrastructure/ws"
+	"github.com/tandem/tandem/internal/pkg/ctxkeys"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 )
 
@@ -122,6 +123,45 @@ func TestWSJoinDeniedForNonMember(t *testing.T) {
 	assert.Equal(t, "workspace:"+workspaceID, msg.Room)
 }
 
+func TestWSJoinInvalidWorkspaceID(t *testing.T) {
+	repo := testutil.NewFakeWorkspaceRepo()
+	_, _, srv, manager := newWSTestHarness(t, repo)
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	conn, _, err := wsDial(t, srv, []string{"tandem", valid}, "")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"workspace:not-a-uuid"}`)))
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var msg ws.Message
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, eventJoinDenied, msg.Type)
+}
+
+func TestWSJoinNonWorkspaceRoom(t *testing.T) {
+	repo := testutil.NewFakeWorkspaceRepo()
+	_, _, srv, manager := newWSTestHarness(t, repo)
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	conn, _, err := wsDial(t, srv, []string{"tandem", valid}, "")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"general"}`)))
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var msg ws.Message
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, "presence", msg.Type)
+	assert.Equal(t, "general", msg.Room)
+}
+
 func TestWSJoinAllowsMemberAndBroadcastsPresence(t *testing.T) {
 	repo := testutil.NewFakeWorkspaceRepo()
 	workspaceID := uuid.NewString()
@@ -223,4 +263,134 @@ func TestWSConnectAcceptsAnyOriginWithoutAllowlist(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, conn)
 	conn.Close()
+}
+
+func TestOffersTandem(t *testing.T) {
+	assert.True(t, offersTandem("tandem"))
+	assert.True(t, offersTandem("tandem, <jwt>"))
+	assert.True(t, offersTandem(" chat, tandem ,chat"))
+	assert.False(t, offersTandem(""))
+	assert.False(t, offersTandem("chat"))
+	assert.False(t, offersTandem("chat, x"))
+}
+
+func TestWSConnectRejectsUpgradeWithoutHeaders(t *testing.T) {
+	manager := token.NewJWTManager("test-secret", nil)
+	hub := wshub.New()
+	h := NewWSHandler(hub, nil, nil)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/ws", ws_identity.WSIdentity(manager), h.Connect)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	defer hub.Close()
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/ws", nil)
+	require.NoError(t, err)
+	req.Header.Set("Sec-WebSocket-Protocol", "tandem, "+valid)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode)
+}
+
+func TestWSJoinMalformedMessagesAreIgnored(t *testing.T) {
+	repo := testutil.NewFakeWorkspaceRepo()
+	workspaceID := uuid.NewString()
+	repo.AddWorkspaceFixture(workspaceID, "Workspace")
+	repo.AddMemberFixture(workspaceID, "user-1", "editor")
+	_, _, srv, manager := newWSTestHarness(t, repo)
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	conn, _, err := wsDial(t, srv, []string{"tandem", valid}, "")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte("not-json")))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join"}`)))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"workspace:`+workspaceID+`"}`)))
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var msg ws.Message
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, "presence", msg.Type)
+}
+
+func TestWSLeaveAndInvalidMessagesDoNotBreakSession(t *testing.T) {
+	repo := testutil.NewFakeWorkspaceRepo()
+	workspaceID := uuid.NewString()
+	repo.AddWorkspaceFixture(workspaceID, "Workspace")
+	repo.AddMemberFixture(workspaceID, "user-1", "editor")
+	_, _, srv, manager := newWSTestHarness(t, repo)
+
+	valid, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	conn, _, err := wsDial(t, srv, []string{"tandem", valid}, "")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"workspace:`+workspaceID+`"}`)))
+	_, raw, err := conn.ReadMessage()
+	require.NoError(t, err)
+	var msg ws.Message
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, "presence", msg.Type)
+
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"leave","room":"workspace:`+workspaceID+`"}`)))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"leave","room":"workspace:not-a-uuid"}`)))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"leave","room":"banana"}`)))
+	require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"join","room":"workspace:`+uuid.NewString()+`"}`)))
+	_, raw, err = conn.ReadMessage()
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &msg))
+	assert.Equal(t, eventJoinDenied, msg.Type)
+}
+
+func TestConnectWithoutUserContext(t *testing.T) {
+	hub := wshub.New()
+	h := NewWSHandler(hub, nil, nil)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/ws", h.Connect)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	defer hub.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestConnectWithNonStringUserContext(t *testing.T) {
+	hub := wshub.New()
+	h := NewWSHandler(hub, nil, nil)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/ws", func(c *gin.Context) {
+		c.Set(ctxkeys.CtxUserID, 42)
+		h.Connect(c)
+	})
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+	defer hub.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

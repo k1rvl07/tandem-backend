@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -38,9 +39,8 @@ type pair struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func newHarness(t *testing.T) *harness {
+func testConfig(t *testing.T) *config.Config {
 	t.Helper()
-	testutil.Serialize(t)
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping http integration tests")
@@ -51,7 +51,7 @@ func newHarness(t *testing.T) *harness {
 	require.NotEqual(t, "tandem", dbName,
 		"refusing to truncate the live database; point TEST_DATABASE_URL to a dedicated test database")
 	pw, _ := u.User.Password()
-	cfg := &config.Config{
+	return &config.Config{
 		App: config.AppConfig{
 			Env:            "testing",
 			AdminLogin:     "admin",
@@ -84,6 +84,12 @@ func newHarness(t *testing.T) *harness {
 			RefreshTTL: 24 * time.Hour,
 		},
 	}
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	testutil.Serialize(t)
+	cfg := testConfig(t)
 	a, err := tandemapp.New(cfg, zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(a.Close)
@@ -96,6 +102,51 @@ func newHarness(t *testing.T) *harness {
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
 	return &harness{ts: ts, app: a, cfg: cfg, db: db, client: &http.Client{Jar: jar}}
+}
+
+func TestNewConnectionErrors(t *testing.T) {
+	t.Run("postgres", func(t *testing.T) {
+		cfg := &config.Config{
+			Database: config.DatabaseConfig{Host: "localhost", Port: "25432", User: "x", Password: "y", Name: "z"},
+		}
+		_, err := tandemapp.New(cfg, zap.NewNop())
+		require.Error(t, err)
+	})
+
+	t.Run("redis", func(t *testing.T) {
+		cfg := testConfig(t)
+		cfg.Redis.Addr = "localhost:1"
+		_, err := tandemapp.New(cfg, zap.NewNop())
+		require.Error(t, err)
+	})
+
+	t.Run("minio", func(t *testing.T) {
+		cfg := testConfig(t)
+		cfg.MinIO.Endpoint = "localhost:1"
+		_, err := tandemapp.New(cfg, zap.NewNop())
+		require.Error(t, err)
+	})
+}
+
+func TestRunGracefulShutdownWithDevLimiters(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.App.Env = "dev"
+	cfg.App.Port = "0"
+	a, err := tandemapp.New(cfg, zap.NewNop())
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- a.Run() }()
+
+	time.Sleep(750 * time.Millisecond)
+	require.NoError(t, syscall.Kill(os.Getpid(), syscall.SIGTERM))
+
+	select {
+	case runErr := <-done:
+		require.NoError(t, runErr)
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run() did not return after SIGTERM")
+	}
 }
 
 func (h *harness) do(t *testing.T, method, path, token, body string) (int, []byte) {
