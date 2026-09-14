@@ -137,6 +137,7 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 	columnRepo := rcolumn.NewColumnRepo(a.postgres.DB)
 	taskRepo := rtask.NewTaskRepo(a.postgres.DB)
 	attachmentRepo := rtaskext.NewAttachmentRepo(a.postgres.DB)
+	fileService.WithAccessCheck(taskRepo, workspaceRepo)
 	workspaceService := workspace.NewService(workspace.Deps{Workspaces: workspaceRepo, Users: userRepo, Favorites: favoriteRepo, Boards: boardRepo, Columns: columnRepo, Tasks: taskRepo, Files: fileService, Hub: a.hub, Cache: a.redis, Logger: a.logger})
 	workspaceHandler := hworkspace.NewWorkspaceHandler(workspaceService)
 	boardService := board.NewService(board.Deps{Boards: boardRepo, Columns: columnRepo, Tasks: taskRepo, Workspaces: workspaceRepo, Users: userRepo, Favorites: favoriteRepo, Files: fileService, Hub: a.hub, Cache: a.redis})

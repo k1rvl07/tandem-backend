@@ -76,12 +76,13 @@ func (h *FileHandler) DeleteImage(c *gin.Context) {
 // @Produce json
 // @Param key query string true "File key"
 // @Success 200 {object} map[string]string
+// @Failure 403 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Security BearerAuth
 // @Router /api/v1/files/sign [get]
 func (h *FileHandler) Sign(c *gin.Context) {
 	key := strings.TrimSpace(c.Query("key"))
-	url, err := h.files.SignImage(c.Request.Context(), key)
+	url, err := h.files.SignImage(c.Request.Context(), common.CurrentUserID(c), key)
 	if err != nil {
 		common.RespondError(c, err)
 		return

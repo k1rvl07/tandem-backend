@@ -17,6 +17,7 @@ type TaskRepository interface {
 	ListTasksForColumn(ctx context.Context, columnID string) ([]*mtask.Task, error)
 	ListTasksForWorkspace(ctx context.Context, workspaceID string) ([]*mtask.Task, error)
 	ListChildTasks(ctx context.Context, parentID string) ([]*mtask.Task, error)
+	FindWorkspacesByImageKey(ctx context.Context, imageKey string) ([]string, error)
 	CollectTaskKeys(ctx context.Context, taskID string) ([]string, error)
 	CollectBoardKeys(ctx context.Context, boardID string) ([]string, error)
 	CollectWorkspaceKeys(ctx context.Context, workspaceID string) ([]string, error)

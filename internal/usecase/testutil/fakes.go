@@ -478,7 +478,7 @@ func (f *FakeTaskRepo) UpdateTask(_ context.Context, task *mtask.Task) error {
 		ID: task.ID, ColumnID: task.ColumnID, Title: task.Title, Description: task.Description,
 		AuthorID: task.AuthorID, AssigneeID: task.AssigneeID, CuratorID: task.CuratorID, ParentID: task.ParentID,
 		DueDate: task.DueDate, Position: task.Position,
-		IsUrgent: task.IsUrgent, IsHidden: task.IsHidden,
+		IsUrgent: task.IsUrgent, IsHidden: task.IsHidden, ImageKey: task.ImageKey,
 		CreatedAt: existing.CreatedAt, UpdatedAt: time.Now(),
 	}
 	return nil
@@ -532,16 +532,56 @@ func (f *FakeTaskRepo) MoveTask(_ context.Context, task *mtask.Task, targetColum
 	return nil
 }
 
+func (f *FakeTaskRepo) FindWorkspacesByImageKey(_ context.Context, imageKey string) ([]string, error) {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, task := range f.Tasks {
+		if task.ImageKey != imageKey {
+			continue
+		}
+		workspaceID := f.ColumnWorkspaces[task.ColumnID]
+		if workspaceID == "" {
+			continue
+		}
+		if _, ok := seen[workspaceID]; ok {
+			continue
+		}
+		seen[workspaceID] = struct{}{}
+		out = append(out, workspaceID)
+	}
+	return out, nil
+}
+
 func (f *FakeTaskRepo) CollectTaskKeys(_ context.Context, taskID string) ([]string, error) {
-	return nil, nil
+	var out []string
+	for _, task := range f.Tasks {
+		if task.ID == taskID || task.ParentID == taskID {
+			if task.ImageKey != "" {
+				out = append(out, task.ImageKey)
+			}
+		}
+	}
+	return out, nil
 }
 
 func (f *FakeTaskRepo) CollectBoardKeys(_ context.Context, boardID string) ([]string, error) {
-	return nil, nil
+	var out []string
+	for _, task := range f.Tasks {
+		if f.ColumnBoards[task.ColumnID] == boardID && task.ImageKey != "" {
+			out = append(out, task.ImageKey)
+		}
+	}
+	return out, nil
 }
 
 func (f *FakeTaskRepo) CollectWorkspaceKeys(_ context.Context, workspaceID string) ([]string, error) {
-	return nil, nil
+	var out []string
+	for _, task := range f.Tasks {
+		if f.ColumnWorkspaces[task.ColumnID] == workspaceID && task.ImageKey != "" {
+			out = append(out, task.ImageKey)
+		}
+	}
+	return out, nil
 }
 
 func (f *FakeTaskRepo) ListTasksForBoard(_ context.Context, boardID string) ([]*mtask.Task, error) {

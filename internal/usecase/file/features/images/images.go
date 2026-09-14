@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tandem/tandem/internal/domain/ports/repository"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file/core"
 	"go.uber.org/zap"
@@ -39,10 +40,17 @@ const signedURLTTL = time.Hour
 
 type Images struct {
 	*core.Core
+	Workspaces repository.WorkspaceRepository
+	Tasks      repository.TaskRepository
 }
 
 func New(c *core.Core) *Images {
 	return &Images{Core: c}
+}
+
+func (s *Images) WithAccessCheck(tasks repository.TaskRepository, workspaces repository.WorkspaceRepository) {
+	s.Tasks = tasks
+	s.Workspaces = workspaces
 }
 
 func (s *Images) UploadImage(ctx context.Context, userID, namespace, filename, contentType string, reader io.Reader, size int64) (string, error) {
@@ -118,7 +126,7 @@ func (s *Images) DeleteImage(ctx context.Context, ownerID, key string) error {
 	return s.Remove(ctx, key)
 }
 
-func (s *Images) SignImage(ctx context.Context, key string) (string, error) {
+func (s *Images) SignImage(ctx context.Context, actorID, key string) (string, error) {
 	if key == "" {
 		return "", pkgerrors.NewValidationError("missing key")
 	}
@@ -126,20 +134,43 @@ func (s *Images) SignImage(ctx context.Context, key string) (string, error) {
 	if len(parts) != 3 || !imageNamespaces[parts[0]] {
 		return "", pkgerrors.ErrNotFound
 	}
+	namespace, ownerID := parts[0], parts[1]
 	ext := strings.ToLower(path.Ext(parts[2]))
 	if _, ok := allowedImageExts[ext]; !ok {
 		return "", pkgerrors.ErrNotFound
 	}
-	if _, err := uuid.Parse(parts[1]); err != nil {
+	if _, err := uuid.Parse(ownerID); err != nil {
 		return "", pkgerrors.ErrNotFound
 	}
 	name := parts[2][:len(parts[2])-len(ext)]
 	if _, err := uuid.Parse(name); err != nil {
 		return "", pkgerrors.ErrNotFound
 	}
+	if namespace != "avatars" && !s.canSignImage(ctx, actorID, key, ownerID) {
+		return "", pkgerrors.ErrForbidden
+	}
 	url, err := s.Store.PresignGet(ctx, key, signedURLTTL)
 	if err != nil {
 		return "", fmt.Errorf("%w: sign image", pkgerrors.ErrInternal)
 	}
 	return url, nil
+}
+
+func (s *Images) canSignImage(ctx context.Context, actorID, key, ownerID string) bool {
+	if ownerID == actorID {
+		return true
+	}
+	if s.Tasks == nil || s.Workspaces == nil {
+		return false
+	}
+	workspaceIDs, err := s.Tasks.FindWorkspacesByImageKey(ctx, key)
+	if err != nil || len(workspaceIDs) == 0 {
+		return false
+	}
+	for _, workspaceID := range workspaceIDs {
+		if _, err := s.Workspaces.FindMember(ctx, workspaceID, actorID); err == nil {
+			return true
+		}
+	}
+	return false
 }

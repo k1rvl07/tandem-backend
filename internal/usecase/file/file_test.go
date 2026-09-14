@@ -11,7 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
+	"github.com/tandem/tandem/internal/usecase/testutil"
 	"go.uber.org/zap"
 )
 
@@ -90,4 +93,95 @@ func TestDeleteImageRejectsAttachmentKey(t *testing.T) {
 	err := svc.DeleteImage(context.Background(), "u1", "attachments/ws1/u1/file.pdf")
 	require.Error(t, err)
 	assert.Empty(t, store.deleted)
+}
+
+func imageKey(namespace, owner string) string {
+	return namespace + "/" + owner + "/" + uuid.NewString() + ".jpg"
+}
+
+func TestSignImageAllowsAvatarNamespace(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+	owner := uuid.NewString()
+	key := imageKey("avatars", owner)
+
+	url, err := svc.SignImage(context.Background(), "u1", key)
+	require.NoError(t, err)
+	assert.Equal(t, key, url)
+}
+
+func TestSignImageAllowsOwnedImageWithoutRepo(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+	owner := uuid.NewString()
+	key := imageKey("covers", owner)
+
+	url, err := svc.SignImage(context.Background(), owner, key)
+	require.NoError(t, err)
+	assert.Equal(t, key, url)
+}
+
+func TestSignImageDeniesForeignImageWithoutAccessRepo(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+	key := imageKey("covers", uuid.NewString())
+
+	_, err := svc.SignImage(context.Background(), uuid.NewString(), key)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+}
+
+func TestSignImageAllowsMemberOfReferencingWorkspace(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+	tasks := testutil.NewFakeTaskRepo()
+	workspaces := testutil.NewFakeWorkspaceRepo()
+	svc.WithAccessCheck(tasks, workspaces)
+
+	wsID := uuid.NewString()
+	ownerID := uuid.NewString()
+	actorID := uuid.NewString()
+	key := imageKey("covers", ownerID)
+	columnID := uuid.NewString()
+
+	workspaces.AddWorkspaceFixture(wsID, "ws")
+	workspaces.AddMemberFixture(wsID, actorID, mworkspace.RoleMember)
+	tasks.RegisterColumnWorkspace(columnID, wsID)
+	tasks.Tasks[uuid.NewString()] = &mtask.Task{ID: uuid.NewString(), ColumnID: columnID, ImageKey: key}
+
+	url, err := svc.SignImage(context.Background(), actorID, key)
+	require.NoError(t, err)
+	assert.Equal(t, key, url)
+}
+
+func TestSignImageDeniesNonMemberOfReferencingWorkspace(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+	tasks := testutil.NewFakeTaskRepo()
+	workspaces := testutil.NewFakeWorkspaceRepo()
+	svc.WithAccessCheck(tasks, workspaces)
+
+	wsID := uuid.NewString()
+	ownerID := uuid.NewString()
+	key := imageKey("covers", ownerID)
+	columnID := uuid.NewString()
+
+	workspaces.AddWorkspaceFixture(wsID, "ws")
+	workspaces.AddMemberFixture(wsID, ownerID, mworkspace.RoleOwner)
+	tasks.RegisterColumnWorkspace(columnID, wsID)
+	tasks.Tasks[uuid.NewString()] = &mtask.Task{ID: uuid.NewString(), ColumnID: columnID, ImageKey: key}
+
+	_, err := svc.SignImage(context.Background(), uuid.NewString(), key)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+}
+
+func TestSignImageDeniesUnreferencedKey(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store, zap.NewNop())
+	tasks := testutil.NewFakeTaskRepo()
+	workspaces := testutil.NewFakeWorkspaceRepo()
+	svc.WithAccessCheck(tasks, workspaces)
+
+	key := imageKey("covers", uuid.NewString())
+	_, err := svc.SignImage(context.Background(), uuid.NewString(), key)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
 }

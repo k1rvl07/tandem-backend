@@ -264,6 +264,21 @@ func (r *TaskRepo) ListChildTasks(ctx context.Context, parentID string) ([]*mtas
 	return tasksToDomain(es), nil
 }
 
+func (r *TaskRepo) FindWorkspacesByImageKey(ctx context.Context, imageKey string) ([]string, error) {
+	var workspaceIDs []string
+	err := r.helper.DB.WithContext(ctx).
+		Table("tasks").
+		Select("DISTINCT boards.workspace_id").
+		Joins("JOIN board_columns ON board_columns.id = tasks.column_id").
+		Joins("JOIN boards ON boards.id = board_columns.board_id").
+		Where("tasks.image_key = ?", imageKey).
+		Scan(&workspaceIDs).Error
+	if err != nil {
+		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return workspaceIDs, nil
+}
+
 func (r *TaskRepo) CollectTaskKeys(ctx context.Context, taskID string) ([]string, error) {
 	var imageKeys []string
 	err := r.helper.DB.WithContext(ctx).
