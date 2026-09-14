@@ -4,6 +4,7 @@
 tmp/
 bin/
 coverage.out
+coverage.html
 air.log
 docs/
 .claude/
