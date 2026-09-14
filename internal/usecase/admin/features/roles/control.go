@@ -71,6 +71,10 @@ func (s *Control) DeleteUser(ctx context.Context, actor core.Actor, targetID str
 		return pkgerrors.ErrForbidden
 	}
 	s.Files.RemoveMany(ctx, []string{target.AvatarKey})
+	memberships, err := s.Workspaces.ListWorkspacesForUser(ctx, targetID)
+	if err != nil {
+		return err
+	}
 	if err := s.Workspaces.DeleteMembersByUser(ctx, targetID); err != nil {
 		return err
 	}
@@ -82,6 +86,9 @@ func (s *Control) DeleteUser(ctx context.Context, actor core.Actor, targetID str
 	}
 	if err := s.Tokens.Revoke(ctx, targetID); err != nil {
 		s.Logger.Warn("revoke tokens after user delete failed", zap.String("user_id", targetID), zap.Error(err))
+	}
+	for _, membership := range memberships {
+		s.BumpWorkspace(ctx, membership.Workspace.ID)
 	}
 	s.BumpUsers(ctx)
 	return nil

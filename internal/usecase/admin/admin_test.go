@@ -15,11 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 	dadmin "github.com/tandem/tandem/internal/contracts/admin"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/filestore"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/infrastructure/password"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 	"go.uber.org/zap"
 )
@@ -488,4 +490,30 @@ func TestDeleteUserInvalidID(t *testing.T) {
 
 	err := svc.DeleteUser(context.Background(), Actor{ID: "admin-1", Role: muser.RoleAdmin}, "not-a-uuid")
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestDeleteUserBumpsWorkspaceVersions(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepo()
+	adminID := repo.seed("admin.bump", muser.RoleAdmin)
+	victimID := repo.seed("victim.bump", muser.RoleUser)
+
+	cacheImpl := testutil.NewFakeCache()
+	wsRepo := testutil.NewFakeWorkspaceRepo()
+	wsRepo.AddWorkspaceFixture("ws-shared", "shared")
+	wsRepo.AddWorkspaceFixture("ws-other", "other")
+	wsRepo.AddMemberFixture("ws-shared", victimID, mworkspace.RoleMember)
+	wsRepo.AddMemberFixture("ws-shared", adminID, mworkspace.RoleOwner)
+	wsRepo.AddMemberFixture("ws-other", adminID, mworkspace.RoleOwner)
+
+	svc := NewService(Deps{Users: repo, Hasher: password.NewBCryptHasher(12), Cache: cacheImpl, Tokens: fakeTokenService{}, Workspaces: wsRepo, Favorites: testutil.NewFakeFavoriteRepo(), Files: file.NewService(filestore.FileStore(noopStore{}), zap.NewNop())})
+
+	require.Equal(t, "0", cache.VersionWorkspace(ctx, cacheImpl, "ws-shared"))
+
+	err := svc.DeleteUser(ctx, Actor{ID: adminID, Role: muser.RoleAdmin}, victimID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "1", cache.VersionWorkspace(ctx, cacheImpl, "ws-shared"))
+	assert.Equal(t, "0", cache.VersionWorkspace(ctx, cacheImpl, "ws-other"))
+	assert.Equal(t, "1", cache.VersionUsers(ctx, cacheImpl))
 }
