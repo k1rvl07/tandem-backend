@@ -186,16 +186,27 @@ func (r *TaskRepo) MoveTask(ctx context.Context, task *mtask.Task, targetColumnI
 }
 
 func rewritePositions(tx *gorm.DB, tasks []*eboard.Task) error {
-	for i, t := range tasks {
-		if t.Position == i {
-			continue
-		}
-		t.Position = i
-		if err := tx.Model(&eboard.Task{}).Where("id = ?", t.ID).Update("position", i).Error; err != nil {
-			return err
-		}
+	if len(tasks) == 0 {
+		return nil
 	}
-	return nil
+	caseSQL := "CASE id "
+	args := make([]interface{}, 0, len(tasks)*2)
+	changed := make([]string, 0, len(tasks))
+	for i, t := range tasks {
+		if t.Position != i {
+			changed = append(changed, t.ID)
+		}
+		caseSQL += "WHEN ? THEN ? "
+		args = append(args, t.ID, i)
+		t.Position = i
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	caseSQL += "ELSE position END"
+	return tx.Model(&eboard.Task{}).
+		Where("id IN ?", changed).
+		Update("position", gorm.Expr(caseSQL, args...)).Error
 }
 
 func (r *TaskRepo) ListTasksForBoard(ctx context.Context, boardID string) ([]*mtask.Task, error) {
