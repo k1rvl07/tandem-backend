@@ -26,6 +26,7 @@ type AppConfig struct {
 	TrustedProxies []string
 	AdminLogin     string
 	AdminPassword  string
+	AdminSeed      bool
 	PasswordCost   int
 	AuthRateLimit  int64
 	SwaggerEnabled bool
@@ -78,6 +79,7 @@ func Load(envFile string) (*Config, error) {
 			Env:           getEnv("APP_ENV", "dev"),
 			AdminLogin:    getEnv("ADMIN_LOGIN", ""),
 			AdminPassword: getEnv("ADMIN_PASSWORD", ""),
+			AdminSeed:     getEnv("ADMIN_SEED_ENABLED", "") == "true",
 			CookieSecure:  getEnv("COOKIE_SECURE", "") == "true",
 		},
 		Database: DatabaseConfig{

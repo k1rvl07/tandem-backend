@@ -256,6 +256,10 @@ func (a *App) Close() {
 }
 
 func (a *App) seedAdmin(ctx context.Context, repo repoport.UserRepository, hasher service.PasswordHasher) error {
+	if a.config.App.Env == "production" && !a.config.App.AdminSeed {
+		a.logger.Info("admin seed skipped: production requires ADMIN_SEED_ENABLED")
+		return nil
+	}
 	login := validate.NormalizeLogin(a.config.App.AdminLogin)
 	if login == "" && a.config.App.AdminPassword == "" {
 		a.logger.Info("admin seed skipped: ADMIN_LOGIN and ADMIN_PASSWORD not set")
