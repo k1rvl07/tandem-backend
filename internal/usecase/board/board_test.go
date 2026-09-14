@@ -238,6 +238,140 @@ func TestReorderBoardsValidation(t *testing.T) {
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
+func TestSetMainBoard(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Main")
+	b2 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Other")
+	b2.IsMain = true
+
+	main, err := e.svc.SetMain(context.Background(), e.actorA, e.wsA, b1.ID)
+	require.NoError(t, err)
+	assert.True(t, main.IsMain)
+	require.False(t, b2.IsMain)
+	require.Len(t, e.hub.Messages, 1)
+	assert.Equal(t, core.EventBoardUpdated, e.hub.Messages[0].Type)
+}
+
+func TestSetMainBoardNotOwner(t *testing.T) {
+	e := newEnv(t)
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Main")
+	_, err := e.svc.SetMain(context.Background(), e.actorB, e.wsA, board.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+}
+
+func TestSetMainBoardFromOtherWorkspace(t *testing.T) {
+	e := newEnv(t)
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsB, "Other")
+	_, err := e.svc.SetMain(context.Background(), e.actorA, e.wsA, board.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+}
+
+func TestDeleteMainBoard(t *testing.T) {
+	e := newEnv(t)
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Main")
+	board.IsMain = true
+	err := e.svc.Delete(context.Background(), e.actorA, e.wsA, board.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestCreateBoardRepoError(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	boards.Err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.Create(context.Background(), e.actorA, e.wsA, dboard.CreateBoardRequest{Name: "Sprint"})
+	require.Error(t, err)
+	boards.Err = nil
+}
+
+func TestCreateBoardColumnError(t *testing.T) {
+	e := newEnv(t)
+	cols := e.svc.Crud.Columns.(*testutil.FakeColumnRepo)
+	cols.Err = pkgerrors.NewValidationError("col")
+	_, err := e.svc.Create(context.Background(), e.actorA, e.wsA, dboard.CreateBoardRequest{Name: "Sprint"})
+	require.Error(t, err)
+	cols.Err = nil
+}
+
+func TestGetBoardListTasksError(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	tasks := e.svc.Crud.Tasks.(*testutil.FakeTaskRepo)
+	tasks.Err = pkgerrors.NewValidationError("t")
+	_, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID)
+	require.Error(t, err)
+	tasks.Err = nil
+}
+
+func TestDeleteBoardCollectKeysError(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	tasks := e.svc.Crud.Tasks.(*testutil.FakeTaskRepo)
+	tasks.Err = pkgerrors.NewValidationError("t")
+	err := e.svc.Delete(context.Background(), e.actorA, e.wsA, board.ID)
+	require.Error(t, err)
+	tasks.Err = nil
+}
+
+func TestDeleteBoardDeleteBoardError(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	boards.Err = pkgerrors.NewValidationError("db")
+	err := e.svc.Delete(context.Background(), e.actorA, e.wsA, board.ID)
+	require.Error(t, err)
+	boards.Err = nil
+}
+
+func TestSetMainClearMainBoardsError(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	board := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Main")
+	boards.Err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.SetMain(context.Background(), e.actorA, e.wsA, board.ID)
+	require.Error(t, err)
+	boards.Err = nil
+}
+
+func TestReorderBoardsCountTasksError(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
+	boards.Err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})
+	require.Error(t, err)
+	boards.Err = nil
+}
+
+func TestListBoardsCached(t *testing.T) {
+	e := newEnv(t)
+	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
+	boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
+	boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
+
+	first, err := e.svc.List(context.Background(), e.actorA, e.wsA)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+
+	cached, err := e.svc.List(context.Background(), e.actorA, e.wsA)
+	require.NoError(t, err)
+	require.Len(t, cached, 2)
+}
+
+func TestGetBoardCached(t *testing.T) {
+	e := newEnv(t)
+	board := e.svc.Crud.Boards.(*testutil.FakeBoardRepo).AddBoardFixture(testutil.NewUUID(), e.wsA, "Sprint")
+	first, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID)
+	require.NoError(t, err)
+	require.Equal(t, board.ID, first.ID)
+
+	cached, err := e.svc.Get(context.Background(), e.actorA, e.wsA, board.ID)
+	require.NoError(t, err)
+	require.Equal(t, board.ID, cached.ID)
+}
+
 func TestReorderBoardsMemberForbidden(t *testing.T) {
 	e := newEnv(t)
 	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)

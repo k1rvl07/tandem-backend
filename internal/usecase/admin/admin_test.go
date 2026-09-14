@@ -29,6 +29,7 @@ import (
 type fakeRepo struct {
 	users map[string]*muser.User
 	seq   int
+	err   error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -44,6 +45,9 @@ func (f *fakeRepo) Create(_ context.Context, user *muser.User) error {
 }
 
 func (f *fakeRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	for _, u := range f.users {
 		if u.ID == id {
 			return u, nil
@@ -61,6 +65,9 @@ func (f *fakeRepo) FindByLogin(_ context.Context, login string) (*muser.User, er
 }
 
 func (f *fakeRepo) ExistsByLogin(_ context.Context, login string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
 	_, ok := f.users[login]
 	return ok, nil
 }
@@ -95,6 +102,9 @@ func (f *fakeRepo) ListPage(_ context.Context, query string, limit, offset int) 
 }
 
 func (f *fakeRepo) Count(_ context.Context, query string) (int, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
 	total := 0
 	for login := range f.users {
 		if query == "" || strings.Contains(login, query) {
@@ -129,6 +139,22 @@ func (f *fakeRepo) seed(login, role string) string {
 func newTestService(repo repository.UserRepository) *Service {
 	store := filestore.FileStore(noopStore{})
 	return NewService(Deps{Users: repo, Hasher: password.NewBCryptHasher(12), Cache: testutil.NewFakeCache(), Tokens: fakeTokenService{}, Workspaces: testutil.NewFakeWorkspaceRepo(), Favorites: testutil.NewFakeFavoriteRepo(), Files: file.NewService(store, zap.NewNop())})
+}
+
+type adminEnv struct {
+	svc       *Service
+	repo      *fakeRepo
+	ws        *testutil.FakeWorkspaceRepo
+	favorites *testutil.FakeFavoriteRepo
+}
+
+func newAdminEnv() *adminEnv {
+	repo := newFakeRepo()
+	ws := testutil.NewFakeWorkspaceRepo()
+	favorites := testutil.NewFakeFavoriteRepo()
+	store := filestore.FileStore(noopStore{})
+	svc := NewService(Deps{Users: repo, Hasher: password.NewBCryptHasher(12), Cache: testutil.NewFakeCache(), Tokens: fakeTokenService{}, Workspaces: ws, Favorites: favorites, Files: file.NewService(store, zap.NewNop())})
+	return &adminEnv{svc: svc, repo: repo, ws: ws, favorites: favorites}
 }
 
 type noopStore struct{}
@@ -516,4 +542,58 @@ func TestDeleteUserBumpsWorkspaceVersions(t *testing.T) {
 	assert.Equal(t, "1", cache.VersionWorkspace(ctx, cacheImpl, "ws-shared"))
 	assert.Equal(t, "0", cache.VersionWorkspace(ctx, cacheImpl, "ws-other"))
 	assert.Equal(t, "1", cache.VersionUsers(ctx, cacheImpl))
+}
+
+func TestCreateUserExistsError(t *testing.T) {
+	e := newAdminEnv()
+	e.repo.err = errors.New("db")
+	ctx := context.Background()
+	_, err := e.svc.CreateUser(ctx, Actor{ID: "admin", Role: muser.RoleAdmin}, dadmin.CreateUserRequest{Login: "new.user", Password: "password123"})
+	require.Error(t, err)
+	e.repo.err = nil
+}
+
+func TestListUsersCountError(t *testing.T) {
+	e := newAdminEnv()
+	e.repo.seed("ivanov.ii", muser.RoleUser)
+	e.repo.err = errors.New("db")
+	_, err := e.svc.ListUsers(context.Background(), dadmin.AdminListQuery{})
+	require.Error(t, err)
+	e.repo.err = nil
+}
+
+func TestUpdateUserRoleFindError(t *testing.T) {
+	e := newAdminEnv()
+	targetID := e.repo.seed("petrov.ii", muser.RoleUser)
+	e.repo.err = errors.New("db")
+	_, err := e.svc.UpdateUserRole(context.Background(), Actor{ID: "admin", Role: muser.RoleAdmin}, targetID, dadmin.UpdateUserRoleRequest{Role: muser.RoleUser})
+	require.Error(t, err)
+	e.repo.err = nil
+}
+
+func TestDeleteUserFindError(t *testing.T) {
+	e := newAdminEnv()
+	targetID := e.repo.seed("petrov.ii", muser.RoleUser)
+	e.repo.err = errors.New("db")
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: "admin", Role: muser.RoleAdmin}, targetID)
+	require.Error(t, err)
+	e.repo.err = nil
+}
+
+func TestDeleteUserWorkspaceError(t *testing.T) {
+	e := newAdminEnv()
+	targetID := e.repo.seed("petrov.ii", muser.RoleUser)
+	e.ws.Err = errors.New("db")
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: "admin", Role: muser.RoleAdmin}, targetID)
+	require.Error(t, err)
+	e.ws.Err = nil
+}
+
+func TestDeleteUserFavoritesError(t *testing.T) {
+	e := newAdminEnv()
+	targetID := e.repo.seed("petrov.ii", muser.RoleUser)
+	e.favorites.Err = errors.New("db")
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: "admin", Role: muser.RoleAdmin}, targetID)
+	require.Error(t, err)
+	e.favorites.Err = nil
 }

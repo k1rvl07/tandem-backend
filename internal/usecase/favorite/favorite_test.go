@@ -54,3 +54,66 @@ func TestAddFavoriteInvalidTarget(t *testing.T) {
 	err := svc.Add(context.Background(), testutil.NewUUID(), "unknown", testutil.NewUUID())
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
+
+func TestAddFavoriteInvalidUUID(t *testing.T) {
+	favorites := testutil.NewFakeFavoriteRepo()
+	svc := NewService(Deps{Favorites: favorites, Workspaces: testutil.NewFakeWorkspaceRepo(), Boards: testutil.NewFakeBoardRepo(), Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
+	err := svc.Add(context.Background(), testutil.NewUUID(), "workspace", "not-a-uuid")
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	err = svc.Remove(context.Background(), testutil.NewUUID(), "workspace", "not-a-uuid")
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestRemoveFavoriteInvalidTarget(t *testing.T) {
+	svc := NewService(Deps{Favorites: testutil.NewFakeFavoriteRepo(), Workspaces: testutil.NewFakeWorkspaceRepo(), Boards: testutil.NewFakeBoardRepo(), Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
+	err := svc.Remove(context.Background(), testutil.NewUUID(), "unknown", testutil.NewUUID())
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestAddFavoriteWorkspaceRepoError(t *testing.T) {
+	ws := testutil.NewFakeWorkspaceRepo()
+	ws.Err = pkgerrors.NewValidationError("db")
+	svc := NewService(Deps{Favorites: testutil.NewFakeFavoriteRepo(), Workspaces: ws, Boards: testutil.NewFakeBoardRepo(), Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
+	err := svc.Add(context.Background(), testutil.NewUUID(), "workspace", testutil.NewUUID())
+	require.Error(t, err)
+}
+
+func TestAddFavoriteBoardRepoError(t *testing.T) {
+	boards := testutil.NewFakeBoardRepo()
+	boards.Err = pkgerrors.NewValidationError("db")
+	svc := NewService(Deps{Favorites: testutil.NewFakeFavoriteRepo(), Workspaces: testutil.NewFakeWorkspaceRepo(), Boards: boards, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
+	err := svc.Add(context.Background(), testutil.NewUUID(), "board", testutil.NewUUID())
+	require.Error(t, err)
+}
+
+func TestAddFavoriteStoreError(t *testing.T) {
+	ws := testutil.NewFakeWorkspaceRepo()
+	user := testutil.NewUUID()
+	wsID := testutil.NewUUID()
+	ws.AddWorkspaceFixture(wsID, "Team")
+	ws.AddMemberFixture(wsID, user, mworkspace.RoleOwner)
+	favorites := testutil.NewFakeFavoriteRepo()
+	favorites.Err = pkgerrors.NewValidationError("db")
+	svc := NewService(Deps{Favorites: favorites, Workspaces: ws, Boards: testutil.NewFakeBoardRepo(), Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
+	err := svc.Add(context.Background(), user, "workspace", wsID)
+	require.Error(t, err)
+}
+
+func TestRemoveFavoriteStoreError(t *testing.T) {
+	favorites := testutil.NewFakeFavoriteRepo()
+	favorites.Err = pkgerrors.NewValidationError("db")
+	svc := NewService(Deps{Favorites: favorites, Workspaces: testutil.NewFakeWorkspaceRepo(), Boards: testutil.NewFakeBoardRepo(), Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache()})
+	err := svc.Remove(context.Background(), testutil.NewUUID(), "workspace", testutil.NewUUID())
+	require.Error(t, err)
+}
+
+func TestAddFavoriteNilHub(t *testing.T) {
+	ws := testutil.NewFakeWorkspaceRepo()
+	user := testutil.NewUUID()
+	wsID := testutil.NewUUID()
+	ws.AddWorkspaceFixture(wsID, "Team")
+	ws.AddMemberFixture(wsID, user, mworkspace.RoleOwner)
+	svc := NewService(Deps{Favorites: testutil.NewFakeFavoriteRepo(), Workspaces: ws, Boards: testutil.NewFakeBoardRepo(), Cache: testutil.NewFakeCache()})
+	err := svc.Add(context.Background(), user, "workspace", wsID)
+	require.NoError(t, err)
+}

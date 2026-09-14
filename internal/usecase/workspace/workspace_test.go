@@ -25,8 +25,10 @@ import (
 )
 
 type fakeWorkspaceRepo struct {
-	workspaces map[string]*mworkspace.Workspace
-	members    map[string]map[string]*mworkspace.WorkspaceMember
+	workspaces   map[string]*mworkspace.Workspace
+	members      map[string]map[string]*mworkspace.WorkspaceMember
+	err          error
+	addMemberErr error
 }
 
 func newFakeWorkspaceRepo() *fakeWorkspaceRepo {
@@ -37,6 +39,9 @@ func newFakeWorkspaceRepo() *fakeWorkspaceRepo {
 }
 
 func (f *fakeWorkspaceRepo) CreateWorkspace(_ context.Context, ws *mworkspace.Workspace) error {
+	if f.err != nil {
+		return f.err
+	}
 	f.workspaces[ws.ID] = &mworkspace.Workspace{
 		ID: ws.ID, Name: ws.Name, Description: ws.Description,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -45,6 +50,9 @@ func (f *fakeWorkspaceRepo) CreateWorkspace(_ context.Context, ws *mworkspace.Wo
 }
 
 func (f *fakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mworkspace.Workspace, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	ws, ok := f.workspaces[id]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -53,6 +61,9 @@ func (f *fakeWorkspaceRepo) FindWorkspaceByID(_ context.Context, id string) (*mw
 }
 
 func (f *fakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token string) (*mworkspace.Workspace, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	for _, ws := range f.workspaces {
 		if ws.InviteToken != "" && ws.InviteToken == token {
 			return ws, nil
@@ -62,6 +73,9 @@ func (f *fakeWorkspaceRepo) FindWorkspaceByInvite(_ context.Context, token strin
 }
 
 func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *mworkspace.Workspace) error {
+	if f.err != nil {
+		return f.err
+	}
 	existing, ok := f.workspaces[ws.ID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -73,6 +87,9 @@ func (f *fakeWorkspaceRepo) UpdateWorkspace(_ context.Context, ws *mworkspace.Wo
 }
 
 func (f *fakeWorkspaceRepo) UpdateInvite(_ context.Context, wsID, token string, expiresAt *time.Time) error {
+	if f.err != nil {
+		return f.err
+	}
 	ws, ok := f.workspaces[wsID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -83,6 +100,9 @@ func (f *fakeWorkspaceRepo) UpdateInvite(_ context.Context, wsID, token string, 
 }
 
 func (f *fakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error {
+	if f.err != nil {
+		return f.err
+	}
 	if _, ok := f.workspaces[id]; !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
@@ -92,6 +112,9 @@ func (f *fakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error 
 }
 
 func (f *fakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID string) ([]mworkspace.WorkspaceMembership, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	var out []mworkspace.WorkspaceMembership
 	for wsID, mm := range f.members {
 		if m, ok := mm[userID]; ok {
@@ -108,6 +131,9 @@ func (f *fakeWorkspaceRepo) ListWorkspacesForUser(_ context.Context, userID stri
 }
 
 func (f *fakeWorkspaceRepo) AddMember(_ context.Context, wsID, userID string, role mworkspace.WorkspaceRole) error {
+	if f.addMemberErr != nil {
+		return f.addMemberErr
+	}
 	if _, ok := f.members[wsID][userID]; ok {
 		return pkgerrors.Wrap(pkgerrors.ErrConflict, errors.New("unique constraint"))
 	}
@@ -121,6 +147,9 @@ func (f *fakeWorkspaceRepo) AddMember(_ context.Context, wsID, userID string, ro
 }
 
 func (f *fakeWorkspaceRepo) FindMember(_ context.Context, wsID, userID string) (*mworkspace.WorkspaceMember, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	m, ok := f.members[wsID][userID]
 	if !ok {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -129,6 +158,9 @@ func (f *fakeWorkspaceRepo) FindMember(_ context.Context, wsID, userID string) (
 }
 
 func (f *fakeWorkspaceRepo) RemoveMember(_ context.Context, wsID, userID string) error {
+	if f.err != nil {
+		return f.err
+	}
 	if _, ok := f.members[wsID][userID]; !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
 	}
@@ -137,6 +169,9 @@ func (f *fakeWorkspaceRepo) RemoveMember(_ context.Context, wsID, userID string)
 }
 
 func (f *fakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID string, role mworkspace.WorkspaceRole) error {
+	if f.err != nil {
+		return f.err
+	}
 	m, ok := f.members[wsID][userID]
 	if !ok {
 		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
@@ -146,6 +181,9 @@ func (f *fakeWorkspaceRepo) UpdateMemberRole(_ context.Context, wsID, userID str
 }
 
 func (f *fakeWorkspaceRepo) ListMembers(_ context.Context, wsID string) ([]mworkspace.WorkspaceMember, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	var out []mworkspace.WorkspaceMember
 	for _, m := range f.members[wsID] {
 		out = append(out, *m)
@@ -184,6 +222,7 @@ func (f *fakeWorkspaceRepo) TransferOwnership(_ context.Context, wsID, oldOwnerI
 
 type fakeUserRepo struct {
 	users map[string]*muser.User
+	err   error
 }
 
 func (f *fakeUserRepo) seedUser(login string) *muser.User {
@@ -193,6 +232,9 @@ func (f *fakeUserRepo) seedUser(login string) *muser.User {
 }
 
 func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*muser.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	u, ok := f.users[id]
 	if !ok {
 		return nil, pkgerrors.ErrNotFound
@@ -201,6 +243,9 @@ func (f *fakeUserRepo) FindByID(_ context.Context, id string) (*muser.User, erro
 }
 
 func (f *fakeUserRepo) FindByLogin(_ context.Context, login string) (*muser.User, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	for _, u := range f.users {
 		if u.Login == login {
 			return u, nil
@@ -223,11 +268,12 @@ var _ repository.UserRepository = (*fakeUserRepo)(nil)
 var _ repository.WorkspaceRepository = (*fakeWorkspaceRepo)(nil)
 
 type testEnv struct {
-	svc      *Service
-	wsRepo   *fakeWorkspaceRepo
-	userRepo *fakeUserRepo
-	boards   *testutil.FakeBoardRepo
-	columns  *testutil.FakeColumnRepo
+	svc       *Service
+	wsRepo    *fakeWorkspaceRepo
+	userRepo  *fakeUserRepo
+	boards    *testutil.FakeBoardRepo
+	columns   *testutil.FakeColumnRepo
+	favorites *testutil.FakeFavoriteRepo
 }
 
 func newTestEnv() *testEnv {
@@ -239,11 +285,12 @@ func newTestEnv() *testEnv {
 	tasks := testutil.NewFakeTaskRepo()
 	files := file.NewService(noopWorkspaceStore{}, zap.NewNop())
 	return &testEnv{
-		svc:      NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache(), Logger: zap.NewNop()}),
-		wsRepo:   wsRepo,
-		userRepo: userRepo,
-		boards:   boards,
-		columns:  columns,
+		svc:       NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache(), Logger: zap.NewNop()}),
+		wsRepo:    wsRepo,
+		userRepo:  userRepo,
+		boards:    boards,
+		columns:   columns,
+		favorites: favorites,
 	}
 }
 
@@ -673,4 +720,107 @@ func TestJoinByInviteExpired(t *testing.T) {
 	_, err = e.svc.JoinByInvite(ctx, newbie.ID, token)
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 	assert.Empty(t, e.wsRepo.workspaces[wsID].InviteToken)
+}
+
+func TestCreateWorkspaceInvalidPrefix(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.prefix")
+	_, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: "Team", Prefix: "!!!"})
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestCreateWorkspaceWorkspaceRepoError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.wserr")
+	e.wsRepo.err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: "Team"})
+	require.Error(t, err)
+	e.wsRepo.err = nil
+}
+
+func TestCreateWorkspaceAddMemberErrorRollback(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.mem")
+	e.wsRepo.addMemberErr = pkgerrors.NewValidationError("membership")
+	_, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: "Team"})
+	require.Error(t, err)
+	// workspace should have been rolled back (deleted)
+	resp, err := e.svc.List(context.Background(), owner.ID)
+	require.NoError(t, err)
+	assert.Empty(t, resp)
+	e.wsRepo.addMemberErr = nil
+}
+
+func TestCreateWorkspaceCreateMainBoardErrorRollback(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.board")
+	e.columns.Err = pkgerrors.NewValidationError("col")
+	_, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: "Team"})
+	require.Error(t, err)
+	// workspace rolled back
+	resp, err := e.svc.List(context.Background(), owner.ID)
+	require.NoError(t, err)
+	assert.Empty(t, resp)
+	e.columns.Err = nil
+}
+
+func TestCreateWorkspaceUserLookupError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.usererr")
+	// users check happens after create+add+mainboard; trigger via repo
+	e.userRepo.err = pkgerrors.NewValidationError("userlookup")
+	_, err := e.svc.Create(context.Background(), owner.ID, dworkspace.CreateWorkspaceRequest{Name: "Team"})
+	require.Error(t, err)
+	// workspace was already persisted (no rollback on user lookup failure per code)
+	e.userRepo.err = nil
+}
+
+func TestListWorkspacesRepoError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.list")
+	e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+	e.wsRepo.err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.List(context.Background(), owner.ID)
+	require.Error(t, err)
+	e.wsRepo.err = nil
+}
+
+func TestListWorkspacesFavoritesError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.fav")
+	e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+	e.favorites.Err = pkgerrors.NewValidationError("fav")
+	_, err := e.svc.List(context.Background(), owner.ID)
+	require.Error(t, err)
+	e.favorites.Err = nil
+}
+
+func TestGetWorkspaceRepoError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.get")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+	e.wsRepo.err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.Get(context.Background(), owner.ID, wsID)
+	require.Error(t, err)
+	e.wsRepo.err = nil
+}
+
+func TestUpdateWorkspaceRepoError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.upd")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+	e.wsRepo.err = pkgerrors.NewValidationError("db")
+	_, err := e.svc.Update(context.Background(), owner.ID, wsID, dworkspace.UpdateWorkspaceRequest{Name: "New"})
+	require.Error(t, err)
+	e.wsRepo.err = nil
+}
+
+func TestGetWorkspaceFavoritesError(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.getfav")
+	wsID := e.seedWorkspace(owner.ID, uuid.NewString(), uuid.NewString())
+	e.favorites.Err = pkgerrors.NewValidationError("fav")
+	_, err := e.svc.Get(context.Background(), owner.ID, wsID)
+	require.Error(t, err)
+	e.favorites.Err = nil
 }

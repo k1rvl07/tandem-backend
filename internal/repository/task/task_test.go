@@ -225,6 +225,62 @@ func TestTaskRepoMove(t *testing.T) {
 		ghost := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID}
 		testutil.MustNotFound(t, fx.taskRepo.MoveTask(testutil.TestCtx, ghost, fx.columns[1].ID, 0))
 	})
+
+	t.Run("clamps negative and oversized positions", func(t *testing.T) {
+		moved := &mtask.Task{ID: tasks[1].ID, ColumnID: fx.columns[0].ID}
+		testutil.Must(t, fx.taskRepo.MoveTask(testutil.TestCtx, moved, fx.columns[1].ID, -1))
+		if moved.Position != 0 {
+			t.Fatalf("expected clamped position 0, got %d", moved.Position)
+		}
+		back := &mtask.Task{ID: moved.ID, ColumnID: fx.columns[1].ID}
+		testutil.Must(t, fx.taskRepo.MoveTask(testutil.TestCtx, back, fx.columns[0].ID, 100))
+		order, err := fx.taskRepo.ListTasksForColumn(testutil.TestCtx, fx.columns[0].ID)
+		testutil.Must(t, err)
+		if len(order) != 2 || order[1].ID != moved.ID {
+			t.Fatalf("expected oversized position clamped to the end, got %v", idsOf(order))
+		}
+	})
+}
+
+func TestTaskRepoUpdateDueDate(t *testing.T) {
+	fx := newTaskFixture(t, 1)
+	tk := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.column.ID, Title: "Planned"}
+	testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, tk))
+
+	due := time.Now().Add(48 * time.Hour).Truncate(time.Second)
+	tk.DueDate = &due
+	testutil.Must(t, fx.taskRepo.UpdateTask(testutil.TestCtx, tk))
+	got, err := fx.taskRepo.FindTaskByID(testutil.TestCtx, tk.ID)
+	testutil.Must(t, err)
+	if got.DueDate == nil || got.DueDate.Sub(due) > time.Second {
+		t.Fatalf("due date not persisted: %+v", got.DueDate)
+	}
+
+	tk.DueDate = nil
+	testutil.Must(t, fx.taskRepo.UpdateTask(testutil.TestCtx, tk))
+	got, err = fx.taskRepo.FindTaskByID(testutil.TestCtx, tk.ID)
+	testutil.Must(t, err)
+	if got.DueDate != nil {
+		t.Fatalf("due date was not cleared: %+v", got.DueDate)
+	}
+}
+
+func TestTaskRepoFindWorkspacesByImageKey(t *testing.T) {
+	fx := newTaskFixture(t, 1)
+	task := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.column.ID, Title: "Covered", ImageKey: "tasks/cover.png"}
+	testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, task))
+
+	wsIDs, err := fx.taskRepo.FindWorkspacesByImageKey(testutil.TestCtx, "tasks/cover.png")
+	testutil.Must(t, err)
+	if len(wsIDs) != 1 || wsIDs[0] != fx.wsID {
+		t.Fatalf("expected workspace %s to reference the image key, got %v", fx.wsID, wsIDs)
+	}
+
+	missing, err := fx.taskRepo.FindWorkspacesByImageKey(testutil.TestCtx, "tasks/nope.png")
+	testutil.Must(t, err)
+	if len(missing) != 0 {
+		t.Fatalf("expected no workspaces for an unknown key, got %v", missing)
+	}
 }
 
 func idsOf(tasks []*mtask.Task) []string {

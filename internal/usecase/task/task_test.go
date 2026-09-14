@@ -463,3 +463,68 @@ func TestCuratorMustBeMember(t *testing.T) {
 	})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
+
+func TestCreateTaskInvalidUUIDs(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	req := dtask.CreateTaskRequest{ColumnID: e.colA, Title: "T"}
+	_, err := e.svc.Create(ctx, e.actorO, "not-a-uuid", e.boardA, req)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	_, err = e.svc.Create(ctx, e.actorO, e.wsA, "not-a-uuid", req)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	badReq := dtask.CreateTaskRequest{ColumnID: "not-a-uuid", Title: "T"}
+	_, err = e.svc.Create(ctx, e.actorO, e.wsA, e.boardA, badReq)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestUpdateTaskInvalidUUIDs(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "Old", 0)
+	title := "New"
+	req := dtask.UpdateTaskRequest{Title: &title}
+	_, err := e.svc.Update(ctx, e.actorO, "not-a-uuid", e.boardA, task.ID, req)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	_, err = e.svc.Update(ctx, e.actorO, e.wsA, "not-a-uuid", task.ID, req)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	_, err = e.svc.Update(ctx, e.actorO, e.wsA, e.boardA, "not-a-uuid", req)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestDeleteTaskInvalidUUIDs(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T", 0)
+	err := e.svc.Delete(ctx, e.actorO, "not-a-uuid", e.boardA, task.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	err = e.svc.Delete(ctx, e.actorO, e.wsA, "not-a-uuid", task.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	err = e.svc.Delete(ctx, e.actorO, e.wsA, e.boardA, "not-a-uuid")
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+}
+
+func TestCreateTaskColumnLookupError(t *testing.T) {
+	e := newEnv(t)
+	e.cols.Err = pkgerrors.NewValidationError("cols")
+	_, err := e.svc.Create(context.Background(), e.actorO, e.wsA, e.boardA, dtask.CreateTaskRequest{ColumnID: e.colA, Title: "T"})
+	require.Error(t, err)
+	e.cols.Err = nil
+}
+
+func TestUpdateTaskLookupError(t *testing.T) {
+	e := newEnv(t)
+	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "Old", 0)
+	title := "New"
+	e.tasks.Err = pkgerrors.NewValidationError("tasks")
+	_, err := e.svc.Update(context.Background(), e.actorO, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{Title: &title})
+	require.Error(t, err)
+	e.tasks.Err = nil
+}
+
+func TestListTaskRepoError(t *testing.T) {
+	e := newEnv(t)
+	e.tasks.Err = pkgerrors.NewValidationError("tasks")
+	_, err := e.svc.List(context.Background(), e.actorO, e.wsA, dtask.ListWorkspaceTasksQuery{})
+	require.Error(t, err)
+	e.tasks.Err = nil
+}
