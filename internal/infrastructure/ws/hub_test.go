@@ -298,8 +298,15 @@ func TestHubReadPumpThrottleClosesConn(t *testing.T) {
 	cl.OnMessage = func(_ *Client, _ []byte) {}
 	h.Register(cl)
 
+	writes := 0
 	for i := 0; i < maxClientMessages+5; i++ {
-		require.NoError(t, client.WriteMessage(websocket.TextMessage, []byte("x")))
+		if err := client.WriteMessage(websocket.TextMessage, []byte("x")); err != nil {
+			if writes < maxClientMessages {
+				t.Fatalf("write failed before the throttle limit was reached: %v", err)
+			}
+			break
+		}
+		writes++
 	}
 	select {
 	case <-disc:
