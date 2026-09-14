@@ -166,7 +166,6 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 	return router.New(router.Dependencies{
 		Logger:              a.logger,
 		AllowedOrigin:       a.config.App.AllowedOrigins,
-		FileStore:           a.fileStore,
 		Hub:                 a.hub,
 		TokenService:        tokenManager,
 		UserRepository:      userRepo,

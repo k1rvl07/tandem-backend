@@ -1,12 +1,7 @@
 package router
 
 import (
-	"context"
-	"io"
-	"time"
-
 	"github.com/gin-gonic/gin"
-	"github.com/tandem/tandem/internal/domain/ports/filestore"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	"github.com/tandem/tandem/internal/domain/ports/ws"
@@ -40,7 +35,6 @@ type Dependencies struct {
 	Logger              *zap.Logger
 	AllowedOrigin       []string
 	TrustedProxies      []string
-	FileStore           filestore.FileStore
 	Hub                 ws.Hub
 	TokenService        service.TokenService
 	UserRepository      repository.UserRepository
@@ -65,12 +59,6 @@ type Dependencies struct {
 }
 
 func New(deps Dependencies) *gin.Engine {
-	if deps.FileStore == nil {
-		deps.FileStore = nopFileStore{}
-	}
-	if deps.Hub == nil {
-		deps.Hub = nopHub{}
-	}
 	b := &routerBuilder{deps: deps}
 	b.setup()
 	return b.r
@@ -275,41 +263,3 @@ func (b *routerBuilder) registerFiles() {
 	uploadImage.DELETE("", filesHandler.DeleteImage)
 	b.read.GET("/files/sign", filesHandler.Sign)
 }
-
-type nopFileStore struct{}
-
-func (nopFileStore) Put(context.Context, string, io.Reader, int64, string) error {
-	return nil
-}
-
-func (nopFileStore) Get(context.Context, string) (io.ReadCloser, error) {
-	return nil, nil
-}
-
-func (nopFileStore) Delete(context.Context, string) error {
-	return nil
-}
-
-func (nopFileStore) Exists(context.Context, string) (bool, error) {
-	return false, nil
-}
-
-func (nopFileStore) PresignGet(context.Context, string, time.Duration) (string, error) {
-	return "", nil
-}
-
-type nopHub struct{}
-
-func (nopHub) Register(ws.Client)          {}
-func (nopHub) Unregister(ws.Client)        {}
-func (nopHub) JoinRoom(string, ws.Client)  {}
-func (nopHub) LeaveRoom(string, ws.Client) {}
-func (nopHub) RoomMembers(string) []string { return nil }
-func (nopHub) BroadcastToRoom(string, *ws.Message) {
-}
-func (nopHub) Broadcast(*ws.Message)          {}
-func (nopHub) SendToUser(string, *ws.Message) {}
-func (nopHub) Close()                         {}
-
-var _ filestore.FileStore = nopFileStore{}
-var _ ws.Hub = nopHub{}
