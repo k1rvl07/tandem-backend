@@ -26,6 +26,8 @@ func TestRateLimitMiddleware_allowsAndThenBlocks(t *testing.T) {
 
 	rl := &RateLimiter{client: rdb, limit: 3, window: time.Minute,
 		resolveKey: func(c *gin.Context) string { return "ip:" + c.ClientIP() },
+		mem:        &memSlidingWindow{points: make(map[string][]memEntry)},
+		now:        time.Now,
 	}
 
 	router := gin.New()
@@ -61,6 +63,8 @@ func TestRateLimitMiddleware_byUserKey(t *testing.T) {
 			}
 			return "ip:" + c.ClientIP()
 		},
+		mem: &memSlidingWindow{points: make(map[string][]memEntry)},
+		now: time.Now,
 	}
 
 	router := gin.New()
@@ -89,6 +93,8 @@ func TestRateLimitMiddleware_differentIPsIndependent(t *testing.T) {
 
 	rl := &RateLimiter{client: rdb, limit: 1, window: time.Minute,
 		resolveKey: func(c *gin.Context) string { return "ip:" + c.ClientIP() },
+		mem:        &memSlidingWindow{points: make(map[string][]memEntry)},
+		now:        time.Now,
 	}
 
 	router := gin.New()

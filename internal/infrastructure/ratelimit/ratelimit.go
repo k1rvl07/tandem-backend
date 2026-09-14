@@ -50,6 +50,8 @@ type RateLimiter struct {
 	limit      int64
 	window     time.Duration
 	resolveKey func(c *gin.Context) string
+	mem        *memSlidingWindow
+	now        func() time.Time
 }
 
 type RateLimiterOption func(*RateLimiter)
@@ -80,6 +82,8 @@ func New(client redis.Cmdable, name string, limit int64, window time.Duration, o
 		limit:      limit,
 		window:     window,
 		resolveKey: func(c *gin.Context) string { return "ip:" + c.ClientIP() },
+		mem:        &memSlidingWindow{points: make(map[string][]memEntry)},
+		now:        time.Now,
 	}
 	for _, opt := range opts {
 		opt(rl)
@@ -87,10 +91,14 @@ func New(client redis.Cmdable, name string, limit int64, window time.Duration, o
 	return rl
 }
 
+func WithClock(now func() time.Time) RateLimiterOption {
+	return func(rl *RateLimiter) { rl.now = now }
+}
+
 var rlNonce atomic.Int64
 
 func (rl *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
-	now := time.Now().UnixMilli()
+	now := rl.now().UnixMilli()
 	min := now - rl.window.Milliseconds()
 	window := int64(rl.window.Seconds())
 	if window < 1 {
@@ -118,7 +126,7 @@ func (rl *RateLimiter) Middleware() gin.HandlerFunc {
 		key := rl.resolveKey(c)
 		allowed, err := rl.Allow(c.Request.Context(), key)
 		if err != nil {
-			allowed = memFallback.allow(key, rl.limit, rl.window)
+			allowed = rl.mem.allow(key, rl.limit, rl.window, rl.now().UnixMilli())
 		}
 		if !allowed {
 			retryAfter := int(rl.window.Seconds())
@@ -139,12 +147,9 @@ type memSlidingWindow struct {
 	points map[string][]memEntry
 }
 
-var memFallback = &memSlidingWindow{points: make(map[string][]memEntry)}
-
-func (mw *memSlidingWindow) allow(key string, limit int64, window time.Duration) bool {
+func (mw *memSlidingWindow) allow(key string, limit int64, window time.Duration, now int64) bool {
 	mw.mu.Lock()
 	defer mw.mu.Unlock()
-	now := time.Now().UnixMilli()
 	min := now - window.Milliseconds()
 	points := prunePoints(mw.points[key], min)
 	if int64(len(points)) >= limit {

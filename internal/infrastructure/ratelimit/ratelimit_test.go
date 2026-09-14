@@ -15,7 +15,7 @@ func newTestRateLimiter(t *testing.T, limit int64, window time.Duration) (*RateL
 	t.Helper()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	rl := &RateLimiter{client: rdb, limit: limit, window: window}
+	rl := &RateLimiter{client: rdb, limit: limit, window: window, mem: &memSlidingWindow{points: make(map[string][]memEntry)}, now: time.Now}
 	return rl, func() { _ = rdb.Close(); mr.Close() }
 }
 
@@ -49,15 +49,51 @@ func TestRateLimiter_windowSlides(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
+	clock := time.Now()
+	rl.now = func() time.Time { return clock }
 	require.True(t, mustAllow(t, rl, ctx))
 	require.True(t, mustAllow(t, rl, ctx))
 	require.False(t, mustAllow(t, rl, ctx))
 
-	time.Sleep(150 * time.Millisecond)
+	clock = clock.Add(150 * time.Millisecond)
 
 	allowed, err := rl.Allow(ctx, "ip:1.2.3.4")
 	require.NoError(t, err)
 	assert.True(t, allowed)
+}
+
+func TestRateLimiter_memFallbackSlides(t *testing.T) {
+	mw := &memSlidingWindow{points: make(map[string][]memEntry)}
+	window := 100 * time.Millisecond
+	now := int64(1_000_000)
+
+	assert.True(t, mw.allow("ip:1.2.3.4", 2, window, now))
+	assert.True(t, mw.allow("ip:1.2.3.4", 2, window, now))
+	assert.False(t, mw.allow("ip:1.2.3.4", 2, window, now))
+
+	now += window.Milliseconds() + 50
+	assert.True(t, mw.allow("ip:1.2.3.4", 2, window, now))
+}
+
+func TestRateLimiter_memFallbackIsolatedPerInstance(t *testing.T) {
+	window := time.Minute
+	now := int64(1_000_000)
+	left := &memSlidingWindow{points: make(map[string][]memEntry)}
+	right := &memSlidingWindow{points: make(map[string][]memEntry)}
+
+	for i := 0; i < 5; i++ {
+		assert.True(t, left.allow("ip:1.2.3.4", 5, window, now), "left must stay under its own limit")
+	}
+	assert.True(t, right.allow("ip:1.2.3.4", 5, window, now), "instances must not share counters")
+}
+
+func TestRateLimiter_memFallbackDoesNotInterfereWithRedis(t *testing.T) {
+	rl, cleanup := newTestRateLimiter(t, 1, time.Minute)
+	defer cleanup()
+
+	ctx := context.Background()
+	require.True(t, mustAllow(t, rl, ctx))
+	require.False(t, mustAllow(t, rl, ctx))
 }
 
 func TestRateLimiter_differentKeysIndependent(t *testing.T) {
@@ -78,8 +114,8 @@ func TestRateLimiter_differentKeysIndependent(t *testing.T) {
 func TestRateLimiter_namesIndependent(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	upload := &RateLimiter{client: rdb, name: "upload", limit: 3, window: time.Minute}
-	read := &RateLimiter{client: rdb, name: "read", limit: 3, window: time.Minute}
+	upload := &RateLimiter{client: rdb, name: "upload", limit: 3, window: time.Minute, now: time.Now}
+	read := &RateLimiter{client: rdb, name: "read", limit: 3, window: time.Minute, now: time.Now}
 
 	ctx := context.Background()
 	for i := 0; i < 3; i++ {
@@ -95,7 +131,7 @@ func TestRateLimiter_namesIndependent(t *testing.T) {
 func TestRateLimiter_failOpenOnClosedClient(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	rl := &RateLimiter{client: rdb, limit: 1, window: time.Minute}
+	rl := &RateLimiter{client: rdb, limit: 1, window: time.Minute, now: time.Now}
 
 	require.True(t, mustAllow(t, rl, context.Background()))
 
