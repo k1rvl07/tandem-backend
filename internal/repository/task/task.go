@@ -27,11 +27,10 @@ func (r *TaskRepo) CreateTask(ctx context.Context, task *mtask.Task) error {
 	e := taskToEntity(task)
 	e.Position = 0
 	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []eboard.Task
+		var column eboard.Column
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("column_id = ?", e.ColumnID).
-			Order("position ASC, created_at ASC").
-			Find(&rows).Error; err != nil {
+			Where("id = ?", e.ColumnID).
+			First(&column).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&eboard.Task{}).
