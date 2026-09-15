@@ -86,6 +86,19 @@ func (r *WorkspaceRepo) UpdateInvite(ctx context.Context, workspaceID, token str
 	return nil
 }
 
+func (r *WorkspaceRepo) ClaimInvite(ctx context.Context, workspaceID, token string) (bool, error) {
+	res := r.helper.DB.WithContext(ctx).Model(&eworkspace.Workspace{}).
+		Where("id = ? AND invite_token = ? AND invite_token <> ''", workspaceID, token).
+		Updates(map[string]interface{}{
+			"invite_token":      "",
+			"invite_expires_at": nil,
+		})
+	if res.Error != nil {
+		return false, pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
 func (r *WorkspaceRepo) DeleteWorkspace(ctx context.Context, id string) error {
 	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("workspace_id = ?", id).Delete(&eworkspace.WorkspaceMember{}).Error; err != nil {

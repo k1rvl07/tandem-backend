@@ -13,6 +13,7 @@ type WorkspaceRepository interface {
 	FindWorkspaceByInvite(ctx context.Context, token string) (*mworkspace.Workspace, error)
 	UpdateWorkspace(ctx context.Context, ws *mworkspace.Workspace) error
 	UpdateInvite(ctx context.Context, workspaceID, token string, expiresAt *time.Time) error
+	ClaimInvite(ctx context.Context, workspaceID, token string) (bool, error)
 	DeleteWorkspace(ctx context.Context, id string) error
 	ListWorkspacesForUser(ctx context.Context, userID string) ([]mworkspace.WorkspaceMembership, error)
 	AddMember(ctx context.Context, workspaceID, userID string, role mworkspace.WorkspaceRole) error

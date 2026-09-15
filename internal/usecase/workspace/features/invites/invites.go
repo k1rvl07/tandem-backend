@@ -99,6 +99,13 @@ func (s *Invites) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 		}
 		return nil, pkgerrors.NewValidationError("invite link has expired")
 	}
+	claimed, err := s.Workspaces.ClaimInvite(ctx, ws.ID, token)
+	if err != nil {
+		return nil, err
+	}
+	if !claimed {
+		return nil, pkgerrors.NewValidationError("invite link has expired")
+	}
 	member, findErr := s.Workspaces.FindMember(ctx, ws.ID, actorID)
 	if findErr != nil {
 		if !errutil.IsNotFound(findErr) {
@@ -126,9 +133,6 @@ func (s *Invites) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 		s.BumpWorkspace(ctx, ws.ID)
 		s.BumpUser(ctx, actorID)
 		s.BroadcastUpdated(ctx, ws.ID, role)
-	}
-	if err := s.Workspaces.UpdateInvite(ctx, ws.ID, "", nil); err != nil {
-		s.Logger.Warn("invalidate invite failed", zap.String("workspace_id", ws.ID), zap.Error(err))
 	}
 	return resp, nil
 }

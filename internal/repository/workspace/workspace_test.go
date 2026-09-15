@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,6 +78,82 @@ func TestWorkspaceRepoInvite(t *testing.T) {
 	if got.Name != "Renamed" || got.Theme != "red" {
 		t.Fatalf("workspace update not applied: %+v", got)
 	}
+}
+
+func TestWorkspaceRepoClaimInviteSingleWinner(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewWorkspaceRepo(db)
+
+	ws := testutil.NewWorkspace(testutil.NewID(), "Team")
+	testutil.Must(t, repo.CreateWorkspace(testutil.TestCtx, ws))
+	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-single", nil))
+
+	claimed, err := repo.ClaimInvite(testutil.TestCtx, ws.ID, "tok-single")
+	testutil.Must(t, err)
+	if !claimed {
+		t.Fatalf("first claim must win")
+	}
+	claimed, err = repo.ClaimInvite(testutil.TestCtx, ws.ID, "tok-single")
+	testutil.Must(t, err)
+	if claimed {
+		t.Fatalf("second claim must lose")
+	}
+	testutil.MustNotFound(t, testutil.ErrOf(repo.FindWorkspaceByInvite(testutil.TestCtx, "tok-single")))
+
+	wrong, err := repo.ClaimInvite(testutil.TestCtx, ws.ID, "tok-wrong")
+	testutil.Must(t, err)
+	if wrong {
+		t.Fatalf("wrong token must not claim")
+	}
+	reloaded, err := repo.FindWorkspaceByID(testutil.TestCtx, ws.ID)
+	testutil.Must(t, err)
+	if reloaded.InviteToken != "" {
+		t.Fatalf("wrong token must not clear invite: %q", reloaded.InviteToken)
+	}
+	missing, err := repo.ClaimInvite(testutil.TestCtx, testutil.NewID(), "tok-single")
+	testutil.Must(t, err)
+	if missing {
+		t.Fatalf("missing workspace must not claim")
+	}
+}
+
+func TestWorkspaceRepoClaimInviteConcurrent(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewWorkspaceRepo(db)
+
+	ws := testutil.NewWorkspace(testutil.NewID(), "Team")
+	testutil.Must(t, repo.CreateWorkspace(testutil.TestCtx, ws))
+	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-race", nil))
+
+	const n = 8
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wins := 0
+	errs := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := repo.ClaimInvite(context.Background(), ws.ID, "tok-race")
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs++
+				return
+			}
+			if ok {
+				wins++
+			}
+		}()
+	}
+	wg.Wait()
+	if errs != 0 {
+		t.Fatalf("unexpected claim errors: %d", errs)
+	}
+	if wins != 1 {
+		t.Fatalf("expected exactly 1 winner, got %d", wins)
+	}
+	testutil.MustNotFound(t, testutil.ErrOf(repo.FindWorkspaceByInvite(testutil.TestCtx, "tok-race")))
 }
 
 func TestWorkspaceRepoMembers(t *testing.T) {

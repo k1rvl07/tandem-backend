@@ -110,6 +110,22 @@ func (f *FakeWorkspaceRepo) UpdateInvite(_ context.Context, workspaceID, token s
 	return nil
 }
 
+func (f *FakeWorkspaceRepo) ClaimInvite(_ context.Context, workspaceID, token string) (bool, error) {
+	if f.Err != nil {
+		return false, f.Err
+	}
+	ws, ok := f.Workspaces[workspaceID]
+	if !ok {
+		return false, nil
+	}
+	if ws.InviteToken == "" || ws.InviteToken != token {
+		return false, nil
+	}
+	ws.InviteToken = ""
+	ws.InviteExpiresAt = nil
+	return true, nil
+}
+
 func (f *FakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error {
 	if f.Err != nil {
 		return f.Err

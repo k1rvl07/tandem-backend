@@ -546,6 +546,9 @@ func (f *fakeWSRepo) UpdateWorkspace(context.Context, *mworkspace.Workspace) err
 func (f *fakeWSRepo) UpdateInvite(context.Context, string, string, *time.Time) error {
 	return nil
 }
+func (f *fakeWSRepo) ClaimInvite(context.Context, string, string) (bool, error) {
+	return true, nil
+}
 func (f *fakeWSRepo) DeleteWorkspace(context.Context, string) error { return nil }
 func (f *fakeWSRepo) ListWorkspacesForUser(context.Context, string) ([]mworkspace.WorkspaceMembership, error) {
 	return nil, nil
