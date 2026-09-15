@@ -47,6 +47,7 @@ docs при их отсутствии (`make ensure-docs`); принудител
 | `POSTGRES_DB` | `tandem` | Имя БД |
 | `REDIS_ADDR` | `localhost:6379` | Адрес Redis |
 | `REDIS_PASSWORD` | — | Пароль Redis |
+| `REDIS_DB` | `0` | Номер базы Redis |
 | `MINIO_ENDPOINT` | `localhost:9000` | Адрес MinIO |
 | `MINIO_ROOT_USER` | `tandem` | Access key |
 | `MINIO_ROOT_PASSWORD` | `change_me_minio` | Secret key |
