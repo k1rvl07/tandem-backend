@@ -143,9 +143,10 @@ func (h *Hub) snapshotClients() []ws.Client {
 }
 
 func (h *Hub) BroadcastToRoom(room string, msg *ws.Message) {
-	msg.Room = room
+	queued := *msg
+	queued.Room = room
 	for _, conn := range h.snapshotRoom(room) {
-		conn.Send(msg)
+		conn.Send(&queued)
 	}
 }
 
