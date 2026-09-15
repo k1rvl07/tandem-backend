@@ -314,3 +314,48 @@ func TestHubReadPumpThrottleClosesConn(t *testing.T) {
 		t.Fatal("client not dropped after message burst")
 	}
 }
+
+func TestClientSendDoesNotBlockWhenBufferFull(t *testing.T) {
+	serverConnCh := make(chan *websocket.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		up := websocket.Upgrader{}
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		serverConnCh <- conn
+	}))
+	defer srv.Close()
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	d := websocket.Dialer{}
+	client, _, err := d.Dial(url, nil)
+	require.NoError(t, err)
+	defer client.Close()
+
+	serverConn := <-serverConnCh
+	h := New()
+	defer h.Wait()
+	defer h.Close()
+	cl := NewClient(serverConn, "id-slow", "user-slow")
+	disc := make(chan struct{}, 1)
+	cl.OnDisconnect = func(_ *Client) { disc <- struct{}{} }
+	cl.OnMessage = func(_ *Client, _ []byte) {}
+	h.Register(cl)
+
+	h.JoinRoom("room-slow", cl)
+
+	flood := &ws.Message{Type: "flood", Data: strings.Repeat("x", 256*1024)}
+	start := time.Now()
+	for i := 0; i < sendQueueSize+10; i++ {
+		h.BroadcastToRoom("room-slow", flood)
+	}
+	assert.Less(t, time.Since(start), 2*time.Second, "broadcast must not block on a slow client")
+
+	select {
+	case <-disc:
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow client not dropped after send buffer overflow")
+	}
+}

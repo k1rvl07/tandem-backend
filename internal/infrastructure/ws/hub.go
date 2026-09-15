@@ -243,6 +243,8 @@ func (c *Client) Send(msg *ws.Message) {
 	select {
 	case c.send <- msg:
 	case <-c.done:
+	default:
+		c.Close()
 	}
 }
 
