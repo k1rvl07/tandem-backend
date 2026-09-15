@@ -12,11 +12,12 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	MinIO    MinIOConfig
-	JWT      JWTConfig
+	App       AppConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	MinIO     MinIOConfig
+	JWT       JWTConfig
+	RateLimit RateLimitConfig
 }
 
 type AppConfig struct {
@@ -28,9 +29,22 @@ type AppConfig struct {
 	AdminPassword  string
 	AdminSeed      bool
 	PasswordCost   int
-	AuthRateLimit  int64
 	SwaggerEnabled bool
 	CookieSecure   bool
+}
+
+type LimitConfig struct {
+	Limit  int64
+	Window time.Duration
+}
+
+type RateLimitConfig struct {
+	Enabled bool
+	Auth    LimitConfig
+	Read    LimitConfig
+	Write   LimitConfig
+	Upload  LimitConfig
+	WS      LimitConfig
 }
 
 type DatabaseConfig struct {
@@ -122,7 +136,7 @@ func Load(envFile string) (*Config, error) {
 
 	cfg.App.PasswordCost = passwordCost()
 
-	cfg.App.AuthRateLimit = authRateLimit()
+	cfg.RateLimit = rateLimitConfig(cfg.App.Env)
 
 	cfg.App.SwaggerEnabled = swaggerEnabled(cfg.App.Env)
 
@@ -203,13 +217,69 @@ func passwordCost() int {
 	return cost
 }
 
-func authRateLimit() int64 {
-	v := getEnv("AUTH_RATE_LIMIT", "15")
+const (
+	defaultAuthLimit    = 15
+	defaultAuthWindow   = 5 * time.Minute
+	defaultReadLimit    = 1200
+	defaultReadWindow   = time.Minute
+	defaultWriteLimit   = 400
+	defaultWriteWindow  = time.Minute
+	defaultUploadLimit  = 120
+	defaultUploadWindow = time.Minute
+	defaultWsLimit      = 300
+	defaultWsWindow     = 5 * time.Minute
+)
+
+func rateLimitConfig(env string) RateLimitConfig {
+	return RateLimitConfig{
+		Enabled: rateLimitEnabled(env),
+		Auth: LimitConfig{
+			Limit:  rateLimit("AUTH_RATE_LIMIT", defaultAuthLimit),
+			Window: rateLimitWindow("AUTH_RATE_WINDOW", defaultAuthWindow),
+		},
+		Read: LimitConfig{
+			Limit:  rateLimit("READ_RATE_LIMIT", defaultReadLimit),
+			Window: rateLimitWindow("READ_RATE_WINDOW", defaultReadWindow),
+		},
+		Write: LimitConfig{
+			Limit:  rateLimit("WRITE_RATE_LIMIT", defaultWriteLimit),
+			Window: rateLimitWindow("WRITE_RATE_WINDOW", defaultWriteWindow),
+		},
+		Upload: LimitConfig{
+			Limit:  rateLimit("UPLOAD_RATE_LIMIT", defaultUploadLimit),
+			Window: rateLimitWindow("UPLOAD_RATE_WINDOW", defaultUploadWindow),
+		},
+		WS: LimitConfig{
+			Limit:  rateLimit("WS_RATE_LIMIT", defaultWsLimit),
+			Window: rateLimitWindow("WS_RATE_WINDOW", defaultWsWindow),
+		},
+	}
+}
+
+func rateLimitEnabled(env string) bool {
+	switch getEnv("RATE_LIMIT_ENABLED", "") {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return env != "testing"
+}
+
+func rateLimit(key string, def int64) int64 {
+	v := getEnv(key, "")
+	if v == "" {
+		return def
+	}
 	limit, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || limit < 1 {
-		return 15
+		return def
 	}
 	return limit
+}
+
+func rateLimitWindow(key string, def time.Duration) time.Duration {
+	return getEnvDuration(key, def)
 }
 
 func allowedOrigins(env string) []string {

@@ -237,24 +237,121 @@ func TestLoadPasswordCost(t *testing.T) {
 	}
 }
 
-func TestLoadAuthRateLimit(t *testing.T) {
+func TestLoadRateLimits(t *testing.T) {
 	tests := []struct {
 		name string
+		env  string
 		raw  string
 		want int64
 	}{
-		{name: "default", raw: "", want: 15},
-		{name: "valid", raw: "100", want: 100},
-		{name: "below range", raw: "0", want: 15},
-		{name: "garbage", raw: "a", want: 15},
+		{name: "auth default", env: "AUTH_RATE_LIMIT", raw: "", want: 15},
+		{name: "auth valid", env: "AUTH_RATE_LIMIT", raw: "100", want: 100},
+		{name: "auth below range", env: "AUTH_RATE_LIMIT", raw: "0", want: 15},
+		{name: "auth garbage", env: "AUTH_RATE_LIMIT", raw: "a", want: 15},
+		{name: "read default", env: "READ_RATE_LIMIT", raw: "", want: 1200},
+		{name: "read valid", env: "READ_RATE_LIMIT", raw: "5000", want: 5000},
+		{name: "read below range", env: "READ_RATE_LIMIT", raw: "0", want: 1200},
+		{name: "read garbage", env: "READ_RATE_LIMIT", raw: "x", want: 1200},
+		{name: "write default", env: "WRITE_RATE_LIMIT", raw: "", want: 400},
+		{name: "write valid", env: "WRITE_RATE_LIMIT", raw: "900", want: 900},
+		{name: "write below range", env: "WRITE_RATE_LIMIT", raw: "0", want: 400},
+		{name: "upload default", env: "UPLOAD_RATE_LIMIT", raw: "", want: 120},
+		{name: "upload valid", env: "UPLOAD_RATE_LIMIT", raw: "300", want: 300},
+		{name: "upload garbage", env: "UPLOAD_RATE_LIMIT", raw: "b", want: 120},
+		{name: "ws default", env: "WS_RATE_LIMIT", raw: "", want: 300},
+		{name: "ws valid", env: "WS_RATE_LIMIT", raw: "600", want: 600},
+		{name: "ws below range", env: "WS_RATE_LIMIT", raw: "-5", want: 300},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := map[string]string{"JWT_SECRET": "test-secret", "AUTH_RATE_LIMIT": tt.raw}
+			env := map[string]string{"JWT_SECRET": "test-secret"}
+			if tt.raw != "" {
+				env[tt.env] = tt.raw
+			}
 			setEnv(t, env)
 			cfg, err := Load("")
 			require.NoError(t, err)
-			require.Equal(t, tt.want, cfg.App.AuthRateLimit)
+			switch tt.env {
+			case "AUTH_RATE_LIMIT":
+				require.Equal(t, tt.want, cfg.RateLimit.Auth.Limit)
+			case "READ_RATE_LIMIT":
+				require.Equal(t, tt.want, cfg.RateLimit.Read.Limit)
+			case "WRITE_RATE_LIMIT":
+				require.Equal(t, tt.want, cfg.RateLimit.Write.Limit)
+			case "UPLOAD_RATE_LIMIT":
+				require.Equal(t, tt.want, cfg.RateLimit.Upload.Limit)
+			case "WS_RATE_LIMIT":
+				require.Equal(t, tt.want, cfg.RateLimit.WS.Limit)
+			}
+		})
+	}
+}
+
+func TestLoadRateLimitWindows(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		setEnv(t, map[string]string{"JWT_SECRET": "test-secret"})
+		cfg, err := Load("")
+		require.NoError(t, err)
+		require.Equal(t, 5*time.Minute, cfg.RateLimit.Auth.Window)
+		require.Equal(t, time.Minute, cfg.RateLimit.Read.Window)
+		require.Equal(t, time.Minute, cfg.RateLimit.Write.Window)
+		require.Equal(t, time.Minute, cfg.RateLimit.Upload.Window)
+		require.Equal(t, 5*time.Minute, cfg.RateLimit.WS.Window)
+	})
+	t.Run("valid durations are parsed", func(t *testing.T) {
+		setEnv(t, map[string]string{
+			"JWT_SECRET":         "test-secret",
+			"AUTH_RATE_WINDOW":   "10m",
+			"READ_RATE_WINDOW":   "30s",
+			"WRITE_RATE_WINDOW":  "2m",
+			"UPLOAD_RATE_WINDOW": "1h",
+			"WS_RATE_WINDOW":     "15m",
+		})
+		cfg, err := Load("")
+		require.NoError(t, err)
+		require.Equal(t, 10*time.Minute, cfg.RateLimit.Auth.Window)
+		require.Equal(t, 30*time.Second, cfg.RateLimit.Read.Window)
+		require.Equal(t, 2*time.Minute, cfg.RateLimit.Write.Window)
+		require.Equal(t, time.Hour, cfg.RateLimit.Upload.Window)
+		require.Equal(t, 15*time.Minute, cfg.RateLimit.WS.Window)
+	})
+	t.Run("invalid duration falls back", func(t *testing.T) {
+		setEnv(t, map[string]string{"JWT_SECRET": "test-secret", "AUTH_RATE_WINDOW": "soon"})
+		cfg, err := Load("")
+		require.NoError(t, err)
+		require.Equal(t, 5*time.Minute, cfg.RateLimit.Auth.Window)
+	})
+}
+
+func TestLoadRateLimitEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want bool
+	}{
+		{name: "dev default on", env: map[string]string{"APP_ENV": "dev"}, want: true},
+		{name: "testing default off", env: map[string]string{"APP_ENV": "testing"}, want: false},
+		{name: "production default on", env: map[string]string{"APP_ENV": "production"}, want: true},
+		{name: "explicitly off", env: map[string]string{"APP_ENV": "dev", "RATE_LIMIT_ENABLED": "false"}, want: false},
+		{name: "explicitly on in testing", env: map[string]string{"APP_ENV": "testing", "RATE_LIMIT_ENABLED": "true"}, want: true},
+		{name: "explicitly off in production", env: map[string]string{"APP_ENV": "production", "RATE_LIMIT_ENABLED": "false"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{"JWT_SECRET": "test-secret"}
+			if tt.env["APP_ENV"] == "production" {
+				env["POSTGRES_PASSWORD"] = "real-pg"
+				env["REDIS_PASSWORD"] = "real-redis"
+				env["MINIO_ROOT_PASSWORD"] = "real-minio"
+				env["ADMIN_PASSWORD"] = "real-admin"
+			}
+			for k, v := range tt.env {
+				env[k] = v
+			}
+			setEnv(t, env)
+			cfg, err := Load("")
+			require.NoError(t, err)
+			require.Equal(t, tt.want, cfg.RateLimit.Enabled)
 		})
 	}
 }

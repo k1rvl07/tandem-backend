@@ -14,19 +14,6 @@ import (
 
 const rlKeyPrefix = "rl:sw:"
 
-const (
-	AuthLimit    = 15
-	AuthWindow   = 5 * time.Minute
-	WriteLimit   = 400
-	WriteWindow  = time.Minute
-	ReadLimit    = 1200
-	ReadWindow   = time.Minute
-	UploadLimit  = 120
-	UploadWindow = time.Minute
-	WsLimit      = 300
-	WsWindow     = 5 * time.Minute
-)
-
 var slidingWindowScript = redis.NewScript(`
 local key = KEYS[1]
 local now = tonumber(ARGV[1])

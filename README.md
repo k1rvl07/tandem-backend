@@ -86,9 +86,13 @@ repository, infrastructure → domain/ports
 
 - кеш-инвалидация версионная (`usecase/shared/cache`): ключи `t:wsver:`,
   `t:uver:`, `t:usersver`; при изменении сущности инкремент версии;
-- rate limit (sliding window в Redis, префикс `rl:sw:`): `/auth/login` — по IP
-  (15/5 мин), по пользователю — read 1200/мин, write 400/мин, upload 120/мин,
-  ws 300/5 мин;
+- rate limit (sliding window в Redis, префикс `rl:sw:`): `/auth/login` — по IP,
+  read/write/upload/ws — по пользователю; все лимиты и окна настраиваются через env
+  (`AUTH_RATE_LIMIT` / `AUTH_RATE_WINDOW` = 15/5m, `READ_RATE_LIMIT` /
+  `READ_RATE_WINDOW` = 1200/1m, `WRITE_RATE_LIMIT` / `WRITE_RATE_WINDOW` = 400/1m,
+  `UPLOAD_RATE_LIMIT` / `UPLOAD_RATE_WINDOW` = 120/1m, `WS_RATE_LIMIT` /
+  `WS_RATE_WINDOW` = 300/5m); глобальное отключение — `RATE_LIMIT_ENABLED=false`
+  (в `testing` env лимиты отключены по умолчанию);
 - файлы: загрузка через `POST /files/images`, отдача — только presigned URL
   (`GET /files/sign`, TTL 1 ч); прямого стрима `/files/{key}` нет;
 - WS-аутентификация — subprotocol `tandem, <JWT>`;

@@ -152,12 +152,12 @@ func (a *App) BuildRouter(ctx context.Context) (*gin.Engine, error) {
 	treeHandler := htree.NewTreeHandler(treeService)
 
 	var authLimiter, readLimiter, writeLimiter, uploadLimiter, wsLimiter router.RateLimiter
-	if a.config.App.Env != "testing" {
-		authLimiter = ratelimit.New(a.redis.Raw(), "auth", a.config.App.AuthRateLimit, ratelimit.AuthWindow, ratelimit.ByIP())
-		readLimiter = ratelimit.New(a.redis.Raw(), "read", ratelimit.ReadLimit, ratelimit.ReadWindow, ratelimit.ByUser())
-		writeLimiter = ratelimit.New(a.redis.Raw(), "write", ratelimit.WriteLimit, ratelimit.WriteWindow, ratelimit.ByUser())
-		uploadLimiter = ratelimit.New(a.redis.Raw(), "upload", ratelimit.UploadLimit, ratelimit.UploadWindow, ratelimit.ByUser())
-		wsLimiter = ratelimit.New(a.redis.Raw(), "ws", ratelimit.WsLimit, ratelimit.WsWindow, ratelimit.ByUser())
+	if a.config.RateLimit.Enabled {
+		authLimiter = ratelimit.New(a.redis.Raw(), "auth", a.config.RateLimit.Auth.Limit, a.config.RateLimit.Auth.Window, ratelimit.ByIP())
+		readLimiter = ratelimit.New(a.redis.Raw(), "read", a.config.RateLimit.Read.Limit, a.config.RateLimit.Read.Window, ratelimit.ByUser())
+		writeLimiter = ratelimit.New(a.redis.Raw(), "write", a.config.RateLimit.Write.Limit, a.config.RateLimit.Write.Window, ratelimit.ByUser())
+		uploadLimiter = ratelimit.New(a.redis.Raw(), "upload", a.config.RateLimit.Upload.Limit, a.config.RateLimit.Upload.Window, ratelimit.ByUser())
+		wsLimiter = ratelimit.New(a.redis.Raw(), "ws", a.config.RateLimit.WS.Limit, a.config.RateLimit.WS.Window, ratelimit.ByUser())
 	}
 
 	if err := a.seedAdmin(ctx, userRepo, hasher); err != nil {
