@@ -264,10 +264,7 @@ func TestLoadRateLimits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := map[string]string{"JWT_SECRET": "test-secret"}
-			if tt.raw != "" {
-				env[tt.env] = tt.raw
-			}
+			env := map[string]string{"JWT_SECRET": "test-secret", tt.env: tt.raw}
 			setEnv(t, env)
 			cfg, err := Load("")
 			require.NoError(t, err)
@@ -289,7 +286,14 @@ func TestLoadRateLimits(t *testing.T) {
 
 func TestLoadRateLimitWindows(t *testing.T) {
 	t.Run("defaults", func(t *testing.T) {
-		setEnv(t, map[string]string{"JWT_SECRET": "test-secret"})
+		setEnv(t, map[string]string{
+			"JWT_SECRET":         "test-secret",
+			"AUTH_RATE_WINDOW":   "",
+			"READ_RATE_WINDOW":   "",
+			"WRITE_RATE_WINDOW":  "",
+			"UPLOAD_RATE_WINDOW": "",
+			"WS_RATE_WINDOW":     "",
+		})
 		cfg, err := Load("")
 		require.NoError(t, err)
 		require.Equal(t, 5*time.Minute, cfg.RateLimit.Auth.Window)
@@ -347,6 +351,9 @@ func TestLoadRateLimitEnabled(t *testing.T) {
 			}
 			for k, v := range tt.env {
 				env[k] = v
+			}
+			if _, ok := env["RATE_LIMIT_ENABLED"]; !ok {
+				env["RATE_LIMIT_ENABLED"] = ""
 			}
 			setEnv(t, env)
 			cfg, err := Load("")
