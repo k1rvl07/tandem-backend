@@ -219,12 +219,14 @@ func TestHybridRevokeDuringCacheError(t *testing.T) {
 
 	mr.Close()
 
-	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
-	_, err = manager.Parse(token)
+	err = manager.Revoke(context.Background(), "user-1")
 	assert.Error(t, err)
+
+	_, err = manager.Parse(token)
+	require.NoError(t, err)
 }
 
-func TestFailClosedWhenVersionKeyMissing(t *testing.T) {
+func TestMissingVersionKeyMeansVersionOne(t *testing.T) {
 	manager, _ := newManagerWithCache(t)
 
 	token, err := manager.Generate("user-1", time.Hour)
@@ -232,8 +234,25 @@ func TestFailClosedWhenVersionKeyMissing(t *testing.T) {
 
 	require.NoError(t, manager.cache.Delete(context.Background(), versionPrefix+"user-1"))
 
-	_, err = manager.Parse(token)
-	assert.Error(t, err)
+	subject, err := manager.Parse(token)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", subject)
+}
+
+func TestCurrentVersionDoesNotWriteVersionKey(t *testing.T) {
+	manager, mr := newManagerWithCache(t)
+
+	require.NoError(t, manager.cache.Delete(context.Background(), versionPrefix+"user-1"))
+
+	ver, err := manager.currentVersion(context.Background(), "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), ver)
+
+	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
+
+	stored, err := mr.Get(versionPrefix + "user-1")
+	require.NoError(t, err)
+	assert.Equal(t, "2", stored)
 }
 
 func TestGenerateFailsClosedWhenCacheDown(t *testing.T) {
@@ -389,6 +408,7 @@ func TestRevokeIncrError(t *testing.T) {
 	manager, fc, _ := newFailingManager(t)
 	_, err := manager.Generate("user-1", time.Hour)
 	require.NoError(t, err)
+	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
 
 	fc.failIncr = true
 	err = manager.Revoke(context.Background(), "user-1")
@@ -412,8 +432,15 @@ func TestRotateRefreshMintPairAccessWriteError(t *testing.T) {
 	require.NoError(t, err)
 
 	fc.failSetPrefix = versionPrefix
-	_, _, err = manager.RotateRefresh(context.Background(), refresh, time.Hour, time.Hour)
-	assert.Error(t, err)
+
+	access, next, err := manager.RotateRefresh(context.Background(), refresh, time.Hour, time.Hour)
+	require.NoError(t, err)
+	require.NotEmpty(t, access)
+	require.NotEmpty(t, next)
+
+	subject, err := manager.Parse(access)
+	require.NoError(t, err)
+	assert.Equal(t, "user-1", subject)
 }
 
 func TestCurrentVersionGetErrorFallsBackToMem(t *testing.T) {
@@ -459,11 +486,11 @@ func TestParseRejectsNonHMACSignature(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestCurrentVersionSetError(t *testing.T) {
+func TestCurrentVersionSucceedsWhenSetFails(t *testing.T) {
 	manager, fc, _ := newFailingManager(t)
 	fc.failSet = true
 	_, err := manager.Generate("user-1", time.Hour)
-	assert.Error(t, err)
+	require.NoError(t, err)
 }
 
 func TestVersionValidRejectsGarbageValue(t *testing.T) {
@@ -536,15 +563,4 @@ func TestManagerMemExpiry(t *testing.T) {
 	got, ok = manager.memGet("u")
 	assert.True(t, ok)
 	assert.Equal(t, int64(0), got)
-}
-
-func TestMemBump(t *testing.T) {
-	manager := NewJWTManager("test-secret", nil)
-	assert.Equal(t, int64(2), manager.memBump("u"))
-	assert.Equal(t, int64(3), manager.memBump("u"))
-
-	manager.mem["u"] = memVersion{ver: 0, at: time.Now()}
-	assert.Equal(t, int64(2), manager.memBump("u"))
-	manager.mem["u"] = memVersion{ver: 5, at: time.Now().Add(-11 * time.Minute)}
-	assert.Equal(t, int64(2), manager.memBump("u"))
 }

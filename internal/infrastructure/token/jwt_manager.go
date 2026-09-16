@@ -187,12 +187,10 @@ func (m *JWTManager) Revoke(ctx context.Context, subject string) error {
 	key := versionPrefix + subject
 	current, err := m.cache.Get(ctx, key)
 	if err != nil {
-		m.memPut(subject, m.memBump(subject))
-		return nil
+		return err
 	}
 	if current == "" {
 		if err := m.cache.Set(ctx, key, "2", versionTTL); err != nil {
-			m.memPut(subject, m.memBump(subject))
 			return err
 		}
 		m.memPut(subject, 2)
@@ -200,7 +198,6 @@ func (m *JWTManager) Revoke(ctx context.Context, subject string) error {
 	}
 	next, err := m.cache.Incr(ctx, key)
 	if err != nil {
-		m.memPut(subject, m.memBump(subject))
 		return err
 	}
 	_ = m.cache.Expire(ctx, key, versionTTL)
@@ -226,9 +223,6 @@ func (m *JWTManager) currentVersion(ctx context.Context, subject string) (int64,
 			ver = parsed
 		}
 	}
-	if err := m.cache.Set(ctx, key, strconv.FormatInt(ver, 10), versionTTL); err != nil {
-		return 0, err
-	}
 	m.memPut(subject, ver)
 	return ver, nil
 }
@@ -245,7 +239,7 @@ func (m *JWTManager) versionValid(ctx context.Context, subject string, ver int64
 		return false
 	}
 	if v == "" {
-		return false
+		return ver == 1
 	}
 	stored, perr := strconv.ParseInt(v, 10, 64)
 	if perr != nil {
@@ -269,16 +263,4 @@ func (m *JWTManager) memPut(subject string, ver int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.mem[subject] = memVersion{ver: ver, at: time.Now()}
-}
-
-func (m *JWTManager) memBump(subject string) int64 {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	ver := int64(1)
-	if e, ok := m.mem[subject]; ok && time.Since(e.at) <= memTTL && e.ver >= 1 {
-		ver = e.ver
-	}
-	next := ver + 1
-	m.mem[subject] = memVersion{ver: next, at: time.Now()}
-	return next
 }
