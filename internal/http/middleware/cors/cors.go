@@ -4,6 +4,7 @@ import "github.com/gin-gonic/gin"
 
 func CORS(allowOrigins []string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Vary", "Origin")
 		origin := c.GetHeader("Origin")
 		if origin != "" && contains(allowOrigins, origin) {
 			c.Header("Access-Control-Allow-Origin", origin)

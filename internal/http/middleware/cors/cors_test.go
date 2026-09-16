@@ -21,6 +21,7 @@ func TestCORS_noOriginNoHeaders(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "Origin", w.Header().Get("Vary"))
 }
 
 func TestCORS_allowedOrigin(t *testing.T) {
