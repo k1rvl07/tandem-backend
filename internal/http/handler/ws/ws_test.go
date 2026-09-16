@@ -158,7 +158,7 @@ func TestWSJoinNonWorkspaceRoom(t *testing.T) {
 	require.NoError(t, err)
 	var msg ws.Message
 	require.NoError(t, json.Unmarshal(raw, &msg))
-	assert.Equal(t, "presence", msg.Type)
+	assert.Equal(t, eventJoinDenied, msg.Type)
 	assert.Equal(t, "general", msg.Room)
 }
 

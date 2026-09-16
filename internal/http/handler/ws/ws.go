@@ -152,7 +152,7 @@ func joinDeniedMessage(room, userID string) *ws.Message {
 
 func (h *WSHandler) canJoin(userID, room string) bool {
 	if !strings.HasPrefix(room, "workspace:") {
-		return true
+		return false
 	}
 	workspaceID := strings.TrimPrefix(room, "workspace:")
 	if err := validate.UUID(workspaceID); err != nil {
