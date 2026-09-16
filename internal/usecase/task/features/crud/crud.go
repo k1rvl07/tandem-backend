@@ -125,11 +125,18 @@ func (s *Crud) Update(ctx context.Context, actorID, workspaceID, boardID, taskID
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ApplyTaskMoves(ctx, workspaceID, boardID, task, req); err != nil {
+	move, targetColumnID, position, err := s.PlanTaskMoves(ctx, workspaceID, boardID, task, req)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.Tasks.UpdateTask(ctx, task); err != nil {
-		return nil, err
+	if move {
+		if err := s.Tasks.MoveAndUpdateTask(ctx, task, targetColumnID, position); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := s.Tasks.UpdateTask(ctx, task); err != nil {
+			return nil, err
+		}
 	}
 	if oldImageKey != "" && oldImageKey != task.ImageKey {
 		s.Files.RemoveMany(ctx, []string{oldImageKey})

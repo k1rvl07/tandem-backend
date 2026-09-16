@@ -18,29 +18,29 @@ func New(c *core.Core) *Ordering {
 	return &Ordering{Core: c}
 }
 
-func (s *Ordering) ApplyTaskMoves(ctx context.Context, workspaceID, boardID string, task *mtask.Task, req dtask.UpdateTaskRequest) error {
+func (s *Ordering) PlanTaskMoves(ctx context.Context, workspaceID, boardID string, task *mtask.Task, req dtask.UpdateTaskRequest) (bool, string, int, error) {
 	if req.BoardID != nil && *req.BoardID != boardID {
 		target, err := s.BoardInWorkspace(ctx, workspaceID, *req.BoardID)
 		if err != nil {
-			return err
+			return false, "", 0, err
 		}
 		columns, err := s.Columns.ListColumns(ctx, target.ID)
 		if err != nil {
-			return err
+			return false, "", 0, err
 		}
 		if len(columns) == 0 {
-			return pkgerrors.NewValidationError("target board has no columns")
+			return false, "", 0, pkgerrors.NewValidationError("target board has no columns")
 		}
-		first := columns[0]
-		return s.MoveTask(ctx, task, first.ID, 0)
-	} else if req.ColumnID != nil || req.Position != nil {
+		return true, columns[0].ID, 0, nil
+	}
+	if req.ColumnID != nil || req.Position != nil {
 		targetColumnID := task.ColumnID
 		if req.ColumnID != nil {
 			if err := validate.UUID(*req.ColumnID); err != nil {
-				return err
+				return false, "", 0, err
 			}
 			if _, err := s.ColumnInBoard(ctx, boardID, *req.ColumnID); err != nil {
-				return err
+				return false, "", 0, err
 			}
 			targetColumnID = *req.ColumnID
 		}
@@ -52,14 +52,10 @@ func (s *Ordering) ApplyTaskMoves(ctx context.Context, workspaceID, boardID stri
 			}
 		}
 		if targetColumnID != task.ColumnID || req.Position != nil {
-			return s.MoveTask(ctx, task, targetColumnID, position)
+			return true, targetColumnID, position, nil
 		}
 	}
-	return nil
-}
-
-func (s *Ordering) MoveTask(ctx context.Context, task *mtask.Task, targetColumnID string, position int) error {
-	return s.Tasks.MoveTask(ctx, task, targetColumnID, position)
+	return false, "", 0, nil
 }
 
 func (s *Ordering) NormalizePagination(limit, offset int) (int, int) {

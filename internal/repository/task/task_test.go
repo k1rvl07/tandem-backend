@@ -242,6 +242,38 @@ func TestTaskRepoMove(t *testing.T) {
 	})
 }
 
+func TestTaskRepoMoveAndUpdate(t *testing.T) {
+	fx := newTaskFixture(t, 2)
+	source := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID, Title: "Source"}
+	testutil.Must(t, fx.taskRepo.CreateTask(testutil.TestCtx, source))
+
+	t.Run("moves across columns and persists fields in one call", func(t *testing.T) {
+		target := &mtask.Task{
+			ID: source.ID, ColumnID: fx.columns[0].ID, Title: "Renamed", Description: "moved",
+			IsUrgent: true, Position: 0,
+		}
+		testutil.Must(t, fx.taskRepo.MoveAndUpdateTask(testutil.TestCtx, target, fx.columns[1].ID, 0))
+		if target.ColumnID != fx.columns[1].ID {
+			t.Fatalf("expected column %s, got %s", fx.columns[1].ID, target.ColumnID)
+		}
+		got, err := fx.taskRepo.FindTaskByID(testutil.TestCtx, source.ID)
+		testutil.Must(t, err)
+		if got.ColumnID != fx.columns[1].ID || got.Title != "Renamed" || got.Description != "moved" || !got.IsUrgent {
+			t.Fatalf("move+update not applied atomically: %+v", got)
+		}
+		src, err := fx.taskRepo.ListTasksForColumn(testutil.TestCtx, fx.columns[0].ID)
+		testutil.Must(t, err)
+		if len(src) != 0 {
+			t.Fatalf("source column should be empty: %v", idsOf(src))
+		}
+	})
+
+	t.Run("moving a missing task is not found", func(t *testing.T) {
+		ghost := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.columns[0].ID, Title: "Ghost"}
+		testutil.MustNotFound(t, fx.taskRepo.MoveAndUpdateTask(testutil.TestCtx, ghost, fx.columns[1].ID, 0))
+	})
+}
+
 func TestTaskRepoUpdateDueDate(t *testing.T) {
 	fx := newTaskFixture(t, 1)
 	tk := &mtask.Task{ID: testutil.NewID(), ColumnID: fx.column.ID, Title: "Planned"}

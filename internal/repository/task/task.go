@@ -60,6 +60,14 @@ func (r *TaskRepo) FindTaskByID(ctx context.Context, id string) (*mtask.Task, er
 }
 
 func (r *TaskRepo) UpdateTask(ctx context.Context, task *mtask.Task) error {
+	err := r.helper.DB.WithContext(ctx).Model(&eboard.Task{}).Where("id = ?", task.ID).Updates(buildTaskUpdates(task)).Error
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
+func buildTaskUpdates(task *mtask.Task) map[string]interface{} {
 	updates := map[string]interface{}{
 		"column_id":   task.ColumnID,
 		"title":       task.Title,
@@ -78,11 +86,7 @@ func (r *TaskRepo) UpdateTask(ctx context.Context, task *mtask.Task) error {
 	} else {
 		updates["due_date"] = nil
 	}
-	err := r.helper.DB.WithContext(ctx).Model(&eboard.Task{}).Where("id = ?", task.ID).Updates(updates).Error
-	if err != nil {
-		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
-	}
-	return nil
+	return updates
 }
 
 func (r *TaskRepo) DeleteTask(ctx context.Context, id string) error {
@@ -113,76 +117,95 @@ func (r *TaskRepo) MoveTask(ctx context.Context, task *mtask.Task, targetColumnI
 		toPosition = 0
 	}
 	return r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []eboard.Task
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("column_id IN ?", []string{task.ColumnID, targetColumnID}).
-			Order("column_id ASC, position ASC, created_at ASC").
-			Find(&rows).Error
-		if err != nil {
+		return moveTaskTx(tx, task, targetColumnID, toPosition)
+	})
+}
+
+func (r *TaskRepo) MoveAndUpdateTask(ctx context.Context, task *mtask.Task, targetColumnID string, toPosition int) error {
+	return r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := moveTaskTx(tx, task, targetColumnID, toPosition); err != nil {
 			return err
 		}
-		var moved *eboard.Task
-		for i := range rows {
-			if rows[i].ID == task.ID {
-				moved = &rows[i]
-				break
-			}
-		}
-		if moved == nil {
-			return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
-		}
-
-		list := make([]*eboard.Task, 0, len(rows))
-		for i := range rows {
-			if rows[i].ID != task.ID {
-				list = append(list, &rows[i])
-			}
-		}
-		if targetColumnID != task.ColumnID {
-			source := make([]*eboard.Task, 0, len(rows))
-			for i := range rows {
-				if rows[i].ID != task.ID && rows[i].ColumnID == task.ColumnID {
-					source = append(source, &rows[i])
-				}
-			}
-			target := make([]*eboard.Task, 0, len(rows))
-			for i := range rows {
-				if rows[i].ColumnID == targetColumnID {
-					target = append(target, &rows[i])
-				}
-			}
-			if toPosition > len(target) {
-				toPosition = len(target)
-			}
-			target = append(target, nil)
-			copy(target[toPosition+1:], target[toPosition:])
-			target[toPosition] = moved
-			if err := rewritePositions(tx, source); err != nil {
-				return err
-			}
-			if err := rewritePositions(tx, target); err != nil {
-				return err
-			}
-			if err := tx.Model(&eboard.Task{}).Where("id = ?", task.ID).Update("column_id", targetColumnID).Error; err != nil {
-				return err
-			}
-			task.ColumnID = targetColumnID
-			task.Position = moved.Position
-			return nil
-		}
-
-		if toPosition > len(list) {
-			toPosition = len(list)
-		}
-		list = append(list, nil)
-		copy(list[toPosition+1:], list[toPosition:])
-		list[toPosition] = moved
-		if err := rewritePositions(tx, list); err != nil {
+		if err := tx.Model(&eboard.Task{}).Where("id = ?", task.ID).Updates(buildTaskUpdates(task)).Error; err != nil {
 			return err
 		}
-		task.Position = moved.Position
 		return nil
 	})
+}
+
+func moveTaskTx(tx *gorm.DB, task *mtask.Task, targetColumnID string, toPosition int) error {
+	if toPosition < 0 {
+		toPosition = 0
+	}
+	var rows []eboard.Task
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("column_id IN ?", []string{task.ColumnID, targetColumnID}).
+		Order("column_id ASC, position ASC, created_at ASC").
+		Find(&rows).Error
+	if err != nil {
+		return err
+	}
+	var moved *eboard.Task
+	for i := range rows {
+		if rows[i].ID == task.ID {
+			moved = &rows[i]
+			break
+		}
+	}
+	if moved == nil {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	}
+
+	list := make([]*eboard.Task, 0, len(rows))
+	for i := range rows {
+		if rows[i].ID != task.ID {
+			list = append(list, &rows[i])
+		}
+	}
+	if targetColumnID != task.ColumnID {
+		source := make([]*eboard.Task, 0, len(rows))
+		for i := range rows {
+			if rows[i].ID != task.ID && rows[i].ColumnID == task.ColumnID {
+				source = append(source, &rows[i])
+			}
+		}
+		target := make([]*eboard.Task, 0, len(rows))
+		for i := range rows {
+			if rows[i].ColumnID == targetColumnID {
+				target = append(target, &rows[i])
+			}
+		}
+		if toPosition > len(target) {
+			toPosition = len(target)
+		}
+		target = append(target, nil)
+		copy(target[toPosition+1:], target[toPosition:])
+		target[toPosition] = moved
+		if err := rewritePositions(tx, source); err != nil {
+			return err
+		}
+		if err := rewritePositions(tx, target); err != nil {
+			return err
+		}
+		if err := tx.Model(&eboard.Task{}).Where("id = ?", task.ID).Update("column_id", targetColumnID).Error; err != nil {
+			return err
+		}
+		task.ColumnID = targetColumnID
+		task.Position = moved.Position
+		return nil
+	}
+
+	if toPosition > len(list) {
+		toPosition = len(list)
+	}
+	list = append(list, nil)
+	copy(list[toPosition+1:], list[toPosition:])
+	list[toPosition] = moved
+	if err := rewritePositions(tx, list); err != nil {
+		return err
+	}
+	task.Position = moved.Position
+	return nil
 }
 
 func rewritePositions(tx *gorm.DB, tasks []*eboard.Task) error {

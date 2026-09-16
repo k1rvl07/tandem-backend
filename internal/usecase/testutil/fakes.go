@@ -697,6 +697,13 @@ func (f *FakeTaskRepo) MoveTask(_ context.Context, task *mtask.Task, targetColum
 	return nil
 }
 
+func (f *FakeTaskRepo) MoveAndUpdateTask(ctx context.Context, task *mtask.Task, targetColumnID string, toPosition int) error {
+	if err := f.MoveTask(ctx, task, targetColumnID, toPosition); err != nil {
+		return err
+	}
+	return f.UpdateTask(ctx, task)
+}
+
 func (f *FakeTaskRepo) FindWorkspacesByImageKey(_ context.Context, imageKey string) ([]string, error) {
 	if f.Err != nil {
 		return nil, f.Err
