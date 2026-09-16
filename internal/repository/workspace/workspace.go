@@ -15,6 +15,7 @@ import (
 	eworkspace "github.com/tandem/tandem/internal/repository/entity/workspace"
 	"github.com/tandem/tandem/internal/repository/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type WorkspaceRepo struct {
@@ -97,6 +98,39 @@ func (r *WorkspaceRepo) ClaimInvite(ctx context.Context, workspaceID, token stri
 		return false, pkgerrors.Wrap(pkgerrors.ErrInternal, res.Error)
 	}
 	return res.RowsAffected == 1, nil
+}
+
+func (r *WorkspaceRepo) ClaimInviteAndAddMember(ctx context.Context, workspaceID, token, userID string, role mworkspace.WorkspaceRole) (bool, bool, error) {
+	var claimed, added bool
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&eworkspace.Workspace{}).
+			Where("id = ? AND invite_token = ? AND invite_token <> ''", workspaceID, token).
+			Updates(map[string]interface{}{
+				"invite_token":      "",
+				"invite_expires_at": nil,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return nil
+		}
+		claimed = true
+		ins := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&eworkspace.WorkspaceMember{
+			WorkspaceID: workspaceID,
+			UserID:      userID,
+			Role:        string(role),
+		})
+		if ins.Error != nil {
+			return ins.Error
+		}
+		added = ins.RowsAffected == 1
+		return nil
+	})
+	if err != nil {
+		return false, false, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return claimed, added, nil
 }
 
 func (r *WorkspaceRepo) DeleteWorkspace(ctx context.Context, id string) error {

@@ -9,7 +9,6 @@ import (
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
-	"github.com/tandem/tandem/internal/usecase/shared/errutil"
 	"github.com/tandem/tandem/internal/usecase/workspace/core"
 	"go.uber.org/zap"
 )
@@ -99,29 +98,20 @@ func (s *Invites) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 		}
 		return nil, pkgerrors.NewValidationError("invite link has expired")
 	}
-	claimed, err := s.Workspaces.ClaimInvite(ctx, ws.ID, token)
+	claimed, added, err := s.Workspaces.ClaimInviteAndAddMember(ctx, ws.ID, token, actorID, mworkspace.RoleMember)
 	if err != nil {
 		return nil, err
 	}
 	if !claimed {
 		return nil, pkgerrors.NewValidationError("invite link has expired")
 	}
-	member, findErr := s.Workspaces.FindMember(ctx, ws.ID, actorID)
-	if findErr != nil {
-		if !errutil.IsNotFound(findErr) {
+	role := mworkspace.RoleMember
+	if !added {
+		member, findErr := s.Workspaces.FindMember(ctx, ws.ID, actorID)
+		if findErr != nil {
 			return nil, findErr
 		}
-		member = nil
-	}
-	role := mworkspace.RoleMember
-	added := false
-	if member != nil {
 		role = member.Role
-	} else {
-		if err := s.Workspaces.AddMember(ctx, ws.ID, actorID, mworkspace.RoleMember); err != nil {
-			return nil, err
-		}
-		added = true
 	}
 	owner, err := s.ResolveOwner(ctx, ws.ID)
 	if err != nil {

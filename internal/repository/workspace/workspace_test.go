@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
 	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	mtask "github.com/tandem/tandem/internal/domain/models/task"
+	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/repository/board"
 	"github.com/tandem/tandem/internal/repository/column"
@@ -154,6 +156,103 @@ func TestWorkspaceRepoClaimInviteConcurrent(t *testing.T) {
 		t.Fatalf("expected exactly 1 winner, got %d", wins)
 	}
 	testutil.MustNotFound(t, testutil.ErrOf(repo.FindWorkspaceByInvite(testutil.TestCtx, "tok-race")))
+}
+
+func TestWorkspaceRepoClaimInviteAndAddMemberAtomic(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewWorkspaceRepo(db)
+	userRepo := user.NewUserRepo(db)
+
+	ws := testutil.NewWorkspace(testutil.NewID(), "Team")
+	testutil.Must(t, repo.CreateWorkspace(testutil.TestCtx, ws))
+	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-atomic", nil))
+
+	userA := testutil.NewUser(testutil.NewID(), "joiner-a")
+	userB := testutil.NewUser(testutil.NewID(), "joiner-b")
+	testutil.Must(t, userRepo.Create(testutil.TestCtx, userA))
+	testutil.Must(t, userRepo.Create(testutil.TestCtx, userB))
+
+	claimed, added, err := repo.ClaimInviteAndAddMember(testutil.TestCtx, ws.ID, "tok-atomic", userA.ID, mworkspace.RoleMember)
+	testutil.Must(t, err)
+	if !claimed || !added {
+		t.Fatalf("first join must claim and add, got claimed=%v added=%v", claimed, added)
+	}
+	claimed, added, err = repo.ClaimInviteAndAddMember(testutil.TestCtx, ws.ID, "tok-atomic", userA.ID, mworkspace.RoleMember)
+	testutil.Must(t, err)
+	if claimed || added {
+		t.Fatalf("reused token must not claim/add again, got claimed=%v added=%v", claimed, added)
+	}
+
+	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-existing", nil))
+	claimed, added, err = repo.ClaimInviteAndAddMember(testutil.TestCtx, ws.ID, "tok-existing", userA.ID, mworkspace.RoleMember)
+	testutil.Must(t, err)
+	if !claimed || added {
+		t.Fatalf("existing member must be claimed but not added, got claimed=%v added=%v", claimed, added)
+	}
+	member, err := repo.FindMember(testutil.TestCtx, ws.ID, userA.ID)
+	testutil.Must(t, err)
+	if member.Role != mworkspace.RoleMember {
+		t.Fatalf("unexpected role: %v", member.Role)
+	}
+
+	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-b", nil))
+	claimed, added, err = repo.ClaimInviteAndAddMember(testutil.TestCtx, ws.ID, "tok-b", userB.ID, mworkspace.RoleMember)
+	testutil.Must(t, err)
+	if !claimed || !added {
+		t.Fatalf("second user must be added, got claimed=%v added=%v", claimed, added)
+	}
+}
+
+func TestWorkspaceRepoClaimInviteAndAddMemberConcurrent(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewWorkspaceRepo(db)
+	userRepo := user.NewUserRepo(db)
+
+	ws := testutil.NewWorkspace(testutil.NewID(), "Team")
+	testutil.Must(t, repo.CreateWorkspace(testutil.TestCtx, ws))
+	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-race2", nil))
+
+	users := make([]*muser.User, 8)
+	for i := range users {
+		users[i] = testutil.NewUser(testutil.NewID(), fmt.Sprintf("race-joiner-%d", i))
+		testutil.Must(t, userRepo.Create(testutil.TestCtx, users[i]))
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	addedTotal := 0
+	claimedTotal := 0
+	errs := 0
+	for _, u := range users {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			claimed, added, err := repo.ClaimInviteAndAddMember(context.Background(), ws.ID, "tok-race2", id, mworkspace.RoleMember)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs++
+				return
+			}
+			if claimed {
+				claimedTotal++
+			}
+			if added {
+				addedTotal++
+			}
+		}(u.ID)
+	}
+	wg.Wait()
+	if errs != 0 {
+		t.Fatalf("unexpected join errors: %d", errs)
+	}
+	if claimedTotal != 1 {
+		t.Fatalf("expected exactly 1 claim winner, got %d", claimedTotal)
+	}
+	if addedTotal != 1 {
+		t.Fatalf("expected exactly 1 member added, got %d", addedTotal)
+	}
+	testutil.MustNotFound(t, testutil.ErrOf(repo.FindWorkspaceByInvite(testutil.TestCtx, "tok-race2")))
 }
 
 func TestWorkspaceRepoMembers(t *testing.T) {

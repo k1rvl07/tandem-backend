@@ -115,6 +115,26 @@ func (f *fakeWorkspaceRepo) ClaimInvite(_ context.Context, wsID, token string) (
 	return true, nil
 }
 
+func (f *fakeWorkspaceRepo) ClaimInviteAndAddMember(ctx context.Context, wsID, token, userID string, role mworkspace.WorkspaceRole) (bool, bool, error) {
+	if f.err != nil {
+		return false, false, f.err
+	}
+	claimed, err := f.ClaimInvite(ctx, wsID, token)
+	if err != nil || !claimed {
+		return claimed, false, err
+	}
+	if f.members[wsID] == nil {
+		f.members[wsID] = make(map[string]*mworkspace.WorkspaceMember)
+	}
+	if _, exists := f.members[wsID][userID]; exists {
+		return true, false, nil
+	}
+	f.members[wsID][userID] = &mworkspace.WorkspaceMember{
+		WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now(),
+	}
+	return true, true, nil
+}
+
 func (f *fakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error {
 	if f.err != nil {
 		return f.err
