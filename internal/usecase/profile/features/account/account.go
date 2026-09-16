@@ -61,5 +61,6 @@ func (s *Account) UpdateProfile(ctx context.Context, userID string, req dprofile
 		return nil, err
 	}
 	s.BumpUser(ctx, userID)
+	s.BumpUsers(ctx)
 	return s.UserResponse(user), nil
 }

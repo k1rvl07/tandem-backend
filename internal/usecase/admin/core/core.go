@@ -1,15 +1,12 @@
 package core
 
 import (
-	"context"
-
 	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	"github.com/tandem/tandem/internal/domain/ports/service"
 	file "github.com/tandem/tandem/internal/usecase/file"
 	sharedbase "github.com/tandem/tandem/internal/usecase/shared/base"
-	cacheutil "github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/shared/mapping"
 	"go.uber.org/zap"
 )
@@ -39,10 +36,6 @@ func New(d sharedbase.Deps) *Core {
 		Files:     d.Files,
 		Logger:    d.Logger,
 	}
-}
-
-func (c *Core) BumpUsers(ctx context.Context) {
-	cacheutil.BumpUsers(ctx, c.Cache)
 }
 
 func (c *Core) UserResponse(u *muser.User) *dauth.UserResponse {

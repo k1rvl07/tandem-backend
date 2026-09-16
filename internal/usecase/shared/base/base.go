@@ -37,6 +37,10 @@ func (b *Base) BumpUser(ctx context.Context, userID string) {
 	cacheutil.BumpUser(ctx, b.Cache, userID)
 }
 
+func (b *Base) BumpUsers(ctx context.Context) {
+	cacheutil.BumpUsers(ctx, b.Cache)
+}
+
 func (b *Base) Room(workspaceID string) string {
 	return RoomPrefix + workspaceID
 }

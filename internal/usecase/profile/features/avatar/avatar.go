@@ -37,6 +37,7 @@ func (s *Avatar) UploadAvatar(ctx context.Context, userID, filename, contentType
 		s.Files.RemoveMany(ctx, []string{oldKey})
 	}
 	s.BumpUser(ctx, userID)
+	s.BumpUsers(ctx)
 	return s.UserResponse(user), nil
 }
 
@@ -55,5 +56,6 @@ func (s *Avatar) RemoveAvatar(ctx context.Context, userID string) (*dauth.UserRe
 	}
 	s.Files.RemoveMany(ctx, []string{oldKey})
 	s.BumpUser(ctx, userID)
+	s.BumpUsers(ctx)
 	return s.UserResponse(user), nil
 }
