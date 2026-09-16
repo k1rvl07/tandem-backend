@@ -221,6 +221,7 @@ func (m *JWTManager) currentVersion(ctx context.Context, subject string) (int64,
 	if v != "" {
 		if parsed, perr := strconv.ParseInt(v, 10, 64); perr == nil && parsed >= 1 {
 			ver = parsed
+			_ = m.cache.Expire(ctx, key, versionTTL)
 		}
 	}
 	m.memPut(subject, ver)
@@ -245,6 +246,7 @@ func (m *JWTManager) versionValid(ctx context.Context, subject string, ver int64
 	if perr != nil {
 		return false
 	}
+	_ = m.cache.Expire(ctx, versionPrefix+subject, versionTTL)
 	m.memPut(subject, stored)
 	return stored == ver
 }

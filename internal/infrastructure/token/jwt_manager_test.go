@@ -57,6 +57,60 @@ func (f *failingCache) Incr(ctx context.Context, key string) (int64, error) {
 	return f.Cache.Incr(ctx, key)
 }
 
+type spyCache struct {
+	cache.Cache
+	expires map[string]int
+}
+
+func (s *spyCache) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	s.expires[key]++
+	return s.Cache.Expire(ctx, key, ttl)
+}
+
+func TestReadExtendsVersionKeyTTL(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rc, err := rediscache.New(config.RedisConfig{Addr: mr.Addr()})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = rc.Close()
+		mr.Close()
+	})
+	sc := &spyCache{Cache: rc, expires: map[string]int{}}
+	manager := NewJWTManager("test-secret", sc)
+
+	require.NoError(t, manager.Revoke(context.Background(), "user-1"))
+	token, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	_, err = manager.Parse(token)
+	require.NoError(t, err)
+
+	key := versionPrefix + "user-1"
+	ttl := mr.TTL(key)
+	assert.GreaterOrEqual(t, ttl, versionTTL-2*time.Hour)
+	assert.Equal(t, 2, sc.expires[key])
+}
+
+func TestReadDoesNotTouchMissingVersionKey(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rc, err := rediscache.New(config.RedisConfig{Addr: mr.Addr()})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = rc.Close()
+		mr.Close()
+	})
+	sc := &spyCache{Cache: rc, expires: map[string]int{}}
+	manager := NewJWTManager("test-secret", sc)
+
+	token, err := manager.Generate("user-1", time.Hour)
+	require.NoError(t, err)
+	_, err = manager.Parse(token)
+	require.NoError(t, err)
+
+	_, err = mr.Get(versionPrefix + "user-1")
+	assert.ErrorIs(t, err, miniredis.ErrKeyNotFound)
+	assert.Equal(t, 0, sc.expires[versionPrefix+"user-1"])
+}
+
 func newFailingManager(t *testing.T) (*JWTManager, *failingCache, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
