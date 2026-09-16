@@ -42,16 +42,11 @@ func (s *Crud) Create(ctx context.Context, actorID, workspaceID string, req dboa
 	if err := validate.Name(req.Name); err != nil {
 		return nil, err
 	}
-	existing, err := s.Boards.ListBoards(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
 
 	board := &mboard.Board{
 		ID:          uuid.New().String(),
 		WorkspaceID: workspaceID,
 		Name:        strings.TrimSpace(req.Name),
-		Position:    len(existing),
 	}
 	if err := s.Boards.CreateBoard(ctx, board); err != nil {
 		return nil, err
@@ -64,6 +59,7 @@ func (s *Crud) Create(ctx context.Context, actorID, workspaceID string, req dboa
 			Position: i,
 		}
 		if err := s.Columns.CreateColumn(ctx, column); err != nil {
+			_ = s.Boards.DeleteBoard(ctx, board.ID)
 			return nil, err
 		}
 	}

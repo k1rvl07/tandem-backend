@@ -25,10 +25,24 @@ func NewBoardRepo(db *gorm.DB) *BoardRepo {
 
 func (r *BoardRepo) CreateBoard(ctx context.Context, board *mboard.Board) error {
 	e := boardToEntity(board)
-	err := r.helper.DB.WithContext(ctx).Create(e).Error
+	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT 1 FROM workspaces WHERE id = ? FOR UPDATE", e.WorkspaceID).Error; err != nil {
+			return err
+		}
+		var next int
+		if err := tx.Model(&eboard.Board{}).
+			Where("workspace_id = ?", e.WorkspaceID).
+			Select("COALESCE(MAX(position), -1) + 1").
+			Scan(&next).Error; err != nil {
+			return err
+		}
+		e.Position = next
+		return tx.Create(e).Error
+	})
 	if err != nil {
 		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
+	board.Position = e.Position
 	board.CreatedAt = e.CreatedAt
 	board.UpdatedAt = e.UpdatedAt
 	return nil

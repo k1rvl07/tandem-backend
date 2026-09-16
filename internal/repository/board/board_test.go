@@ -1,6 +1,9 @@
 package board
 
 import (
+	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	mattachment "github.com/tandem/tandem/internal/domain/models/attachment"
@@ -77,6 +80,65 @@ func TestBoardRepoListAndReorder(t *testing.T) {
 	testutil.Must(t, err)
 	if listed[0].Name != "Three" || listed[1].Name != "One" || listed[2].Name != "Two" {
 		t.Fatalf("reorder not applied")
+	}
+}
+
+func TestBoardRepoCreateAssignsSequentialPositions(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewBoardRepo(db)
+
+	ws := testutil.NewWorkspace(testutil.NewID(), "Team")
+	testutil.Must(t, workspace.NewWorkspaceRepo(db).CreateWorkspace(testutil.TestCtx, ws))
+
+	for i := 0; i < 5; i++ {
+		b := testutil.NewBoard(ws.ID, fmt.Sprintf("Board %d", i), 0, false)
+		testutil.Must(t, repo.CreateBoard(testutil.TestCtx, b))
+		if b.Position != i {
+			t.Fatalf("expected position %d, got %d", i, b.Position)
+		}
+	}
+}
+
+func TestBoardRepoCreateConcurrentPositionsUnique(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewBoardRepo(db)
+
+	ws := testutil.NewWorkspace(testutil.NewID(), "Team")
+	testutil.Must(t, workspace.NewWorkspaceRepo(db).CreateWorkspace(testutil.TestCtx, ws))
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	positions := make([]int, 0, 16)
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			b := testutil.NewBoard(ws.ID, id, 0, false)
+			if err := repo.CreateBoard(context.Background(), b); err != nil {
+				mu.Lock()
+				positions = append(positions, -1)
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			positions = append(positions, b.Position)
+			mu.Unlock()
+		}(fmt.Sprintf("Concurrent %d", i))
+	}
+	wg.Wait()
+
+	set := make(map[int]bool, len(positions))
+	for _, p := range positions {
+		if p < 0 {
+			t.Fatalf("concurrent create failed")
+		}
+		if set[p] {
+			t.Fatalf("duplicate position %d", p)
+		}
+		set[p] = true
+	}
+	if len(set) != 16 {
+		t.Fatalf("expected 16 unique positions, got %d", len(set))
 	}
 }
 
