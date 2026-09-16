@@ -6,6 +6,7 @@ import (
 	dadmin "github.com/tandem/tandem/internal/contracts/admin"
 	dauth "github.com/tandem/tandem/internal/contracts/auth"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
+	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/pkg/validate"
 	"github.com/tandem/tandem/internal/usecase/admin/core"
@@ -71,11 +72,14 @@ func (s *Control) DeleteUser(ctx context.Context, actor core.Actor, targetID str
 	if actor.Role == muser.RoleModerator && target.Role != muser.RoleUser {
 		return pkgerrors.ErrForbidden
 	}
-	s.Files.RemoveMany(ctx, []string{target.AvatarKey})
 	memberships, err := s.Workspaces.ListWorkspacesForUser(ctx, targetID)
 	if err != nil {
 		return err
 	}
+	if err := s.reassignOwnedWorkspaces(ctx, memberships, targetID); err != nil {
+		return err
+	}
+	s.Files.RemoveMany(ctx, []string{target.AvatarKey})
 	if err := s.Workspaces.DeleteMembersByUser(ctx, targetID); err != nil {
 		return err
 	}
@@ -93,4 +97,63 @@ func (s *Control) DeleteUser(ctx context.Context, actor core.Actor, targetID str
 	}
 	s.BumpUsers(ctx)
 	return nil
+}
+
+func (s *Control) reassignOwnedWorkspaces(ctx context.Context, memberships []mworkspace.WorkspaceMembership, targetID string) error {
+	for i := range memberships {
+		if memberships[i].Role != mworkspace.RoleOwner {
+			continue
+		}
+		wsMembers, err := s.Workspaces.ListMembers(ctx, memberships[i].Workspace.ID)
+		if err != nil {
+			return err
+		}
+		if countOwners(wsMembers) > 1 {
+			continue
+		}
+		successor := pickSuccessor(wsMembers, targetID)
+		if successor == nil {
+			return pkgerrors.NewValidationError("cannot delete the last owner of workspace %s", memberships[i].Workspace.ID)
+		}
+		if err := s.Workspaces.TransferOwnership(ctx, memberships[i].Workspace.ID, targetID, successor.UserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func countOwners(members []mworkspace.WorkspaceMember) int {
+	count := 0
+	for i := range members {
+		if members[i].Role == mworkspace.RoleOwner {
+			count++
+		}
+	}
+	return count
+}
+
+func pickSuccessor(members []mworkspace.WorkspaceMember, excludeID string) *mworkspace.WorkspaceMember {
+	var best *mworkspace.WorkspaceMember
+	for i := range members {
+		m := &members[i]
+		if m.UserID == excludeID {
+			continue
+		}
+		if best == nil || m.CreatedAt.Before(best.CreatedAt) ||
+			(m.CreatedAt.Equal(best.CreatedAt) && roleRank(m.Role) > roleRank(best.Role)) {
+			best = m
+		}
+	}
+	return best
+}
+
+func roleRank(role mworkspace.WorkspaceRole) int {
+	switch role {
+	case mworkspace.RoleOwner:
+		return 3
+	case mworkspace.RoleEditor:
+		return 2
+	default:
+		return 1
+	}
 }

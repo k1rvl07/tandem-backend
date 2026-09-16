@@ -470,6 +470,102 @@ func TestDeleteUserAdminDeletesUser(t *testing.T) {
 	assert.NotContains(t, repo.users, "user.one")
 }
 
+func TestDeleteUserTransfersSoleOwnership(t *testing.T) {
+	e := newAdminEnv()
+	adminID := e.repo.seed("admin.one", muser.RoleAdmin)
+	victimID := e.repo.seed("victim.one", muser.RoleUser)
+	wsID := "ws-owned"
+	e.ws.AddWorkspaceFixture(wsID, "owned")
+	e.ws.AddMemberFixture(wsID, victimID, mworkspace.RoleOwner)
+	e.ws.AddMemberFixture(wsID, adminID, mworkspace.RoleMember)
+
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: adminID, Role: muser.RoleAdmin}, victimID)
+	require.NoError(t, err)
+	assert.NotContains(t, e.repo.users, "victim.one")
+	member, err := e.ws.FindMember(context.Background(), wsID, adminID)
+	require.NoError(t, err)
+	assert.Equal(t, mworkspace.RoleOwner, member.Role)
+	_, err = e.ws.FindMember(context.Background(), wsID, victimID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+}
+
+func TestDeleteUserPicksMostSeniorSuccessor(t *testing.T) {
+	e := newAdminEnv()
+	adminID := e.repo.seed("admin.one", muser.RoleAdmin)
+	victimID := e.repo.seed("victim.one", muser.RoleUser)
+	seniorID := e.repo.seed("senior.one", muser.RoleUser)
+	joinerID := e.repo.seed("joiner.one", muser.RoleUser)
+	wsID := "ws-senior"
+	e.ws.AddWorkspaceFixture(wsID, "senior")
+	e.ws.AddMemberFixture(wsID, victimID, mworkspace.RoleOwner)
+	e.ws.Members[wsID][seniorID] = &mworkspace.WorkspaceMember{WorkspaceID: wsID, UserID: seniorID, Role: mworkspace.RoleMember, CreatedAt: time.Unix(0, 1)}
+	e.ws.Members[wsID][joinerID] = &mworkspace.WorkspaceMember{WorkspaceID: wsID, UserID: joinerID, Role: mworkspace.RoleMember, CreatedAt: time.Unix(0, 2)}
+
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: adminID, Role: muser.RoleAdmin}, victimID)
+	require.NoError(t, err)
+	member, err := e.ws.FindMember(context.Background(), wsID, seniorID)
+	require.NoError(t, err)
+	assert.Equal(t, mworkspace.RoleOwner, member.Role)
+	joiner, err := e.ws.FindMember(context.Background(), wsID, joinerID)
+	require.NoError(t, err)
+	assert.Equal(t, mworkspace.RoleMember, joiner.Role)
+}
+
+func TestDeleteUserTieBreaksSuccessorByRole(t *testing.T) {
+	e := newAdminEnv()
+	adminID := e.repo.seed("admin.one", muser.RoleAdmin)
+	victimID := e.repo.seed("victim.one", muser.RoleUser)
+	editorID := e.repo.seed("editor.one", muser.RoleUser)
+	memberID := e.repo.seed("member.one", muser.RoleUser)
+	wsID := "ws-role"
+	e.ws.AddWorkspaceFixture(wsID, "role")
+	e.ws.AddMemberFixture(wsID, victimID, mworkspace.RoleOwner)
+	joined := time.Unix(0, 100)
+	e.ws.Members[wsID][editorID] = &mworkspace.WorkspaceMember{WorkspaceID: wsID, UserID: editorID, Role: mworkspace.RoleEditor, CreatedAt: joined}
+	e.ws.Members[wsID][memberID] = &mworkspace.WorkspaceMember{WorkspaceID: wsID, UserID: memberID, Role: mworkspace.RoleMember, CreatedAt: joined}
+
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: adminID, Role: muser.RoleAdmin}, victimID)
+	require.NoError(t, err)
+	editor, err := e.ws.FindMember(context.Background(), wsID, editorID)
+	require.NoError(t, err)
+	assert.Equal(t, mworkspace.RoleOwner, editor.Role)
+	member, err := e.ws.FindMember(context.Background(), wsID, memberID)
+	require.NoError(t, err)
+	assert.Equal(t, mworkspace.RoleMember, member.Role)
+}
+
+func TestDeleteUserKeepsCoOwner(t *testing.T) {
+	e := newAdminEnv()
+	adminID := e.repo.seed("admin.one", muser.RoleAdmin)
+	victimID := e.repo.seed("victim.one", muser.RoleUser)
+	coOwnerID := e.repo.seed("coowner.one", muser.RoleUser)
+	wsID := "ws-co-owner"
+	e.ws.AddWorkspaceFixture(wsID, "co-owner")
+	e.ws.AddMemberFixture(wsID, victimID, mworkspace.RoleOwner)
+	e.ws.AddMemberFixture(wsID, coOwnerID, mworkspace.RoleOwner)
+
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: adminID, Role: muser.RoleAdmin}, victimID)
+	require.NoError(t, err)
+	coOwner, err := e.ws.FindMember(context.Background(), wsID, coOwnerID)
+	require.NoError(t, err)
+	assert.Equal(t, mworkspace.RoleOwner, coOwner.Role)
+}
+
+func TestDeleteUserBlocksSoleOwnerWithoutMembers(t *testing.T) {
+	e := newAdminEnv()
+	adminID := e.repo.seed("admin.one", muser.RoleAdmin)
+	victimID := e.repo.seed("victim.one", muser.RoleUser)
+	wsID := "ws-lone"
+	e.ws.AddWorkspaceFixture(wsID, "lone")
+	e.ws.AddMemberFixture(wsID, victimID, mworkspace.RoleOwner)
+
+	err := e.svc.DeleteUser(context.Background(), Actor{ID: adminID, Role: muser.RoleAdmin}, victimID)
+	require.Error(t, err)
+	assert.Contains(t, e.repo.users, "victim.one")
+	_, findErr := e.ws.FindMember(context.Background(), wsID, victimID)
+	require.NoError(t, findErr)
+}
+
 func TestDeleteUserAdminDeletesModerator(t *testing.T) {
 	repo := newFakeRepo()
 	targetID := repo.seed("mod.one", muser.RoleModerator)
