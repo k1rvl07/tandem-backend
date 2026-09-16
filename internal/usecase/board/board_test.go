@@ -236,6 +236,8 @@ func TestReorderBoardsValidation(t *testing.T) {
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 	_, err = e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID, b1.ID}})
 	require.ErrorIs(t, err, pkgerrors.ErrValidation)
+	_, err = e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})
+	require.ErrorIs(t, err, pkgerrors.ErrValidation)
 }
 
 func TestSetMainBoard(t *testing.T) {
@@ -339,8 +341,9 @@ func TestReorderBoardsCountTasksError(t *testing.T) {
 	e := newEnv(t)
 	boards := e.svc.Crud.Boards.(*testutil.FakeBoardRepo)
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
+	b2 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 	boards.Err = pkgerrors.NewValidationError("db")
-	_, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID}})
+	_, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b1.ID, b2.ID}})
 	require.Error(t, err)
 	boards.Err = nil
 }

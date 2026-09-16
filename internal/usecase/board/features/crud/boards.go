@@ -306,6 +306,9 @@ func validateReorderIDs(boardIDs []string, boards []*mboard.Board) error {
 		}
 		seen[id] = true
 	}
+	if len(seen) != len(boards) {
+		return pkgerrors.NewValidationError("board_ids must contain every board in the workspace")
+	}
 	return nil
 }
 
