@@ -282,7 +282,11 @@ func (s *Crud) Reorder(ctx context.Context, actorID, workspaceID string, req dbo
 	if err != nil {
 		return nil, err
 	}
-	ordered := orderBoards(req.BoardIDs, boards, counts)
+	favBoards, err := s.Favorites.ListFavoriteTargets(ctx, actorID, mfavorite.FavoriteBoard)
+	if err != nil {
+		return nil, err
+	}
+	ordered := orderBoards(req.BoardIDs, boards, counts, favBoards)
 	s.BumpWorkspace(ctx, workspaceID)
 	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{Type: core.EventBoardsReordered, Data: ordered})
 	return ordered, nil
@@ -312,7 +316,7 @@ func validateReorderIDs(boardIDs []string, boards []*mboard.Board) error {
 	return nil
 }
 
-func orderBoards(boardIDs []string, boards []*mboard.Board, counts map[string]int) []dboard.BoardResponse {
+func orderBoards(boardIDs []string, boards []*mboard.Board, counts map[string]int, favBoards map[string]bool) []dboard.BoardResponse {
 	ordered := make([]dboard.BoardResponse, 0, len(boardIDs))
 	for _, id := range boardIDs {
 		for _, b := range boards {
@@ -320,6 +324,7 @@ func orderBoards(boardIDs []string, boards []*mboard.Board, counts map[string]in
 				resp := mapping.BoardToResponse(b)
 				resp.Position = len(ordered)
 				resp.TaskCount = counts[id]
+				resp.IsFavorite = favBoards[id]
 				ordered = append(ordered, *resp)
 				break
 			}

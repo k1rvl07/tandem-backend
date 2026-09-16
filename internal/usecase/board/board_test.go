@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	dboard "github.com/tandem/tandem/internal/contracts/board"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/board/core"
@@ -24,6 +25,7 @@ type env struct {
 	cols   *testutil.FakeColumnRepo
 	tasks  *testutil.FakeTaskRepo
 	users  *testutil.FakeUserRepo
+	favs   *testutil.FakeFavoriteRepo
 	hub    *testutil.FakeHub
 	actorA string
 	actorB string
@@ -57,6 +59,7 @@ func newEnv(t *testing.T) *env {
 		cols:   cols,
 		tasks:  tasks,
 		users:  users,
+		favs:   favorites,
 		hub:    hub,
 		actorA: actorA,
 		actorB: actorB,
@@ -206,6 +209,7 @@ func TestReorderBoards(t *testing.T) {
 	b1 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Alpha")
 	b2 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Beta")
 	b3 := boards.AddBoardFixture(testutil.NewUUID(), e.wsA, "Gamma")
+	require.NoError(t, e.favs.AddFavorite(context.Background(), &mfavorite.Favorite{UserID: e.actorA, TargetType: mfavorite.FavoriteBoard, TargetID: b1.ID}))
 
 	ordered, err := e.svc.Reorder(context.Background(), e.actorA, e.wsA, dboard.ReorderBoardsRequest{BoardIDs: []string{b3.ID, b1.ID, b2.ID}})
 	require.NoError(t, err)
@@ -216,6 +220,9 @@ func TestReorderBoards(t *testing.T) {
 	assert.Equal(t, 0, ordered[0].Position)
 	assert.Equal(t, 1, ordered[1].Position)
 	assert.Equal(t, 2, ordered[2].Position)
+	assert.False(t, ordered[0].IsFavorite)
+	assert.True(t, ordered[1].IsFavorite)
+	assert.False(t, ordered[2].IsFavorite)
 
 	list, err := e.svc.List(context.Background(), e.actorA, e.wsA)
 	require.NoError(t, err)
