@@ -50,6 +50,7 @@ func (s *Control) UpdateUserRole(ctx context.Context, actor core.Actor, targetID
 		return nil, err
 	}
 	s.BumpUsers(ctx)
+	s.BumpUser(ctx, target.ID)
 	return s.UserResponse(target), nil
 }
 

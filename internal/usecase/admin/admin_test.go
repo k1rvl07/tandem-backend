@@ -446,6 +446,20 @@ func TestUpdateUserRoleNotFound(t *testing.T) {
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 }
 
+func TestUpdateUserRoleBumpsUserVersion(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepo()
+	targetID := repo.seed("user.one", muser.RoleUser)
+
+	cacheImpl := testutil.NewFakeCache()
+	svc := NewService(Deps{Users: repo, Hasher: password.NewBCryptHasher(12), Cache: cacheImpl, Tokens: fakeTokenService{}, Workspaces: testutil.NewFakeWorkspaceRepo(), Favorites: testutil.NewFakeFavoriteRepo(), Files: file.NewService(filestore.FileStore(noopStore{}), zap.NewNop())})
+
+	_, err := svc.UpdateUserRole(ctx, Actor{ID: "admin-1", Role: muser.RoleAdmin}, targetID, dadmin.UpdateUserRoleRequest{Role: muser.RoleModerator})
+	require.NoError(t, err)
+	assert.Equal(t, "1", cache.VersionUser(ctx, cacheImpl, targetID))
+	assert.Equal(t, "1", cache.VersionUsers(ctx, cacheImpl))
+}
+
 func TestDeleteUserAdminDeletesUser(t *testing.T) {
 	repo := newFakeRepo()
 	targetID := repo.seed("user.one", muser.RoleUser)
