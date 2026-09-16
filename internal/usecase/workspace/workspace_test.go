@@ -18,6 +18,7 @@ import (
 	"github.com/tandem/tandem/internal/domain/ports/repository"
 	pkgerrors "github.com/tandem/tandem/internal/pkg/errors"
 	"github.com/tandem/tandem/internal/usecase/file"
+	"github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/testutil"
 	"github.com/tandem/tandem/internal/usecase/workspace/features/invites"
 	"go.uber.org/zap"
@@ -310,6 +311,7 @@ type testEnv struct {
 	boards    *testutil.FakeBoardRepo
 	columns   *testutil.FakeColumnRepo
 	favorites *testutil.FakeFavoriteRepo
+	cache     *testutil.FakeCache
 }
 
 func newTestEnv() *testEnv {
@@ -320,13 +322,15 @@ func newTestEnv() *testEnv {
 	columns := testutil.NewFakeColumnRepo()
 	tasks := testutil.NewFakeTaskRepo()
 	files := file.NewService(noopWorkspaceStore{}, zap.NewNop())
+	cacheImpl := testutil.NewFakeCache()
 	return &testEnv{
-		svc:       NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: testutil.NewFakeHub(), Cache: testutil.NewFakeCache(), Logger: zap.NewNop()}),
+		svc:       NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: testutil.NewFakeHub(), Cache: cacheImpl, Logger: zap.NewNop()}),
 		wsRepo:    wsRepo,
 		userRepo:  userRepo,
 		boards:    boards,
 		columns:   columns,
 		favorites: favorites,
+		cache:     cacheImpl,
 	}
 }
 
@@ -571,6 +575,7 @@ func TestTransferOwner(t *testing.T) {
 	assert.Equal(t, mworkspace.RoleOwner, newOwner.Role)
 	oldOwner, _ := e.wsRepo.FindMember(ctx, wsID, owner.ID)
 	assert.Equal(t, mworkspace.RoleEditor, oldOwner.Role)
+	assert.Equal(t, "1", cache.VersionUsers(ctx, e.cache))
 }
 
 func TestUpdateMemberRole(t *testing.T) {

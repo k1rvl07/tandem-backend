@@ -183,6 +183,7 @@ func (s *Members) TransferOwner(ctx context.Context, actorID, workspaceID string
 	s.BumpWorkspace(ctx, workspaceID)
 	s.BumpUser(ctx, target.UserID)
 	s.BumpUser(ctx, actorID)
+	s.BumpUsers(ctx)
 	s.BroadcastUpdated(ctx, workspaceID, mworkspace.RoleEditor)
 	return nil
 }
