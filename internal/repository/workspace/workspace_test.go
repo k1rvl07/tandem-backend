@@ -179,8 +179,13 @@ func TestWorkspaceRepoClaimInviteAndAddMemberAtomic(t *testing.T) {
 	}
 	claimed, added, err = repo.ClaimInviteAndAddMember(testutil.TestCtx, ws.ID, "tok-atomic", userA.ID, mworkspace.RoleMember)
 	testutil.Must(t, err)
-	if claimed || added {
-		t.Fatalf("reused token must not claim/add again, got claimed=%v added=%v", claimed, added)
+	if added {
+		t.Fatalf("spent token must not add again, got claimed=%v added=%v", claimed, added)
+	}
+	after, err := repo.FindWorkspaceByID(testutil.TestCtx, ws.ID)
+	testutil.Must(t, err)
+	if after.InviteToken != "" || after.InviteExpiresAt != nil {
+		t.Fatalf("spent token must not be resurrected, got token=%q expires=%v", after.InviteToken, after.InviteExpiresAt)
 	}
 
 	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-existing", nil))
@@ -193,6 +198,11 @@ func TestWorkspaceRepoClaimInviteAndAddMemberAtomic(t *testing.T) {
 	testutil.Must(t, err)
 	if member.Role != mworkspace.RoleMember {
 		t.Fatalf("unexpected role: %v", member.Role)
+	}
+	found, err := repo.FindWorkspaceByInvite(testutil.TestCtx, "tok-existing")
+	testutil.Must(t, err)
+	if found.ID != ws.ID || found.InviteToken != "tok-existing" {
+		t.Fatalf("token must stay valid for existing member, got %v", found.InviteToken)
 	}
 
 	testutil.Must(t, repo.UpdateInvite(testutil.TestCtx, ws.ID, "tok-b", nil))

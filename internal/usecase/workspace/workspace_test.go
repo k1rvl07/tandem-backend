@@ -119,15 +119,15 @@ func (f *fakeWorkspaceRepo) ClaimInviteAndAddMember(ctx context.Context, wsID, t
 	if f.err != nil {
 		return false, false, f.err
 	}
+	if _, exists := f.members[wsID][userID]; exists {
+		return true, false, nil
+	}
 	claimed, err := f.ClaimInvite(ctx, wsID, token)
 	if err != nil || !claimed {
 		return claimed, false, err
 	}
 	if f.members[wsID] == nil {
 		f.members[wsID] = make(map[string]*mworkspace.WorkspaceMember)
-	}
-	if _, exists := f.members[wsID][userID]; exists {
-		return true, false, nil
 	}
 	f.members[wsID][userID] = &mworkspace.WorkspaceMember{
 		WorkspaceID: wsID, UserID: userID, Role: role, CreatedAt: time.Now(),
@@ -708,6 +708,31 @@ func TestJoinByInvite(t *testing.T) {
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
 	_, err = e.svc.JoinByInvite(ctx, newbie.ID, "bogus-token")
 	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+}
+
+func TestJoinByInviteExistingMemberKeepsToken(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.invite2")
+	member := e.userRepo.seedUser("member.invite2")
+	newbie := e.userRepo.seedUser("newbie.invite2")
+	wsID := e.seedWorkspace(owner.ID, owner.ID, member.ID)
+
+	invite, err := e.svc.GenerateInvite(ctx, owner.ID, wsID)
+	require.NoError(t, err)
+	token := *invite.InviteToken
+	require.NotEmpty(t, token)
+
+	resp, err := e.svc.JoinByInvite(ctx, member.ID, token)
+	require.NoError(t, err)
+	assert.Equal(t, wsID, resp.ID)
+
+	_, err = e.wsRepo.FindMember(ctx, wsID, newbie.ID)
+	require.ErrorIs(t, err, pkgerrors.ErrNotFound)
+
+	resp, err = e.svc.JoinByInvite(ctx, newbie.ID, token)
+	require.NoError(t, err)
+	assert.Equal(t, wsID, resp.ID)
 }
 
 func TestJoinByInviteDisabled(t *testing.T) {

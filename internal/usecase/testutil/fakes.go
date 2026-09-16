@@ -130,20 +130,23 @@ func (f *FakeWorkspaceRepo) ClaimInviteAndAddMember(_ context.Context, workspace
 	if f.Err != nil {
 		return false, false, f.Err
 	}
-	claimed, err := f.ClaimInvite(context.Background(), workspaceID, token)
-	if err != nil || !claimed {
-		return claimed, false, err
+	ws, ok := f.Workspaces[workspaceID]
+	if !ok {
+		return false, false, nil
 	}
-	added := true
+	if _, member := f.Members[workspaceID][userID]; member {
+		return true, false, nil
+	}
+	if ws.InviteToken == "" || ws.InviteToken != token {
+		return false, false, nil
+	}
+	ws.InviteToken = ""
+	ws.InviteExpiresAt = nil
 	if f.Members[workspaceID] == nil {
 		f.Members[workspaceID] = make(map[string]*mworkspace.WorkspaceMember)
 	}
-	if _, ok := f.Members[workspaceID][userID]; ok {
-		added = false
-	} else {
-		f.Members[workspaceID][userID] = &mworkspace.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: role, CreatedAt: time.Now()}
-	}
-	return true, added, nil
+	f.Members[workspaceID][userID] = &mworkspace.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: role, CreatedAt: time.Now()}
+	return true, true, nil
 }
 
 func (f *FakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error {

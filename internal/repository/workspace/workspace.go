@@ -103,6 +103,16 @@ func (r *WorkspaceRepo) ClaimInvite(ctx context.Context, workspaceID, token stri
 func (r *WorkspaceRepo) ClaimInviteAndAddMember(ctx context.Context, workspaceID, token, userID string, role mworkspace.WorkspaceRole) (bool, bool, error) {
 	var claimed, added bool
 	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var memberCount int64
+		if err := tx.Model(&eworkspace.WorkspaceMember{}).
+			Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
+			Count(&memberCount).Error; err != nil {
+			return err
+		}
+		if memberCount > 0 {
+			claimed = true
+			return nil
+		}
 		res := tx.Model(&eworkspace.Workspace{}).
 			Where("id = ? AND invite_token = ? AND invite_token <> ''", workspaceID, token).
 			Updates(map[string]interface{}{
