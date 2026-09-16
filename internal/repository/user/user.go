@@ -57,7 +57,7 @@ func (r *UserRepo) ExistsByLogin(ctx context.Context, login string) (bool, error
 
 func (r *UserRepo) List(ctx context.Context) ([]*muser.User, error) {
 	var es []euser.User
-	if err := r.helper.DB.WithContext(ctx).Order("created_at ASC").Find(&es).Error; err != nil {
+	if err := r.helper.DB.WithContext(ctx).Order("created_at ASC, id ASC").Find(&es).Error; err != nil {
 		return nil, pkgerrors.Wrap(pkgerrors.ErrInternal, err)
 	}
 	users := make([]*muser.User, 0, len(es))
@@ -82,7 +82,7 @@ func (r *UserRepo) ListPage(ctx context.Context, query string, limit, offset int
 		where = "login ILIKE ? ESCAPE '\\'"
 		args = append(args, likePattern(query))
 	}
-	if err := r.helper.Paginate(ctx, &es, where, args, "created_at ASC", limit, offset); err != nil {
+	if err := r.helper.Paginate(ctx, &es, where, args, "created_at ASC, id ASC", limit, offset); err != nil {
 		return nil, err
 	}
 	users := make([]*muser.User, 0, len(es))
