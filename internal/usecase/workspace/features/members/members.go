@@ -51,7 +51,7 @@ func (s *Members) AddMember(ctx context.Context, actorID, workspaceID string, re
 	}
 	s.BumpWorkspace(ctx, workspaceID)
 	s.BumpUser(ctx, target.ID)
-	s.BroadcastUpdated(ctx, workspaceID, member.Role)
+	s.BroadcastUpdated(ctx, workspaceID)
 	return s.MemberResponse(target, role), nil
 }
 
@@ -118,7 +118,7 @@ func (s *Members) UpdateRole(ctx context.Context, actorID, workspaceID, targetID
 	}
 	s.BumpWorkspace(ctx, workspaceID)
 	s.BumpUser(ctx, targetID)
-	s.BroadcastUpdated(ctx, workspaceID, member.Role)
+	s.BroadcastUpdated(ctx, workspaceID)
 	return s.MemberResponse(user, role), nil
 }
 
@@ -148,7 +148,7 @@ func (s *Members) RemoveMember(ctx context.Context, actorID, workspaceID, target
 	}
 	s.BumpWorkspace(ctx, workspaceID)
 	s.BumpUser(ctx, targetID)
-	s.BroadcastUpdated(ctx, workspaceID, member.Role)
+	s.BroadcastUpdated(ctx, workspaceID)
 	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{
 		Type: core.EventMemberKicked,
 		Data: map[string]string{"workspace_id": workspaceID, "user_id": targetID},
@@ -184,6 +184,6 @@ func (s *Members) TransferOwner(ctx context.Context, actorID, workspaceID string
 	s.BumpUser(ctx, target.UserID)
 	s.BumpUser(ctx, actorID)
 	s.BumpUsers(ctx)
-	s.BroadcastUpdated(ctx, workspaceID, mworkspace.RoleEditor)
+	s.BroadcastUpdated(ctx, workspaceID)
 	return nil
 }

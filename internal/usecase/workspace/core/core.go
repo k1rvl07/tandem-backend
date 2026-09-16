@@ -4,6 +4,7 @@ import (
 	"context"
 
 	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
@@ -57,12 +58,24 @@ func (c *Core) BumpMembers(ctx context.Context, workspaceID string) {
 	}
 }
 
-func (c *Core) BroadcastUpdated(ctx context.Context, workspaceID string, role mworkspace.WorkspaceRole) {
+func (c *Core) BroadcastUpdated(ctx context.Context, workspaceID string) {
 	wsModel, err := c.Workspaces.FindWorkspaceByID(ctx, workspaceID)
 	if err != nil {
+		c.Logger.Warn("broadcast workspace update: load workspace", zap.String("workspace_id", workspaceID), zap.Error(err))
 		return
 	}
-	c.Hub.BroadcastToRoom(c.Room(workspaceID), &ws.Message{Type: EventWorkspaceUpdated, Data: c.WorkspaceResponse(wsModel, role, false)})
+	members, err := c.Workspaces.ListMembers(ctx, workspaceID)
+	if err != nil {
+		c.Logger.Warn("broadcast workspace update: list members", zap.String("workspace_id", workspaceID), zap.Error(err))
+		return
+	}
+	for _, member := range members {
+		isFavorite := false
+		if c.Favorites != nil {
+			isFavorite, _ = c.Favorites.IsFavorite(ctx, member.UserID, mfavorite.FavoriteWorkspace, workspaceID)
+		}
+		c.Hub.SendToUser(member.UserID, &ws.Message{Type: EventWorkspaceUpdated, Data: c.WorkspaceResponse(wsModel, member.Role, isFavorite)})
+	}
 }
 
 func (c *Core) ResolveOwner(ctx context.Context, workspaceID string) (*dworkspace.WorkspaceMemberResponse, error) {

@@ -213,7 +213,7 @@ func (s *Crud) Update(ctx context.Context, actorID, workspaceID string, req dwor
 	response := s.WorkspaceResponse(wsModel, member.Role, false)
 	s.BumpWorkspace(ctx, workspaceID)
 	s.BumpMembers(ctx, workspaceID)
-	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{Type: core.EventWorkspaceUpdated, Data: response})
+	s.BroadcastUpdated(ctx, workspaceID)
 	return response, nil
 }
 
@@ -243,7 +243,7 @@ func (s *Crud) SetTheme(ctx context.Context, actorID, workspaceID, theme string)
 	response := s.WorkspaceResponse(wsModel, member.Role, false)
 	s.BumpWorkspace(ctx, workspaceID)
 	s.BumpMembers(ctx, workspaceID)
-	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{Type: core.EventWorkspaceUpdated, Data: response})
+	s.BroadcastUpdated(ctx, workspaceID)
 	return response, nil
 }
 

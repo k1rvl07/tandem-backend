@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	dworkspace "github.com/tandem/tandem/internal/contracts/workspace"
 	mcolumn "github.com/tandem/tandem/internal/domain/models/column"
+	mfavorite "github.com/tandem/tandem/internal/domain/models/favorite"
 	muser "github.com/tandem/tandem/internal/domain/models/user"
 	mworkspace "github.com/tandem/tandem/internal/domain/models/workspace"
 	"github.com/tandem/tandem/internal/domain/ports/repository"
@@ -20,6 +21,7 @@ import (
 	"github.com/tandem/tandem/internal/usecase/file"
 	"github.com/tandem/tandem/internal/usecase/shared/cache"
 	"github.com/tandem/tandem/internal/usecase/testutil"
+	"github.com/tandem/tandem/internal/usecase/workspace/core"
 	"github.com/tandem/tandem/internal/usecase/workspace/features/invites"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -311,6 +313,7 @@ type testEnv struct {
 	boards    *testutil.FakeBoardRepo
 	columns   *testutil.FakeColumnRepo
 	favorites *testutil.FakeFavoriteRepo
+	hub       *testutil.FakeHub
 	cache     *testutil.FakeCache
 }
 
@@ -322,14 +325,16 @@ func newTestEnv() *testEnv {
 	columns := testutil.NewFakeColumnRepo()
 	tasks := testutil.NewFakeTaskRepo()
 	files := file.NewService(noopWorkspaceStore{}, zap.NewNop())
+	hub := testutil.NewFakeHub()
 	cacheImpl := testutil.NewFakeCache()
 	return &testEnv{
-		svc:       NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: testutil.NewFakeHub(), Cache: cacheImpl, Logger: zap.NewNop()}),
+		svc:       NewService(Deps{Workspaces: wsRepo, Users: userRepo, Favorites: favorites, Boards: boards, Columns: columns, Tasks: tasks, Files: files, Hub: hub, Cache: cacheImpl, Logger: zap.NewNop()}),
 		wsRepo:    wsRepo,
 		userRepo:  userRepo,
 		boards:    boards,
 		columns:   columns,
 		favorites: favorites,
+		hub:       hub,
 		cache:     cacheImpl,
 	}
 }
@@ -889,4 +894,31 @@ func TestGetWorkspaceFavoritesError(t *testing.T) {
 	_, err := e.svc.Get(context.Background(), owner.ID, wsID)
 	require.Error(t, err)
 	e.favorites.Err = nil
+}
+
+func TestBroadcastUpdatedPerRecipient(t *testing.T) {
+	e := newTestEnv()
+	owner := e.userRepo.seedUser("owner.one")
+	editor := e.userRepo.seedUser("editor.one")
+	member := e.userRepo.seedUser("member.one")
+	wsID := e.seedWorkspace(owner.ID, editor.ID, member.ID)
+	ctx := context.Background()
+	require.NoError(t, e.favorites.AddFavorite(ctx, &mfavorite.Favorite{UserID: member.ID, TargetType: mfavorite.FavoriteWorkspace, TargetID: wsID}))
+
+	_, err := e.svc.Update(ctx, owner.ID, wsID, dworkspace.UpdateWorkspaceRequest{Name: "Team Space 2"})
+	require.NoError(t, err)
+	require.Len(t, e.hub.Sent, 3)
+	byUser := make(map[string]*dworkspace.WorkspaceResponse)
+	for _, s := range e.hub.Sent {
+		require.Equal(t, core.EventWorkspaceUpdated, s.Msg.Type)
+		data, ok := s.Msg.Data.(*dworkspace.WorkspaceResponse)
+		require.True(t, ok)
+		byUser[s.UserID] = data
+	}
+	assert.Equal(t, "owner", byUser[owner.ID].Role)
+	assert.Equal(t, "editor", byUser[editor.ID].Role)
+	assert.Equal(t, "member", byUser[member.ID].Role)
+	assert.False(t, byUser[owner.ID].IsFavorite)
+	assert.False(t, byUser[editor.ID].IsFavorite)
+	assert.True(t, byUser[member.ID].IsFavorite)
 }

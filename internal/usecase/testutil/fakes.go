@@ -849,6 +849,12 @@ var _ repository.TaskRepository = (*FakeTaskRepo)(nil)
 
 type FakeHub struct {
 	Messages []*ws.Message
+	Sent     []FakeHubRecipient
+}
+
+type FakeHubRecipient struct {
+	UserID string
+	Msg    *ws.Message
 }
 
 func NewFakeHub() *FakeHub {
@@ -866,8 +872,9 @@ func (f *FakeHub) BroadcastToRoom(_ string, msg *ws.Message) {
 func (f *FakeHub) Broadcast(msg *ws.Message) {
 	f.Messages = append(f.Messages, msg)
 }
-func (f *FakeHub) SendToUser(_ string, msg *ws.Message) {
+func (f *FakeHub) SendToUser(userID string, msg *ws.Message) {
 	f.Messages = append(f.Messages, msg)
+	f.Sent = append(f.Sent, FakeHubRecipient{UserID: userID, Msg: msg})
 }
 func (f *FakeHub) Close() {}
 

@@ -122,7 +122,7 @@ func (s *Invites) JoinByInvite(ctx context.Context, actorID, token string) (*dwo
 	if added {
 		s.BumpWorkspace(ctx, ws.ID)
 		s.BumpUser(ctx, actorID)
-		s.BroadcastUpdated(ctx, ws.ID, role)
+		s.BroadcastUpdated(ctx, ws.ID)
 	}
 	return resp, nil
 }
