@@ -443,6 +443,29 @@ func TestUpdateImageKey(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestUpdateCoveredTaskByNonOwner(t *testing.T) {
+	e := newEnv(t)
+	cover := "images/" + e.actorE + "/" + testutil.NewUUID() + ".png"
+	task := e.tasks.AddTaskFixture(testutil.NewUUID(), e.colA, "T1", 0)
+	task.ImageKey = cover
+	require.NoError(t, e.tasks.UpdateTask(context.Background(), task))
+
+	title := "Edited by owner"
+	resp, err := e.svc.Update(context.Background(), e.actorO, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{Title: &title})
+	require.NoError(t, err)
+	assert.Equal(t, title, resp.Title)
+	assert.Equal(t, cover, resp.ImageKey)
+
+	own := "images/" + e.actorO + "/" + testutil.NewUUID() + ".png"
+	resp, err = e.svc.Update(context.Background(), e.actorO, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &own})
+	require.NoError(t, err)
+	assert.Equal(t, own, resp.ImageKey)
+
+	foreign := "images/" + e.actorE + "/" + testutil.NewUUID() + ".png"
+	_, err = e.svc.Update(context.Background(), e.actorO, e.wsA, e.boardA, task.ID, dtask.UpdateTaskRequest{ImageKey: &foreign})
+	require.ErrorIs(t, err, pkgerrors.ErrForbidden)
+}
+
 func TestParentCycleRejected(t *testing.T) {
 	e := newEnv(t)
 	t1, err := e.svc.Create(context.Background(), e.actorE, e.wsA, e.boardA, dtask.CreateTaskRequest{ColumnID: e.colA, Title: "One"})

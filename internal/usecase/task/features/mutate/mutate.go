@@ -86,8 +86,10 @@ func (s *Mutate) ApplyUpdateFields(ctx context.Context, actorID, workspaceID str
 	}
 	if req.ImageKey != nil {
 		key := strings.TrimSpace(*req.ImageKey)
-		if err := s.Files.ValidateImageKey(key, actorID); err != nil {
-			return "", err
+		if key != "" && key != task.ImageKey {
+			if err := s.Files.ValidateImageKey(key, actorID); err != nil {
+				return "", err
+			}
 		}
 		task.ImageKey = key
 	}
