@@ -261,10 +261,10 @@ func (s *Crud) Delete(ctx context.Context, actorID, workspaceID string) error {
 	if err != nil {
 		return err
 	}
-	s.Files.RemoveMany(ctx, keys)
 	if err := s.Workspaces.DeleteWorkspace(ctx, workspaceID); err != nil {
 		return err
 	}
+	s.Files.RemoveMany(ctx, keys)
 	s.BumpWorkspace(ctx, workspaceID)
 	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{
 		Type: core.EventMemberKicked,

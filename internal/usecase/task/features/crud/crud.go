@@ -171,10 +171,10 @@ func (s *Crud) Delete(ctx context.Context, actorID, workspaceID, boardID, taskID
 	if err != nil {
 		return err
 	}
-	s.Files.RemoveMany(ctx, keys)
 	if err := s.Tasks.DeleteTask(ctx, task.ID); err != nil {
 		return err
 	}
+	s.Files.RemoveMany(ctx, keys)
 	s.BumpWorkspace(ctx, workspaceID)
 	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{
 		Type: core.EventTaskDeleted,
