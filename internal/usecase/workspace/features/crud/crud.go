@@ -104,7 +104,8 @@ func (s *Crud) createMainBoard(ctx context.Context, workspaceID string) (*mboard
 
 func (s *Crud) List(ctx context.Context, actorID string) ([]dworkspace.WorkspaceResponse, error) {
 	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
-	listKey := fmt.Sprintf("u:%s:t:v1:wslist:%s", actorID, uver)
+	usersver := cacheutil.VersionUsers(ctx, s.Cache)
+	listKey := fmt.Sprintf("u:%s:t:v1:wslist:%s:%s", actorID, uver, usersver)
 	var cached []dworkspace.WorkspaceResponse
 	if cacheutil.Load(ctx, s.Cache, listKey, &cached) {
 		return cached, nil
@@ -137,7 +138,8 @@ func (s *Crud) Get(ctx context.Context, actorID, workspaceID string) (*dworkspac
 	}
 	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
 	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
-	detailKey := fmt.Sprintf("u:%s:t:v1:ws:%s:%s:%s", actorID, workspaceID, wsver, uver)
+	usersver := cacheutil.VersionUsers(ctx, s.Cache)
+	detailKey := fmt.Sprintf("u:%s:t:v1:ws:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, usersver)
 	var cached dworkspace.WorkspaceDetailResponse
 	if cacheutil.Load(ctx, s.Cache, detailKey, &cached) {
 		return &cached, nil
