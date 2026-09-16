@@ -126,6 +126,26 @@ func (f *FakeWorkspaceRepo) ClaimInvite(_ context.Context, workspaceID, token st
 	return true, nil
 }
 
+func (f *FakeWorkspaceRepo) ClaimInviteAndAddMember(_ context.Context, workspaceID, token, userID string, role mworkspace.WorkspaceRole) (bool, bool, error) {
+	if f.Err != nil {
+		return false, false, f.Err
+	}
+	claimed, err := f.ClaimInvite(context.Background(), workspaceID, token)
+	if err != nil || !claimed {
+		return claimed, false, err
+	}
+	added := true
+	if f.Members[workspaceID] == nil {
+		f.Members[workspaceID] = make(map[string]*mworkspace.WorkspaceMember)
+	}
+	if _, ok := f.Members[workspaceID][userID]; ok {
+		added = false
+	} else {
+		f.Members[workspaceID][userID] = &mworkspace.WorkspaceMember{WorkspaceID: workspaceID, UserID: userID, Role: role, CreatedAt: time.Now()}
+	}
+	return true, added, nil
+}
+
 func (f *FakeWorkspaceRepo) DeleteWorkspace(_ context.Context, id string) error {
 	if f.Err != nil {
 		return f.Err
@@ -392,6 +412,22 @@ func (f *FakeBoardRepo) ClearMainBoards(_ context.Context, workspaceID string) e
 	for _, board := range f.Boards {
 		if board.WorkspaceID == workspaceID {
 			board.IsMain = false
+		}
+	}
+	return nil
+}
+
+func (f *FakeBoardRepo) SetMainBoard(_ context.Context, workspaceID, boardID string) error {
+	if f.Err != nil {
+		return f.Err
+	}
+	board, ok := f.Boards[boardID]
+	if !ok || board.WorkspaceID != workspaceID {
+		return pkgerrors.Wrap(pkgerrors.ErrNotFound, gorm.ErrRecordNotFound)
+	}
+	for _, b := range f.Boards {
+		if b.WorkspaceID == workspaceID {
+			b.IsMain = b.ID == boardID
 		}
 	}
 	return nil

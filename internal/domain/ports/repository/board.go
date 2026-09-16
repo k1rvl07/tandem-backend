@@ -13,6 +13,7 @@ type BoardRepository interface {
 	DeleteBoard(ctx context.Context, id string) error
 	ListBoards(ctx context.Context, workspaceID string) ([]*mboard.Board, error)
 	ClearMainBoards(ctx context.Context, workspaceID string) error
+	SetMainBoard(ctx context.Context, workspaceID, boardID string) error
 	CountTasksByBoard(ctx context.Context, workspaceID string) (map[string]int, error)
 	ReorderBoards(ctx context.Context, workspaceID string, boardIDs []string) error
 }

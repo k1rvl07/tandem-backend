@@ -83,7 +83,8 @@ func (s *Crud) List(ctx context.Context, actorID, workspaceID string) ([]dboard.
 	}
 	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
 	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
-	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s", actorID, workspaceID, wsver, uver)
+	usersver := cacheutil.VersionUsers(ctx, s.Cache)
+	listKey := fmt.Sprintf("u:%s:t:v1:boards:%s:%s:%s:%s", actorID, workspaceID, wsver, uver, usersver)
 	var cached []dboard.BoardResponse
 	if cacheutil.Load(ctx, s.Cache, listKey, &cached) {
 		return cached, nil
@@ -127,7 +128,8 @@ func (s *Crud) Get(ctx context.Context, actorID, workspaceID, boardID string) (*
 	}
 	wsver := cacheutil.VersionWorkspace(ctx, s.Cache, workspaceID)
 	uver := cacheutil.VersionUser(ctx, s.Cache, actorID)
-	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s", actorID, boardID, wsver, uver)
+	usersver := cacheutil.VersionUsers(ctx, s.Cache)
+	detailKey := fmt.Sprintf("u:%s:t:v1:board:%s:%s:%s:%s", actorID, boardID, wsver, uver, usersver)
 	var cached dboard.BoardDetailResponse
 	if cacheutil.Load(ctx, s.Cache, detailKey, &cached) {
 		return &cached, nil
@@ -249,13 +251,10 @@ func (s *Crud) SetMain(ctx context.Context, actorID, workspaceID, boardID string
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Boards.ClearMainBoards(ctx, workspaceID); err != nil {
+	if err := s.Boards.SetMainBoard(ctx, workspaceID, boardID); err != nil {
 		return nil, err
 	}
 	board.IsMain = true
-	if err := s.Boards.UpdateBoard(ctx, board); err != nil {
-		return nil, err
-	}
 	response := mapping.BoardToResponse(board)
 	s.BumpWorkspace(ctx, workspaceID)
 	s.Hub.BroadcastToRoom(s.Room(workspaceID), &ws.Message{Type: core.EventBoardUpdated, Data: response})

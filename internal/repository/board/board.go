@@ -63,6 +63,17 @@ func (r *BoardRepo) ClearMainBoards(ctx context.Context, workspaceID string) err
 	return nil
 }
 
+func (r *BoardRepo) SetMainBoard(ctx context.Context, workspaceID, boardID string) error {
+	err := r.helper.DB.WithContext(ctx).
+		Model(&eboard.Board{}).
+		Where("workspace_id = ?", workspaceID).
+		Update("is_main", gorm.Expr("(id = ?)", boardID)).Error
+	if err != nil {
+		return pkgerrors.Wrap(pkgerrors.ErrInternal, err)
+	}
+	return nil
+}
+
 func (r *BoardRepo) DeleteBoard(ctx context.Context, id string) error {
 	err := r.helper.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("task_id IN (SELECT tasks.id FROM tasks JOIN board_columns ON board_columns.id = tasks.column_id WHERE board_columns.board_id = ?)", id).Delete(&etask.TaskAttachment{}).Error; err != nil {
