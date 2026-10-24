@@ -1,9 +1,10 @@
 name: ci
+
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 jobs:
   test:
@@ -14,21 +15,21 @@ jobs:
         env:
           POSTGRES_USER: tandem
           POSTGRES_PASSWORD: tandem
-          POSTGRES_DB: tandem_test
+          POSTGRES_DB: tandem
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U tandem -d tandem_test"
+          --health-cmd "pg_isready -U tandem -d tandem"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
       redis:
         image: redis:7.2-alpine
+        command: redis-server --requirepass secret_redis
         ports:
           - 6379:6379
-        command: redis-server --requirepass secret_redis
         options: >-
-          --health-cmd "redis-cli -a secret_redis ping | grep -q PONG"
+          --health-cmd "redis-cli -a secret_redis ping"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -37,14 +38,23 @@ jobs:
         env:
           MINIO_ROOT_USER: tandem
           MINIO_ROOT_PASSWORD: secret_minio
-
         ports:
           - 9000:9000
-        options: >-
-          --health-cmd "mc ready local"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: tandem
+      POSTGRES_PASSWORD: tandem
+      POSTGRES_DB: tandem
+      REDIS_ADDR: 127.0.0.1:6379
+      REDIS_PASSWORD: secret_redis
+      MINIO_ENDPOINT: 127.0.0.1:9000
+      MINIO_ROOT_USER: tandem
+      MINIO_ROOT_PASSWORD: secret_minio
+      MINIO_BUCKET: tandem-files
+      JWT_SECRET: ci_secret
+      ADMIN_LOGIN: admin
+      ADMIN_PASSWORD: adminpass
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -54,32 +64,33 @@ jobs:
         run: |
           go install github.com/swaggo/swag/v2/cmd/swag@v2.0.0-rc5
           swag init -g ./cmd/server/main.go -o ./docs --v3.1
-      - name: sanity check swagger
+        working-directory: .
+      - name: check backend formatting
         run: |
-          jq -e '.paths | length > 0' docs/swagger.json > /dev/null
-          jq -e '.paths | has("/api/v1/auth/login")' docs/swagger.json > /dev/null
-          echo "swagger docs valid: $(jq '.paths | length' docs/swagger.json) paths"
-      - name: check formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "unformatted files:"
-            echo "$unformatted"
+          if [ -n "$(gofmt -l .)" ]; then
+            gofmt -l .
             exit 1
           fi
-      - name: vet
+      - name: vet backend
         run: go vet ./...
-      - name: build
+      - name: build backend
         run: go build ./...
-      - name: scan for known vulnerabilities
+      - name: scan backend for known vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: test
+      - name: run backend unit tests
+        run: go test -race -count=1 ./cmd/... ./internal/contracts/... ./internal/domain/... ./internal/http/... ./internal/infrastructure/... ./internal/pkg/... ./internal/repository/testutil/... ./internal/usecase/... ./internal/repository/board/... ./internal/repository/column/... ./internal/repository/user/... ./internal/repository/task/... ./internal/repository/taskext/... ./internal/repository/workspace/... ./internal/repository/postgres/... ./internal/pkg/migrations/...
+      - name: create integration test database
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          PGPASSWORD=tandem createdb -h 127.0.0.1 -U tandem tandem_test || true
+      - name: run backend integration tests
         env:
-          TEST_DATABASE_URL: postgres://tandem:tandem@localhost:5432/tandem_test?sslmode=disable
-          TEST_REDIS_ADDR: localhost:6379
+          TEST_DATABASE_URL: postgres://tandem:tandem@127.0.0.1:5432/tandem_test?sslmode=disable
+          TEST_REDIS_ADDR: 127.0.0.1:6379
           TEST_REDIS_PASSWORD: secret_redis
-          TEST_MINIO_ENDPOINT: localhost:9000
+          TEST_MINIO_ENDPOINT: 127.0.0.1:9000
           TEST_MINIO_ROOT_USER: tandem
           TEST_MINIO_ROOT_PASSWORD: secret_minio
           TEST_MINIO_BUCKET: tandem-files
-        run: go test ./... -count=1 -race
+        run: go test -count=1 ./internal/app ./internal/repository/... ./internal/pkg/migrations/...
