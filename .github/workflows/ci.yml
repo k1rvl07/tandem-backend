@@ -37,7 +37,7 @@ jobs:
         env:
           MINIO_ROOT_USER: tandem
           MINIO_ROOT_PASSWORD: secret_minio
-        command: server /data --console-address ":9001"
+
         ports:
           - 9000:9000
         options: >-
